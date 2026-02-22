@@ -3,9 +3,7 @@
 Set these environment variables before running any commands:
 
 ```bash
-export PROJ_VDP=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/proj-vdp
-export VDP_DATA=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/vdp
-export TILED_DIR=/sdf/data/lcls/ds/prj/prjcwang31/results/software/tiled
+export PROJ_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/codes/tiled-catalog-broker
 export UV_CACHE_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/.UV_CACHE
 ```
 
@@ -13,149 +11,131 @@ Use `uv` to run python programs. The UV_CACHE_DIR avoids repeated package downlo
 
 ## Project Overview
 
-This is the **VDP Hierarchical Tiled Catalog** - a clean implementation using Tiled's container structure where:
-- **Entities are containers** with physics parameters (Ja, Jb, Jc, Dc) as metadata
-- **Artifacts are children** of their parent entity (gs_state, mh_curve, ins_powder)
-- **Keys are human-readable**: `H_636ce3e4/mh_powder_30T` instead of UUIDs
+**Tiled Catalog Broker** — a config-driven system for registering multi-modal
+scientific HDF5 datasets into a [Tiled](https://blueskyproject.io/tiled/)
+catalog. Data model inspired by [ArrayLake](https://docs.earthmover.io/concepts/data-model)
+(Organization → Repo → Group → Array), adapted for many-entity scientific data
+with queryable metadata.
+
+**Hierarchy:** Dataset → Entity → Artifact
+- **Datasets** are top-level containers (VDP, EDRIXS, RIXS, SEQUOIA, etc.)
+  with provenance metadata (material, producer, facility)
+- **Entities** are containers with physics parameters as queryable metadata
+- **Artifacts** are array children of their parent entity
+- **Keys are human-readable**: `client["EDRIXS"]["H_edx00000"]["rixs"]`
+
+**Dual-mode access:**
+- **Mode A (Expert):** Query metadata for HDF5 paths, load directly with h5py
+- **Mode B (Visualizer):** Access arrays via Tiled HTTP adapters (chunked)
+
+The broker is **dataset-agnostic**. The Parquet manifest is the contract: no
+parameter names, artifact types, or file layouts are hardcoded.
 
 ## Directory Structure
 
 ```
-proj-vdp/
+tiled-catalog-broker/
 ├── CLAUDE.md              # This file
 ├── .gitignore
-├── tiled_poc/             # Main implementation
-│   ├── config.yml         # Server configuration
-│   ├── README.md          # Implementation details
-│   ├── scripts/           # Core scripts
-│   │   ├── bulk_register.py     # Bulk registration (production)
-│   │   ├── register_catalog.py  # Incremental registration
-│   │   ├── query_manifest.py    # Discovery API
-│   │   ├── config.py            # Configuration module
-│   │   └── utils.py             # Shared utilities
-│   ├── examples/          # Demo scripts
-│   │   ├── demo_mh_dataset.py          # Marimo notebook demo
-│   │   ├── demo_mh_dataset_with_query.py  # Query-based demo
-│   │   └── demo_dual_mode.py           # Dual-mode CLI demo
-│   └── tests/             # Test suite
-│       ├── conftest.py           # Shared pytest fixtures
-│       ├── test_config.py        # Configuration unit tests
-│       ├── test_utils.py         # Utility unit tests
-│       ├── test_registration.py  # Registration integration tests
-│       └── test_data_retrieval.py # Mode A/B integration tests
-├── docs/                  # Documentation
-│   ├── HANDOFF_02.md
-│   ├── HANDOFF_03.md
-│   ├── LESSONS_LEARNED.md
+├── docs/                  # Design docs, handoffs, lessons learned
+│   ├── SCHEMA-DESIGN.md   # Data model and hierarchy rationale
+│   ├── DESIGN-GENERIC-BROKER.md
+│   ├── INGESTION-GUIDE.md
 │   └── ...
-├── archive/               # Old versions (not tracked in git)
-└── data -> ...            # Symlink to VDP data
+├── externals/             # Reference materials (PDFs, diagrams)
+└── tiled_poc/             # Main implementation
+    ├── config.yml         # Server configuration (port 8005)
+    ├── generate.py        # CLI: generate Parquet manifests
+    ├── ingest.py          # CLI: bulk ingest into catalog.db
+    ├── register.py        # CLI: HTTP register into running server
+    ├── broker/            # Core library (1,800+ LOC)
+    │   ├── config.py      # YAML config loading
+    │   ├── utils.py       # Shared helpers
+    │   ├── bulk_register.py   # SQLAlchemy bulk registration
+    │   ├── http_register.py   # HTTP registration via Tiled client
+    │   ├── catalog.py     # Catalog creation + dataset containers
+    │   └── query_manifest.py  # Mode A discovery API
+    ├── extra/             # Manifest generators (one per dataset)
+    │   ├── gen_vdp_manifest.py
+    │   ├── gen_edrixs_manifest.py
+    │   └── gen_multimodal_manifest.py
+    ├── demo/              # Self-contained multi-dataset demo
+    │   ├── config.yml     # Demo server (port 8006)
+    │   ├── explore.py     # Marimo notebook
+    │   └── datasets/      # Dataset YAML configs
+    ├── examples/          # Standalone example scripts
+    └── tests/             # Test suite
 ```
 
 ## How to Run
 
-**Terminal 1 - Start server:**
+See `tiled_poc/README.md` for the full quickstart. Summary:
+
 ```bash
-cd $PROJ_VDP/tiled_poc
-uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
-```
+cd $PROJ_DIR/tiled_poc
 
-**Terminal 2 - Register data:**
-```bash
-cd $PROJ_VDP/tiled_poc
+# Common deps shorthand
+UV_DEPS="--with 'tiled[server]' --with pandas --with pyarrow --with h5py --with 'ruamel.yaml' --with canonicaljson"
 
-# Bulk registration (recommended for initial load)
-uv run --with 'tiled[server]' --with pandas --with pyarrow --with h5py \
-  --with canonicaljson --with 'ruamel.yaml' \
-  python scripts/bulk_register.py -n 1000
-
-# Incremental registration (for updates)
-uv run --with 'tiled[server]' --with pandas --with pyarrow --with h5py --with 'ruamel.yaml' \
-  python scripts/register_catalog.py
-```
-
-**Run marimo notebook (interactive demo):**
-```bash
-cd $PROJ_VDP/tiled_poc
-uv run --with 'tiled[server]' --with pandas --with pyarrow --with h5py \
-  --with marimo --with matplotlib --with torch --with 'ruamel.yaml' \
-  marimo edit examples/demo_mh_dataset.py
-```
-
-**Run CLI demo:**
-```bash
-cd $PROJ_VDP/tiled_poc
-uv run --with 'tiled[server]' --with pandas --with h5py --with 'ruamel.yaml' \
-  python examples/demo_dual_mode.py
+# Pipeline: generate → ingest → serve
+uv run $UV_DEPS python generate.py demo/datasets/vdp.yml -n 10
+uv run $UV_DEPS python ingest.py demo/datasets/vdp.yml
+uv run --with 'tiled[server]' tiled serve config demo/config.yml --api-key secret
 ```
 
 ## Running Tests
 
 ```bash
-cd $PROJ_VDP/tiled_poc
+cd $PROJ_DIR/tiled_poc
 
 # Unit tests (no server required)
-uv run --with pytest pytest tests/test_config.py tests/test_utils.py -v
+uv run --with pytest $UV_DEPS \
+  pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py -v
 
 # Integration tests (requires running server with data)
-uv run --with pytest pytest tests/ -v
+uv run --with pytest $UV_DEPS pytest tests/ -v
 ```
 
 ## Architecture
 
 ```
-/                           <- Root
-  /H_636ce3e4/              <- Container (entity)
-      metadata: {Ja_meV, Jb_meV, Jc_meV, Dc_meV, spin_s, g_factor, path_*}
-      gs_state              <- Array (3x8)
-      mh_x_7T, mh_y_7T, mh_z_7T, mh_powder_7T    <- Arrays (200,)
-      mh_x_30T, mh_y_30T, mh_z_30T, mh_powder_30T
-      ins_12meV, ins_25meV  <- Arrays (600x400)
+/ (root)
+├── VDP/                         ← dataset container
+│   metadata: {organization, data_type, producer, material, ...}
+│   ├── H_636ce3e4/              ← entity container
+│   │   metadata: {Ja_meV, Jb_meV, Jc_meV, Dc_meV, spin_s, g_factor}
+│   │   ├── mh_powder_30T        ← array artifact (200,)
+│   │   ├── ins_12meV            ← array artifact (600, 400)
+│   │   └── ...
+│   └── ...
+├── EDRIXS/                      ← dataset container
+│   ├── H_edx00000/
+│   │   metadata: {tenDq, F2_dd, ...}
+│   │   └── rixs
+│   └── ...
+├── RIXS/                        ← experimental dataset
+├── SEQUOIA/
+└── ...
 ```
 
-**Dual-mode access:**
-- **Mode A (Expert):** Query metadata for paths, load directly from HDF5
-- **Mode B (Visualizer):** Access arrays via Tiled adapters (chunked HTTP)
+## Ingested Datasets
 
-## Data Sources
-
-**Manifests (Parquet):**
-```
-$VDP_DATA/data/schema_v1/manifest_entities_*.parquet  (10K rows)
-$VDP_DATA/data/schema_v1/manifest_artifacts_*.parquet    (110K rows)
-```
-
-**HDF5 files:**
-```
-$VDP_DATA/data/schema_v1/artifacts/  (110K files, 111 GB)
-```
-
-## Julia vs Python Data Loading
-
-**Julia (direct HDF5):**
-```julia
-X, h_grid, Θ, meta = build_mh_dataset(axis="powder", Hmax_T=30.0)
-```
-
-**Python (via Tiled - Mode A):**
-```python
-from tiled.client import from_uri
-from query_manifest import build_mh_dataset
-
-client = from_uri("http://localhost:8005", api_key="secret")
-X, h_grid, Theta, manifest = build_mh_dataset(client, axis="powder", Hmax_T=30)
-```
-
-Both return:
-- `X`: (n_curves, n_points) normalized magnetization curves
-- `h_grid`: (n_points,) reduced field values [0, 1]
-- `Theta/Θ`: (n_curves, 6) parameters [Ja, Jb, Jc, Dc, spin_s, g_factor]
-- `manifest/meta`: metadata for each curve
+| Dataset | Type | Entities | Artifacts | Producer/Facility |
+|---------|------|----------|-----------|-------------------|
+| VDP | simulation | 10,000 | 110,000 | Sunny.jl |
+| EDRIXS | simulation | 10,000 | 10,000 | EDRIXS |
+| NiPS3 Multimodal | simulation | 7,616 | 45,696 | Synthetic |
+| RIXS | experimental | 7 | 42 | LCLS / qRIXS |
+| Challenge | benchmark | 1 | 9 | - |
+| SEQUOIA | experimental | 3 | 76 | SNS / SEQUOIA |
 
 ## Related Documentation
 
-| Document | Path |
-|----------|------|
-| Implementation guide | `docs/HANDOFF_02.md` |
-| Lessons learned | `docs/LESSONS_LEARNED.md` |
-| Version comparison | `docs/VERSION_COMPARISON.md` |
+| Document | Description |
+|----------|-------------|
+| `docs/SCHEMA-DESIGN.md` | Data model, hierarchy rationale, ArrayLake comparison |
+| `docs/DESIGN-GENERIC-BROKER.md` | Generic broker architecture |
+| `docs/INGESTION-GUIDE.md` | How to add new datasets |
+| `docs/LOCATOR-AND-MANIFEST-CONTRACT.md` | Manifest contract specification |
+| `docs/LESSONS_LEARNED.md` | Lessons learned |
+| `tiled_poc/README.md` | Full quickstart and API reference |
