@@ -1,9 +1,11 @@
 """
 CLI entry points for the broker package.
 
-Provides three commands:
+Provides five commands:
+  - broker-inspect:   Scan HDF5 data directory, generate draft YAML contract
+  - broker-generate-yaml: Generate Parquet manifests from a YAML contract
+  - broker-generate:  Manifest generation from dataset configs (legacy generators)
   - broker-ingest:    Bulk SQL registration from Parquet manifests
-  - broker-generate:  Manifest generation from dataset configs
   - broker-register:  HTTP registration against a running Tiled server
 
 All paths (catalog.db, manifests/, storage/, datasets/) are resolved
@@ -27,6 +29,32 @@ def _load_config(config_path):
     yaml = YAML()
     with open(config_path) as f:
         return yaml.load(f)
+
+
+# ── broker-inspect ───────────────────────────────────────────────
+
+def inspect_main():
+    """Scan an HDF5 data directory and generate a draft YAML contract.
+
+    The inspector auto-detects layout (per_entity, batched, grouped),
+    classifies datasets, checks consistency, and emits a YAML with
+    TODO markers for fields requiring human judgment.
+    """
+    from broker.inspect import main as _inspect_main
+    _inspect_main()
+
+
+# ── broker-generate-yaml ────────────────────────────────────────
+
+def generate_yaml_main():
+    """Generate Parquet manifests from a finalized YAML contract.
+
+    Reads a YAML config (produced by broker-inspect and finalized by user),
+    scans the HDF5 files, and produces entities.parquet + artifacts.parquet
+    compatible with broker-ingest.
+    """
+    from broker.generate import main as _generate_main
+    _generate_main()
 
 
 # ── broker-ingest ────────────────────────────────────────────────
@@ -60,7 +88,12 @@ def ingest_main():
         name = Path(config_path).stem
         configs.append((name, config))
 
-    readable_storage = [c["base_dir"] for _, c in configs]
+    readable_storage = []
+    for _, c in configs:
+        if "base_dir" in c:
+            readable_storage.append(c["base_dir"])
+        elif "data" in c and "directory" in c["data"]:
+            readable_storage.append(c["data"]["directory"])
 
     # Ensure catalog exists
     STORAGE_DIR.mkdir(exist_ok=True)
@@ -68,17 +101,23 @@ def ingest_main():
 
     # Register each dataset
     for name, config in configs:
-        label = config.get("label", config["key"])
-        base_dir = config["base_dir"]
+        label = config.get("label", config.get("key", name))
+        base_dir = config.get("base_dir")
+        if base_dir is None and "data" in config:
+            base_dir = config["data"].get("directory")
 
-        ent_path = MANIFESTS_DIR / f"{name}_entities.parquet"
-        art_path = MANIFESTS_DIR / f"{name}_artifacts.parquet"
+        # Try new-style manifests first (manifests/<label>/), then legacy
+        ent_path = MANIFESTS_DIR / label / "entities.parquet"
+        art_path = MANIFESTS_DIR / label / "artifacts.parquet"
+        if not ent_path.exists():
+            ent_path = MANIFESTS_DIR / f"{name}_entities.parquet"
+            art_path = MANIFESTS_DIR / f"{name}_artifacts.parquet"
 
         if not ent_path.exists() or not art_path.exists():
             print(f"\nERROR: Parquet files not found for '{name}':")
-            print(f"  Expected: {ent_path}")
-            print(f"  Expected: {art_path}")
-            print(f"  Run generate.py first.")
+            print(f"  Looked in: {MANIFESTS_DIR / label}/")
+            print(f"  Also tried: {MANIFESTS_DIR / f'{name}_*.parquet'}")
+            print(f"  Run broker-generate-yaml or broker-generate first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
@@ -211,17 +250,23 @@ def register_main():
 
         config = _load_config(config_path)
         name = Path(config_path).stem
-        label = config.get("label", config["key"])
-        base_dir = config["base_dir"]
+        label = config.get("label", config.get("key", name))
+        base_dir = config.get("base_dir")
+        if base_dir is None and "data" in config:
+            base_dir = config["data"].get("directory")
 
-        ent_path = MANIFESTS_DIR / f"{name}_entities.parquet"
-        art_path = MANIFESTS_DIR / f"{name}_artifacts.parquet"
+        # Try new-style manifests first, then legacy
+        ent_path = MANIFESTS_DIR / label / "entities.parquet"
+        art_path = MANIFESTS_DIR / label / "artifacts.parquet"
+        if not ent_path.exists():
+            ent_path = MANIFESTS_DIR / f"{name}_entities.parquet"
+            art_path = MANIFESTS_DIR / f"{name}_artifacts.parquet"
 
         if not ent_path.exists() or not art_path.exists():
             print(f"\nERROR: Parquet files not found for '{name}':")
-            print(f"  Expected: {ent_path}")
-            print(f"  Expected: {art_path}")
-            print(f"  Run generate.py first.")
+            print(f"  Looked in: {MANIFESTS_DIR / label}/")
+            print(f"  Also tried: {MANIFESTS_DIR / f'{name}_*.parquet'}")
+            print(f"  Run broker-generate-yaml or broker-generate first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)

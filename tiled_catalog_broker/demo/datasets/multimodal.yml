@@ -1,3 +1,10 @@
+key: Multimodal
 label: Multimodal
 generator: gen_multimodal_manifest
 base_dir: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/tlinker/data/NiPS3_Multimodal_Synthetic/data
+metadata:
+  method: [INS, Magnetization]
+  data_type: simulation
+  material: NiPS3
+  producer: sunny_jl
+  project: MAIQMag

@@ -1,0 +1,123 @@
+# Semantic Model: Controlled Vocabulary for Dataset Catalog
+#
+# This file defines the allowed values for dataset metadata fields.
+# The inspector uses it to show options in draft YAMLs.
+# The generator/validator uses it to enforce consistency.
+#
+# To add a new method, material, etc., just add it here.
+
+# --- Methods ---
+# Scientific techniques / observable types that a dataset produces.
+# A dataset may have multiple methods (e.g., multimodal simulation).
+methods:
+  - id: INS
+    label: Inelastic Neutron Scattering
+    description: S(Q,E) spectra from neutron scattering (powder or single-crystal)
+  - id: RIXS
+    label: Resonant Inelastic X-ray Scattering
+    description: RIXS spectra (energy loss vs. scattering angle)
+  - id: EDRIXS
+    label: EDRIXS Simulation
+    description: RIXS spectra computed via the EDRIXS exact-diagonalization code
+  - id: Magnetization
+    label: Magnetization Curves
+    description: M(H) curves along crystal axes or powder-averaged
+  - id: VDP
+    label: Virtual Diffraction Pattern
+    description: Forward-model database spanning multiple observables
+
+# --- Materials ---
+materials:
+  - id: NiPS3
+    label: "NiPS3"
+    description: Nickel phosphorus trisulfide (van der Waals antiferromagnet)
+  - id: NiO
+    label: "NiO"
+    description: Nickel oxide (antiferromagnetic insulator)
+  - id: generic_spin_model
+    label: Generic Spin Model
+    description: Not tied to a specific material
+
+# --- Data Types ---
+data_types:
+  - id: simulation
+    label: Simulation
+  - id: experimental
+    label: Experimental
+
+# --- Projects ---
+projects:
+  - id: MAIQMag
+    label: MAIQMag
+    description: Machine-learning AI for Quantum Magnetism
+
+# --- Facilities ---
+# Only relevant for experimental data.
+facilities:
+  - id: LCLS
+    label: LCLS
+    description: Linac Coherent Light Source (SLAC)
+  - id: SNS
+    label: SNS
+    description: Spallation Neutron Source (ORNL)
+  - id: NSLS-II
+    label: NSLS-II
+    description: National Synchrotron Light Source II (BNL)
+
+# --- Producers ---
+# Simulation codes that generate data.
+producers:
+  - id: sunny_jl
+    label: Sunny.jl
+    description: Julia spin-dynamics simulation
+  - id: edrixs
+    label: EDRIXS
+    description: Exact diagonalization RIXS code
+  - id: magnetic_bayes
+    label: MagneticBayes
+    description: Bayesian inference for magnetic materials
+
+# --- Dataset metadata fields ---
+# Defines which fields are required/optional on dataset container metadata.
+dataset_fields:
+  required:
+    - name: data_type
+      type: string
+      enum_ref: data_types
+      description: '"simulation" or "experimental"'
+    - name: method
+      type: list
+      enum_ref: methods
+      description: Scientific methods/observables (list)
+  optional:
+    - name: project
+      type: string
+      enum_ref: projects
+      description: Scientific project or collaboration
+    - name: material
+      type: string
+      enum_ref: materials
+      description: Target material or system
+    - name: producer
+      type: string
+      enum_ref: producers
+      description: Code that generated the data (simulation only)
+    - name: producer_version
+      type: string
+      description: Version tag or semver
+    - name: facility
+      type: string
+      enum_ref: facilities
+      description: Where data was collected (experimental only)
+    - name: instrument
+      type: string
+      description: Instrument or beamline
+    - name: organization
+      type: string
+      description: Owning organization or group
+    - name: description
+      type: string
+      description: Human-readable summary
+    - name: created_at
+      type: string
+      description: When the dataset was generated (ISO date)

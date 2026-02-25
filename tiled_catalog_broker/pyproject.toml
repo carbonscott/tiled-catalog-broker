@@ -14,6 +14,8 @@ dependencies = [
 ]
 
 [project.scripts]
+broker-inspect = "broker.cli:inspect_main"
+broker-generate-yaml = "broker.cli:generate_yaml_main"
 broker-ingest = "broker.cli:ingest_main"
 broker-generate = "broker.cli:generate_main"
 broker-register = "broker.cli:register_main"

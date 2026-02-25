@@ -1,0 +1,35 @@
+# EDRIXS SBI Round 0 (Sam Klein)
+# 10,000 entities (5 files x 2,000 batch size)
+# Source: exact-diagonalization RIXS spectra
+
+key: EDRIXS_SBI
+label: EDRIXS SBI Round 0
+
+metadata:
+  method: [EDRIXS]
+  data_type: simulation
+  material: NiPS3
+  producer: edrixs
+  project: MAIQMag
+
+data:
+  directory: /sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper
+  file_pattern: "*/simulations.h5"
+  layout: batched
+
+parameters:
+  location: group
+  group: /params
+
+artifacts:
+  - type: rixs_spectrum
+    dataset: /spectra
+
+shared:
+  - type: eloss
+    dataset: /eloss
+  - type: omega_bounds
+    dataset: /omega_bounds
+
+extra_metadata:
+  - dataset: /log_probs
