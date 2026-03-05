@@ -42,7 +42,7 @@ def ensure_catalog(db_path, readable_storage, writable_storage):
 
 
 def register_dataset(engine, ent_df, art_df, base_dir, label,
-                     dataset_key, dataset_metadata):
+                     dataset_key, dataset_metadata, config_hash=None):
     """Generate nodes from manifests and bulk-register into the catalog.
 
     Args:
@@ -53,6 +53,7 @@ def register_dataset(engine, ent_df, art_df, base_dir, label,
         label: Dataset name (for logging).
         dataset_key: Key for the dataset container (e.g. "VDP").
         dataset_metadata: Metadata dict for the dataset container.
+        config_hash: SHA256 hash of the YAML config for change detection.
     """
     from .bulk_register import prepare_node_data, bulk_register
     from .utils import get_artifact_shape
@@ -68,4 +69,5 @@ def register_dataset(engine, ent_df, art_df, base_dir, label,
     )
 
     bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
-                  dataset_key=dataset_key, dataset_metadata=dataset_metadata)
+                  dataset_key=dataset_key, dataset_metadata=dataset_metadata,
+                  config_hash=config_hash)

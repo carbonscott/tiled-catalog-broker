@@ -135,6 +135,12 @@ def validate(cfg, model_path=None):
         if not ax.get("dataset"):
             errors.append(f"shared[{i}].dataset is required")
 
+    # --- Provenance (optional but validated if present) ---
+    provenance = cfg.get("provenance", {})
+    if provenance:
+        if "round" in provenance and not isinstance(provenance["round"], int):
+            errors.append("'provenance.round' must be an integer")
+
     # --- Dataset container metadata: validate against semantic model ---
     metadata = cfg.get("metadata", {})
     if model:
@@ -144,6 +150,25 @@ def validate(cfg, model_path=None):
         _validate_vocab(metadata, "producer", "producers", model, warnings)
         _validate_vocab(metadata, "facility", "facilities", model, warnings)
         _validate_vocab(metadata, "project", "projects", model, warnings)
+
+    # --- Cross-field validation ---
+    dt = metadata.get("data_type")
+    if dt == "experimental" and not metadata.get("facility"):
+        warnings.append("data_type is 'experimental' but no 'facility' specified")
+    if dt == "simulation" and not metadata.get("producer"):
+        warnings.append("data_type is 'simulation' but no 'producer' specified")
+    if dt == "experimental" and metadata.get("producer"):
+        warnings.append(
+            "data_type is 'experimental' but 'producer' is set"
+            " — producer is typically for simulations"
+        )
+    if dt == "simulation" and metadata.get("facility"):
+        warnings.append(
+            "data_type is 'simulation' but 'facility' is set"
+            " — facility is typically for experiments"
+        )
+    if not metadata.get("material"):
+        warnings.append("'material' not specified — recommended for discoverability")
 
     if errors:
         raise ValidationError(errors)

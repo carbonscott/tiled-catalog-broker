@@ -25,6 +25,15 @@ methods:
   - id: VDP
     label: Virtual Diffraction Pattern
     description: Forward-model database spanning multiple observables
+  - id: XPS
+    label: X-ray Photoelectron Spectroscopy
+    description: Core-level photoelectron spectra
+  - id: XES
+    label: X-ray Emission Spectroscopy
+    description: X-ray emission spectra from radiative decay
+  - id: SWT
+    label: Spin Wave Theory
+    description: Linear spin wave theory S(Q,E) calculations
 
 # --- Materials ---
 materials:
@@ -37,6 +46,9 @@ materials:
   - id: generic_spin_model
     label: Generic Spin Model
     description: Not tied to a specific material
+  - id: YbBi2IO4
+    label: "YbBi2IO4"
+    description: Ytterbium bismuth iodate (2D quantum magnet)
 
 # --- Data Types ---
 data_types:
@@ -44,6 +56,10 @@ data_types:
     label: Simulation
   - id: experimental
     label: Experimental
+  - id: benchmark
+    label: Benchmark
+  - id: optimization
+    label: Optimization
 
 # --- Projects ---
 projects:
@@ -76,6 +92,9 @@ producers:
   - id: magnetic_bayes
     label: MagneticBayes
     description: Bayesian inference for magnetic materials
+  - id: tsnpe
+    label: TSNPE
+    description: Truncated Sequential Neural Posterior Estimation
 
 # --- Dataset metadata fields ---
 # Defines which fields are required/optional on dataset container metadata.
@@ -121,3 +140,26 @@ dataset_fields:
     - name: created_at
       type: string
       description: When the dataset was generated (ISO date)
+
+# --- Provenance fields ---
+# Optional fields for tracking how and when data was generated.
+# Stored on the dataset container alongside metadata.
+provenance_fields:
+  - name: created_at
+    type: string
+    description: When the dataset was generated (ISO 8601 date)
+  - name: code_version
+    type: string
+    description: Version tag of the generating code
+  - name: code_commit
+    type: string
+    description: Git commit hash of the generating code
+  - name: generation_host
+    type: string
+    description: Hostname where data was generated
+  - name: round
+    type: integer
+    description: SBI/BO iteration round number
+  - name: prior_distribution
+    type: string
+    description: How parameters were sampled (e.g., uniform, LHS)

@@ -620,16 +620,22 @@ def emit_draft_yaml(result, output_path=None):
         w()
 
     # Provenance
+    w()
+    w("# === Provenance (optional) ===")
+    w("# These fields are stored on the dataset container for tracking")
+    w("# how and when data was generated.")
+    w("provenance:")
+    w('  # created_at: ""     # ISO date when data was generated')
+    w('  # code_version: ""   # version of generating code')
+    w('  # code_commit: ""    # git hash of generating code')
+    w("  # round:              # SBI/BO round number (integer)")
+    w('  # prior_distribution: ""  # how parameters were sampled')
     if result.root_attrs or result.group_attrs:
-        w("# === Provenance found in HDF5 attributes ===")
-        w("provenance:")
+        w("  # Discovered from HDF5 attributes:")
         for k, v in sorted(result.root_attrs.items()):
-            w(f"  {k}: {v}")
+            w(f"  # {k}: {v}")
         for group_name, attrs in sorted(result.group_attrs.items()):
             w(f"  # {group_name}/ attrs: {attrs}")
-    else:
-        w("# === No provenance attributes found in HDF5 ===")
-        w("# provenance: {}")
 
     # Recommendations
     _add_recommendations(result)

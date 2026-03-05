@@ -31,6 +31,60 @@ def _load_config(config_path):
         return yaml.load(f)
 
 
+def _compute_config_hash(config_path):
+    """Compute SHA256 hash of a YAML config file."""
+    import hashlib
+    with open(config_path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _build_dataset_metadata(config, label):
+    """Build the full dataset container metadata dict from a config."""
+    dataset_metadata = config.get("metadata", {"label": label})
+
+    # Merge provenance into dataset container metadata
+    if "provenance" in config:
+        dataset_metadata.update(config["provenance"])
+
+    # Attach shared axis locators to dataset container metadata
+    for ax in config.get("shared", []):
+        dataset_metadata[f"shared_dataset_{ax['type']}"] = ax["dataset"]
+
+    return dataset_metadata
+
+
+def _find_manifests(config_path, label, name):
+    """Find entity and artifact Parquet manifests for a dataset config.
+
+    Searches in order:
+      1. Next to the YAML file: <yaml_dir>/manifests/<label>/
+      2. CWD manifests: manifests/<label>/
+      3. Legacy CWD: manifests/<name>_entities.parquet
+
+    Returns:
+        (Path, Path) or (None, None)
+    """
+    yaml_dir = Path(config_path).parent
+    candidates = [
+        (yaml_dir / "manifests" / label, "next to YAML"),
+        (MANIFESTS_DIR / label, f"in {MANIFESTS_DIR}/"),
+    ]
+
+    for cand_dir, desc in candidates:
+        ep = cand_dir / "entities.parquet"
+        ap = cand_dir / "artifacts.parquet"
+        if ep.exists() and ap.exists():
+            return ep, ap
+
+    # Legacy fallback
+    ep = MANIFESTS_DIR / f"{name}_entities.parquet"
+    ap = MANIFESTS_DIR / f"{name}_artifacts.parquet"
+    if ep.exists() and ap.exists():
+        return ep, ap
+
+    return None, None
+
+
 # ── broker-inspect ───────────────────────────────────────────────
 
 def inspect_main():
@@ -100,34 +154,30 @@ def ingest_main():
     engine = ensure_catalog(DB_PATH, readable_storage, STORAGE_DIR)
 
     # Register each dataset
-    for name, config in configs:
+    for config_path, (name, config) in zip(args.configs, configs):
         label = config.get("label", config.get("key", name))
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
 
-        # Try new-style manifests first (manifests/<label>/), then legacy
-        ent_path = MANIFESTS_DIR / label / "entities.parquet"
-        art_path = MANIFESTS_DIR / label / "artifacts.parquet"
-        if not ent_path.exists():
-            ent_path = MANIFESTS_DIR / f"{name}_entities.parquet"
-            art_path = MANIFESTS_DIR / f"{name}_artifacts.parquet"
-
-        if not ent_path.exists() or not art_path.exists():
-            print(f"\nERROR: Parquet files not found for '{name}':")
-            print(f"  Looked in: {MANIFESTS_DIR / label}/")
-            print(f"  Also tried: {MANIFESTS_DIR / f'{name}_*.parquet'}")
+        ent_path, art_path = _find_manifests(config_path, label, name)
+        if ent_path is None or art_path is None:
+            print(f"\nERROR: Parquet files not found for '{name}'.")
             print(f"  Run broker-generate-yaml or broker-generate first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
         art_df = pd.read_parquet(art_path)
+        print(f"  Loaded manifests from: {ent_path.parent}")
 
         dataset_key = config["key"]
-        dataset_metadata = config.get("metadata", {"label": label})
+        dataset_metadata = _build_dataset_metadata(config, label)
+        config_hash = _compute_config_hash(config_path)
+
         register_dataset(engine, ent_df, art_df, base_dir, label,
                          dataset_key=dataset_key,
-                         dataset_metadata=dataset_metadata)
+                         dataset_metadata=dataset_metadata,
+                         config_hash=config_hash)
 
     # Verify
     from broker.bulk_register import verify_registration
@@ -255,17 +305,9 @@ def register_main():
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
 
-        # Try new-style manifests first, then legacy
-        ent_path = MANIFESTS_DIR / label / "entities.parquet"
-        art_path = MANIFESTS_DIR / label / "artifacts.parquet"
-        if not ent_path.exists():
-            ent_path = MANIFESTS_DIR / f"{name}_entities.parquet"
-            art_path = MANIFESTS_DIR / f"{name}_artifacts.parquet"
-
-        if not ent_path.exists() or not art_path.exists():
-            print(f"\nERROR: Parquet files not found for '{name}':")
-            print(f"  Looked in: {MANIFESTS_DIR / label}/")
-            print(f"  Also tried: {MANIFESTS_DIR / f'{name}_*.parquet'}")
+        ent_path, art_path = _find_manifests(config_path, label, name)
+        if ent_path is None or art_path is None:
+            print(f"\nERROR: Parquet files not found for '{name}'.")
             print(f"  Run broker-generate-yaml or broker-generate first.")
             sys.exit(1)
 
@@ -280,10 +322,13 @@ def register_main():
         get_artifact_shape.__defaults__[-1].clear()
 
         dataset_key = config["key"]
-        dataset_metadata = config.get("metadata", {"label": label})
+        dataset_metadata = _build_dataset_metadata(config, label)
+        config_hash = _compute_config_hash(config_path)
+
         register_dataset_http(client, ent_df, art_df, base_dir, label,
                               dataset_key=dataset_key,
-                              dataset_metadata=dataset_metadata)
+                              dataset_metadata=dataset_metadata,
+                              config_hash=config_hash)
 
     # Verify
     verify_registration_http(client)
