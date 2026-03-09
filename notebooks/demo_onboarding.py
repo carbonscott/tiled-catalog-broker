@@ -132,7 +132,7 @@ def _():
     DATA_DIR = "/sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper"
 
     # Import the inspection engine
-    from broker.inspect import inspect_directory, emit_draft_yaml
+    from data_catalog_service.inspect import inspect_directory, emit_draft_yaml
 
     result = inspect_directory(DATA_DIR)
     print(f"\nLayout:     {result.layout}")
@@ -228,7 +228,7 @@ def _(mo):
 @app.cell
 def _(mo):
     # Load and display the semantic model
-    from broker.schema import load_catalog_model, get_allowed_values
+    from data_catalog_service.schema import load_catalog_model, get_allowed_values
 
     catalog_model = load_catalog_model()
 
@@ -304,7 +304,7 @@ def _(catalog_model, mo):
 @app.cell
 def _(mo):
     # Demonstrate validation on a bad YAML
-    from broker.schema import validate, ValidationError
+    from data_catalog_service.schema import validate, ValidationError
 
     bad_cfg = {
         "key": "",
@@ -392,7 +392,7 @@ def _(mo):
 @app.cell
 def _(Path, mo):
     # Show the finalized YAML for comparison
-    finalized_path = Path(__file__).parent / "datasets" / "edrixs_sbi.yml"
+    finalized_path = Path(__file__).parent.parent / "datasets" / "edrixs_sbi.yml"
     finalized_yaml = finalized_path.read_text()
     mo.md(
         "### Finalized YAML (human-refined)\n\n"

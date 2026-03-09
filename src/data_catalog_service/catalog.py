@@ -55,7 +55,7 @@ def register_dataset(engine, ent_df, art_df, base_dir, label,
         dataset_metadata: Metadata dict for the dataset container.
         config_hash: SHA256 hash of the YAML config for change detection.
     """
-    from .bulk_register import prepare_node_data, bulk_register
+    from .register import prepare_node_data, bulk_register
     from .utils import get_artifact_shape
 
     n = len(ent_df)

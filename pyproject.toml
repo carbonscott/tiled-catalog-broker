@@ -1,5 +1,5 @@
 [project]
-name = "vdp-broker"
+name = "data-catalog-service"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -14,14 +14,10 @@ dependencies = [
 ]
 
 [project.scripts]
-broker-inspect = "broker.cli:inspect_main"
-broker-generate-yaml = "broker.cli:generate_yaml_main"
-broker-ingest = "broker.cli:ingest_main"
-broker-generate = "broker.cli:generate_main"
-broker-register = "broker.cli:register_main"
+dcs = "data_catalog_service.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["broker"]
+packages = ["src/data_catalog_service"]
 
 [build-system]
 requires = ["hatchling"]

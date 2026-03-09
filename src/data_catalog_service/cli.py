@@ -1,12 +1,11 @@
 """
-CLI entry points for the broker package.
+CLI entry points for data-catalog-service.
 
-Provides five commands:
-  - broker-inspect:   Scan HDF5 data directory, generate draft YAML contract
-  - broker-generate-yaml: Generate Parquet manifests from a YAML contract
-  - broker-generate:  Manifest generation from dataset configs (legacy generators)
-  - broker-ingest:    Bulk SQL registration from Parquet manifests
-  - broker-register:  HTTP registration against a running Tiled server
+Provides four commands:
+  - dcs inspect:        Scan HDF5 data directory, generate draft YAML contract
+  - dcs generate:       Generate Parquet manifests from a YAML contract
+  - dcs ingest:         Bulk SQL registration from Parquet manifests
+  - dcs register:       HTTP registration against a running Tiled server
 
 All paths (catalog.db, manifests/, storage/, datasets/) are resolved
 relative to the current working directory.
@@ -14,7 +13,6 @@ relative to the current working directory.
 
 import sys
 import argparse
-import importlib
 from pathlib import Path
 
 DB_PATH = Path("catalog.db")
@@ -85,7 +83,7 @@ def _find_manifests(config_path, label, name):
     return None, None
 
 
-# ── broker-inspect ───────────────────────────────────────────────
+# ── dcs inspect ───────────────────────────────────────────────
 
 def inspect_main():
     """Scan an HDF5 data directory and generate a draft YAML contract.
@@ -94,24 +92,24 @@ def inspect_main():
     classifies datasets, checks consistency, and emits a YAML with
     TODO markers for fields requiring human judgment.
     """
-    from broker.inspect import main as _inspect_main
+    from data_catalog_service.inspect import main as _inspect_main
     _inspect_main()
 
 
-# ── broker-generate-yaml ────────────────────────────────────────
+# ── dcs generate ────────────────────────────────────────────
 
 def generate_yaml_main():
     """Generate Parquet manifests from a finalized YAML contract.
 
-    Reads a YAML config (produced by broker-inspect and finalized by user),
+    Reads a YAML config (produced by `dcs inspect` and finalized by user),
     scans the HDF5 files, and produces entities.parquet + artifacts.parquet
-    compatible with broker-ingest.
+    compatible with `dcs ingest`.
     """
-    from broker.generate import main as _generate_main
+    from data_catalog_service.generate import main as _generate_main
     _generate_main()
 
 
-# ── broker-ingest ────────────────────────────────────────────────
+# ── dcs ingest ────────────────────────────────────────────────
 
 def ingest_main():
     """Bulk SQL registration (from ingest.py).
@@ -124,7 +122,7 @@ def ingest_main():
     args = parser.parse_args()
 
     import pandas as pd
-    from broker.catalog import ensure_catalog, register_dataset
+    from data_catalog_service.catalog import ensure_catalog, register_dataset
 
     print("=" * 50)
     print("Ingest")
@@ -163,7 +161,7 @@ def ingest_main():
         ent_path, art_path = _find_manifests(config_path, label, name)
         if ent_path is None or art_path is None:
             print(f"\nERROR: Parquet files not found for '{name}'.")
-            print(f"  Run broker-generate-yaml or broker-generate first.")
+            print(f"  Run `dcs generate` first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
@@ -180,71 +178,14 @@ def ingest_main():
                          config_hash=config_hash)
 
     # Verify
-    from broker.bulk_register import verify_registration
+    from data_catalog_service.register import verify_registration
     print()
     verify_registration(str(DB_PATH))
 
     print("\nDone!")
 
 
-# ── broker-generate ──────────────────────────────────────────────
-
-def generate_main(default_generators_dir="generators"):
-    """Manifest generation (from generate.py).
-
-    Reads dataset config files (YAML) and runs the corresponding manifest
-    generator module.
-
-    Args:
-        default_generators_dir: Default directory for generator modules.
-            The entry point (broker-generate) defaults to "generators/";
-            tiled_poc/generate.py passes "extra/".
-    """
-    parser = argparse.ArgumentParser(description="Generate manifests from dataset configs.")
-    parser.add_argument("configs", nargs="+", help="Dataset config YAML files")
-    parser.add_argument("-n", type=int, default=10, help="Entities per dataset (default: 10)")
-    parser.add_argument(
-        "--generators-dir",
-        type=str,
-        default=default_generators_dir,
-        help=f"Directory containing generator modules (default: {default_generators_dir})",
-    )
-    args = parser.parse_args()
-
-    # Add generators dir to path for imports
-    generators_path = Path(args.generators_dir).resolve()
-    sys.path.insert(0, str(generators_path))
-
-    manifests_dir = Path("manifests")
-    manifests_dir.mkdir(exist_ok=True)
-
-    print("=" * 50)
-    print("Manifest Generation")
-    print("=" * 50)
-    print(f"Configs: {args.configs}")
-    print(f"Entities per dataset: {args.n}")
-    print(f"Generators dir: {generators_path}")
-    print(f"Output: {manifests_dir.resolve()}")
-
-    for config_path in args.configs:
-        if not Path(config_path).exists():
-            print(f"\nERROR: Config not found: {config_path}")
-            sys.exit(1)
-
-        config = _load_config(config_path)
-        name = Path(config_path).stem
-        label = config.get("label", config["key"])
-        generator_module = config["generator"]
-
-        print(f"\n--- Generating {label} ({name}) ---")
-
-        module = importlib.import_module(generator_module)
-        module.generate(str(manifests_dir), n_entities=args.n)
-
-    print("\nDone!")
-
-
-# ── broker-register ──────────────────────────────────────────────
+# ── dcs register ──────────────────────────────────────────────
 
 def register_main():
     """HTTP registration against a running Tiled server (from register.py).
@@ -267,8 +208,8 @@ def register_main():
     args = parser.parse_args()
 
     import pandas as pd
-    from broker.utils import check_server, get_artifact_shape
-    from broker.http_register import register_dataset_http, verify_registration_http
+    from data_catalog_service.utils import check_server, get_artifact_shape
+    from data_catalog_service.http_register import register_dataset_http, verify_registration_http
 
     print("=" * 50)
     print("Register (HTTP)")
@@ -285,7 +226,7 @@ def register_main():
     print("Server is running.")
 
     # Connect to Tiled
-    from broker.config import get_tiled_url, get_api_key
+    from data_catalog_service.config import get_tiled_url, get_api_key
     from tiled.client import from_uri
 
     tiled_url = get_tiled_url()
@@ -308,7 +249,7 @@ def register_main():
         ent_path, art_path = _find_manifests(config_path, label, name)
         if ent_path is None or art_path is None:
             print(f"\nERROR: Parquet files not found for '{name}'.")
-            print(f"  Run broker-generate-yaml or broker-generate first.")
+            print(f"  Run `dcs generate` first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
@@ -334,3 +275,34 @@ def register_main():
     verify_registration_http(client)
 
     print("\nDone!")
+
+
+# ── dcs (main dispatcher) ────────────────────────────────────
+
+def main():
+    """Main entry point: dcs <command> [args]."""
+    commands = {
+        "inspect": inspect_main,
+        "generate": generate_yaml_main,
+        "ingest": ingest_main,
+        "register": register_main,
+    }
+
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print("usage: dcs <command> [args]\n")
+        print("commands:")
+        print("  inspect    Scan HDF5 data directory, generate draft YAML contract")
+        print("  generate   Generate Parquet manifests from a finalized YAML contract")
+        print("  ingest     Bulk SQL registration from Parquet manifests")
+        print("  register   HTTP registration against a running Tiled server")
+        sys.exit(0)
+
+    cmd = sys.argv[1]
+    if cmd not in commands:
+        print(f"Unknown command: {cmd}")
+        print(f"Available: {', '.join(commands)}")
+        sys.exit(1)
+
+    # Remove the subcommand from argv so argparse in each handler sees the right args
+    sys.argv = [f"dcs {cmd}"] + sys.argv[2:]
+    commands[cmd]()
