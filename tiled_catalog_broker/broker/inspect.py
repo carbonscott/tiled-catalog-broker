@@ -461,14 +461,15 @@ def emit_draft_yaml(result, output_path=None):
 
     # Identity (TODO)
     w("# === REQUIRED: Fill in these identity fields ===")
-    w('key: ""              # TODO: dataset container key in Tiled (e.g., EDRIXS_SBI)')
-    w('label: ""            # TODO: human-readable name (e.g., EDRIXS SBI Round 0)')
+    w("# Key convention: {METHOD}_{SIM|EXP|BENCH|OPT}_{DISTINGUISHING_FEATURE}")
+    w('key: ""              # TODO: e.g., RIXS_SIM_BROAD_SIGMA')
+    w('label: ""            # TODO: human-readable name (e.g., Broad Sigma)')
     w()
 
     # Dataset container metadata (TODO, with options from semantic model)
     w("# === REQUIRED: Dataset container metadata ===")
     w("# These fields describe the dataset as a whole and enable")
-    w("# cross-dataset queries like client.search(Key('method') == 'EDRIXS')")
+    w("# cross-dataset queries like client.search(Key('method') == 'RIXS')")
     w("metadata:")
 
     # method (list, required)
@@ -628,8 +629,6 @@ def emit_draft_yaml(result, output_path=None):
     w('  # created_at: ""     # ISO date when data was generated')
     w('  # code_version: ""   # version of generating code')
     w('  # code_commit: ""    # git hash of generating code')
-    w("  # round:              # SBI/BO round number (integer)")
-    w('  # prior_distribution: ""  # how parameters were sampled')
     if result.root_attrs or result.group_attrs:
         w("  # Discovered from HDF5 attributes:")
         for k, v in sorted(result.root_attrs.items()):

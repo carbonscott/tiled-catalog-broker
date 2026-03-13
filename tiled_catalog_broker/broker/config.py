@@ -95,13 +95,24 @@ def get_latest_manifest(prefix):
 
 
 def get_tiled_url():
-    """Get Tiled server URL (from env or default)."""
-    return os.environ.get("TILED_URL", "http://localhost:8005")
+    """Get Tiled server URL (from env or default).
+
+    Set TILED_URL to override. Default is the remote containerized server.
+    For local dev, use: export TILED_URL=http://localhost:8005
+    """
+    return os.environ.get(
+        "TILED_URL",
+        "https://lcls-data-portal.slac.stanford.edu/tiled-dev",
+    )
 
 
 def get_api_key():
-    """Get Tiled API key (from env or default)."""
-    return os.environ.get("TILED_API_KEY", "secret")
+    """Get Tiled API key (from env).
+
+    Checks TILED_API_KEY first, then TILED_KEY for compatibility
+    with tiled_remote scripts. Returns empty string if neither is set.
+    """
+    return os.environ.get("TILED_API_KEY", os.environ.get("TILED_KEY", ""))
 
 
 def get_max_entities():

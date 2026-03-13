@@ -276,20 +276,25 @@ def register_main():
     print(f"Configs: {args.configs}")
 
     # Check server is running
-    print("\nChecking Tiled server...")
+    from broker.config import get_tiled_url, get_api_key
+    tiled_url = get_tiled_url()
+    api_key = get_api_key()
+
+    print(f"\nChecking Tiled server at {tiled_url} ...")
     if not check_server():
-        print("ERROR: Tiled server not running!")
-        print("\nStart the server first:")
-        print("  uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret")
+        print(f"ERROR: Cannot reach Tiled server at {tiled_url}")
+        if not api_key:
+            print("\n  No API key set. Export TILED_API_KEY:")
+            print("    export TILED_API_KEY=your-key-here")
+        print(f"\n  To use a different server, export TILED_URL:")
+        print(f"    export TILED_URL=http://localhost:8005")
         sys.exit(1)
     print("Server is running.")
 
     # Connect to Tiled
-    from broker.config import get_tiled_url, get_api_key
     from tiled.client import from_uri
 
-    tiled_url = get_tiled_url()
-    client = from_uri(tiled_url, api_key=get_api_key())
+    client = from_uri(tiled_url, api_key=api_key)
     print(f"Connected to {tiled_url} ({len(client)} existing containers)")
 
     # Load and register each dataset

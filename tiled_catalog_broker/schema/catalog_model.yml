@@ -9,6 +9,9 @@
 # --- Methods ---
 # Scientific techniques / observable types that a dataset produces.
 # A dataset may have multiple methods (e.g., multimodal simulation).
+# Aliases map common shorthand names to canonical IDs. When an alias is
+# used, the validator resolves it to the canonical method. Some aliases
+# also imply a default data_type (e.g., EDRIXS → RIXS + simulation).
 methods:
   - id: INS
     label: Inelastic Neutron Scattering
@@ -16,9 +19,10 @@ methods:
   - id: RIXS
     label: Resonant Inelastic X-ray Scattering
     description: RIXS spectra (energy loss vs. scattering angle)
-  - id: EDRIXS
-    label: EDRIXS Simulation
-    description: RIXS spectra computed via the EDRIXS exact-diagonalization code
+    aliases:
+      - id: EDRIXS
+        implies:
+          data_type: simulation
   - id: Magnetization
     label: Magnetization Curves
     description: M(H) curves along crystal axes or powder-averaged
@@ -40,6 +44,7 @@ materials:
   - id: NiPS3
     label: "NiPS3"
     description: Nickel phosphorus trisulfide (van der Waals antiferromagnet)
+    aliases: [NIPS, nips3]
   - id: NiO
     label: "NiO"
     description: Nickel oxide (antiferromagnetic insulator)
@@ -81,20 +86,23 @@ facilities:
     description: National Synchrotron Light Source II (BNL)
 
 # --- Producers ---
-# Simulation codes that generate data.
+# Code repositories that generated the dataset files. Track the repo URL
+# so it's clear exactly what code produced the data. The producer is the
+# pipeline/project, not its dependencies (e.g., edrixs the library is a
+# dependency of lajer2025Hamiltonian, not a separate producer).
 producers:
   - id: sunny_jl
     label: Sunny.jl
-    description: Julia spin-dynamics simulation
+    repo: https://github.com/SunnySuite/Sunny.jl
+    description: Julia spin-dynamics simulation (S(Q,E), magnetization)
+  - id: lajer2025Hamiltonian
+    label: lajer2025Hamiltonian
+    repo: https://github.com/mpmdean/lajer2025Hamiltonian
+    description: Bayesian optimization of Hamiltonian parameters from RIXS via edrixs exact-diagonalization
   - id: edrixs
     label: EDRIXS
-    description: Exact diagonalization RIXS code
-  - id: magnetic_bayes
-    label: MagneticBayes
-    description: Bayesian inference for magnetic materials
-  - id: tsnpe
-    label: TSNPE
-    description: Truncated Sequential Neural Posterior Estimation
+    repo: https://github.com/NSLS-II/edrixs
+    description: Exact-diagonalization RIXS simulation library (Python)
 
 # --- Dataset metadata fields ---
 # Defines which fields are required/optional on dataset container metadata.
@@ -140,6 +148,9 @@ dataset_fields:
     - name: created_at
       type: string
       description: When the dataset was generated (ISO date)
+    - name: prior_distribution
+      type: string
+      description: How parameters were sampled (e.g., uniform, LHS)
 
 # --- Provenance fields ---
 # Optional fields for tracking how and when data was generated.
@@ -157,9 +168,27 @@ provenance_fields:
   - name: generation_host
     type: string
     description: Hostname where data was generated
-  - name: round
-    type: integer
-    description: SBI/BO iteration round number
-  - name: prior_distribution
-    type: string
-    description: How parameters were sampled (e.g., uniform, LHS)
+
+# --- Key convention ---
+# Dataset keys follow the formula: {METHOD}_{DATA_TYPE_SHORT}_{DISTINGUISHING_FEATURE}
+# This makes keys predictable — if you know the method, type, and what's
+# unique about the dataset, you can construct the key without searching.
+#
+# DATA_TYPE_SHORT abbreviations:
+#   simulation   → SIM
+#   experimental → EXP
+#   benchmark    → BENCH
+#   optimization → OPT
+#
+# Examples:
+#   RIXS_SIM_BROAD_SIGMA     — simulated RIXS with broad sigma parameter range
+#   RIXS_EXP_NIPS3_2024      — experimental RIXS on NiPS3 from 2024
+#   INS_SIM_10K              — simulated INS with 10K entities
+#   VDP_SIM_HEISENBERG       — VDP simulation for Heisenberg model
+key_convention:
+  formula: "{METHOD}_{DATA_TYPE_SHORT}_{DISTINGUISHING_FEATURE}"
+  data_type_abbreviations:
+    simulation: SIM
+    experimental: EXP
+    benchmark: BENCH
+    optimization: OPT
