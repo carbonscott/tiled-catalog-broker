@@ -453,9 +453,24 @@ print(art.head())
 
 ## Step 6: Write a Dataset Config
 
-Create a YAML config file in your application directory's `datasets/` folder.
-This tells the broker where the data lives and what metadata to attach to the
-dataset container.
+Your application directory should have this layout:
+
+```
+my-data-broker/
+├── config.yml          # Tiled server config (readable_storage, port, etc.)
+├── catalog.db          # SQLite catalog (created on first ingest)
+├── datasets/           # Dataset YAML configs (one per dataset)
+│   └── spinwave.yaml
+├── generators/         # Manifest generator scripts
+│   └── gen_spinwave_manifest.py
+├── manifests/          # Generated Parquet files (output of generators)
+│   ├── spinwave_entities.parquet
+│   └── spinwave_artifacts.parquet
+└── storage/            # Tiled writable storage (created automatically)
+```
+
+Create a YAML config file in the `datasets/` folder. This tells the broker
+where the data lives and what metadata to attach to the dataset container.
 
 ```yaml
 key: SpinWave
