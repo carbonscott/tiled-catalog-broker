@@ -15,7 +15,6 @@ dependencies = [
 
 [project.scripts]
 broker-ingest = "broker.cli:ingest_main"
-broker-generate = "broker.cli:generate_main"
 broker-register = "broker.cli:register_main"
 
 [tool.hatch.build.targets.wheel]

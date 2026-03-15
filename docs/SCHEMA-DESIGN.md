@@ -232,15 +232,9 @@ and the broker.  It defines the container name in the catalog and must
 be agreed upon at onboarding time.
 
 ```yaml
-# Current (3 fields)
-label: EDRIXS
-generator: gen_edrixs_manifest
-base_dir: /path/to/EDRIXS
-
-# Expanded
+# Dataset config
 key: EDRIXS                       # ← container key (contract with provider)
 label: EDRIXS Simulations         # human-readable display name
-generator: gen_edrixs_manifest
 base_dir: /path/to/EDRIXS
 metadata:                          # ← optional provenance block
   organization: MAIQMag
@@ -397,20 +391,13 @@ client["H_seq_Ei28"]                  client["SEQUOIA"]["H_seq_Ei28"]
 # vdp.yaml
 key: VDP
 label: VDP
-generator: gen_vdp_manifest
 base_dir: /sdf/.../vdp/data/schema_v1
 
 # edrixs.yaml
 key: EDRIXS
 label: EDRIXS
-generator: gen_edrixs_manifest
 base_dir: /sdf/.../EDRIXS
 ```
-
-#### `generators/*.py` — zero changes
-
-Generators produce `(ent_df, art_df)` DataFrames.  They don't touch
-the catalog or know about containers.
 
 #### Reference notebooks (`tiled_poc/examples/`) — same mechanical pattern
 
@@ -427,7 +414,6 @@ the catalog or know about containers.
 | `cli.py` | Low | ~5 | Config-driven |
 | `demo_multimodal.py` | Medium | ~11 | Mechanical nesting |
 | `datasets/*.yaml` | Low | +1 field each | New field |
-| `generators/*.py` | None | 0 | No changes |
 
 ---
 

@@ -12,7 +12,7 @@ For experienced users who have done this before:
 - [ ] **Assess:** Talk to the data provider — what parameters, what artifacts, what file layout?
 - [ ] **Explore:** Open the files yourself, inspect shapes/dtypes/structure.
 - [ ] **Pattern:** Identify which data pattern applies (A: one file per artifact, B: batched, C: multi-artifact per file).
-- [ ] **Generator:** Write `extra/gen_{name}_manifest.py` with `generate(output_dir, n_entities) → (ent_df, art_df)`.
+- [ ] **Generator:** Write a manifest generator script (in your application directory) that produces the two Parquet files.
 - [ ] **Entities Parquet:** One row per entity. Required columns: `uid`, `key`. All other columns become metadata.
 - [ ] **Artifacts Parquet:** One row per artifact. Required columns: `uid`, `type`, `file`, `dataset`. Optional: `index`.
 - [ ] **Key rule:** `type` must be unique per `uid`.
@@ -226,7 +226,7 @@ data/
 | H001 | mh | artifacts/H001_mh.h5 | /curve | |
 | H001 | gs | artifacts/H001_gs.h5 | /gs | |
 
-**Reference implementation:** `extra/gen_vdp_manifest.py`
+**Reference implementation:** See your application directory's generators.
 
 ### Pattern B: Batched file (many entities in one file)
 
@@ -244,7 +244,7 @@ data/
 | H0001 | rixs | all_spectra.h5 | /spectra | 1 |
 | H0002 | rixs | all_spectra.h5 | /spectra | 2 |
 
-**Reference implementation:** `extra/gen_edrixs_manifest.py`
+**Reference implementation:** See your application directory's generators.
 
 ### Pattern C: One file per entity, multiple datasets inside
 
@@ -263,7 +263,7 @@ data/
 | mm_401 | dispersion | 401.h5 | /dispersion | |
 | mm_401 | dos | 401.h5 | /dos | |
 
-**Reference implementation:** `extra/gen_multimodal_manifest.py`
+**Reference implementation:** See your application directory's generators.
 
 ### Mixed patterns
 
@@ -275,8 +275,9 @@ paths). The manifest handles this naturally — each row specifies its own
 
 ## Step 4: Write the Manifest Generator
 
-Place your script in `tiled_poc/extra/gen_{name}_manifest.py`. It must expose
-one function:
+Manifest generators are dataset-specific scripts that live in your application
+directory (not in this broker repo). Write a script that produces two Parquet
+files conforming to the manifest contract. A common interface is:
 
 ```python
 def generate(output_dir, n_entities=None):
@@ -418,29 +419,17 @@ def generate(output_dir, n_entities=None):
 
 ## Step 5: Generate Manifests
 
-Run your generator to produce the Parquet files:
+Run your generator script from your application directory to produce the
+Parquet files. Place the output in the `manifests/` directory.
 
-```bash
-cd $PROJ_VDP/tiled_poc
-
-# Test with a small sample first
-uv run --with pandas --with pyarrow --with h5py \
-  python -c "
-from extra.gen_spinwave_manifest import generate
-ent, art = generate('demo/manifests', n_entities=5)
-print(ent)
-print(art)
-"
-```
-
-Inspect the output:
+Test with a small sample first, then inspect the output:
 
 ```bash
 uv run --with pandas --with pyarrow \
   python -c "
 import pandas as pd
-ent = pd.read_parquet('demo/manifests/spinwave_entities.parquet')
-art = pd.read_parquet('demo/manifests/spinwave_artifacts.parquet')
+ent = pd.read_parquet('manifests/spinwave_entities.parquet')
+art = pd.read_parquet('manifests/spinwave_artifacts.parquet')
 print(f'Entities:  {len(ent)} rows, columns: {list(ent.columns)}')
 print(f'Artifacts: {len(art)} rows, columns: {list(art.columns)}')
 print(ent.head())
@@ -596,9 +585,6 @@ whether the catalog is the right tool for this particular dataset.
 |----------|------|
 | Manifest contract (full spec) | [`docs/LOCATOR-AND-MANIFEST-CONTRACT.md`](LOCATOR-AND-MANIFEST-CONTRACT.md) |
 | Broker design document | [`docs/DESIGN-GENERIC-BROKER.md`](DESIGN-GENERIC-BROKER.md) |
-| VDP manifest generator | `tiled_poc/extra/gen_vdp_manifest.py` |
-| EDRIXS manifest generator | `tiled_poc/extra/gen_edrixs_manifest.py` |
-| Multimodal manifest generator | `tiled_poc/extra/gen_multimodal_manifest.py` |
 | Bulk registration script | `tiled_poc/broker/bulk_register.py` |
 | HTTP registration script | `tiled_poc/broker/http_register.py` |
 | Bulk ingest results | [`docs/BULK-INGEST-RESULTS.md`](BULK-INGEST-RESULTS.md) |

@@ -1,9 +1,8 @@
 """
 CLI entry points for the broker package.
 
-Provides three commands:
+Provides two commands:
   - broker-ingest:    Bulk SQL registration from Parquet manifests
-  - broker-generate:  Manifest generation from dataset configs
   - broker-register:  HTTP registration against a running Tiled server
 
 All paths (catalog.db, manifests/, storage/, datasets/) are resolved
@@ -12,7 +11,6 @@ relative to the current working directory.
 
 import sys
 import argparse
-import importlib
 from pathlib import Path
 
 DB_PATH = Path("catalog.db")
@@ -78,7 +76,7 @@ def ingest_main():
             print(f"\nERROR: Parquet files not found for '{name}':")
             print(f"  Expected: {ent_path}")
             print(f"  Expected: {art_path}")
-            print(f"  Run generate.py first.")
+            print(f"  Place Parquet manifests in manifests/ first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
@@ -94,63 +92,6 @@ def ingest_main():
     from broker.bulk_register import verify_registration
     print()
     verify_registration(str(DB_PATH))
-
-    print("\nDone!")
-
-
-# ── broker-generate ──────────────────────────────────────────────
-
-def generate_main(default_generators_dir="generators"):
-    """Manifest generation (from generate.py).
-
-    Reads dataset config files (YAML) and runs the corresponding manifest
-    generator module.
-
-    Args:
-        default_generators_dir: Default directory for generator modules.
-            The entry point (broker-generate) defaults to "generators/";
-            tiled_poc/generate.py passes "extra/".
-    """
-    parser = argparse.ArgumentParser(description="Generate manifests from dataset configs.")
-    parser.add_argument("configs", nargs="+", help="Dataset config YAML files")
-    parser.add_argument("-n", type=int, default=10, help="Entities per dataset (default: 10)")
-    parser.add_argument(
-        "--generators-dir",
-        type=str,
-        default=default_generators_dir,
-        help=f"Directory containing generator modules (default: {default_generators_dir})",
-    )
-    args = parser.parse_args()
-
-    # Add generators dir to path for imports
-    generators_path = Path(args.generators_dir).resolve()
-    sys.path.insert(0, str(generators_path))
-
-    manifests_dir = Path("manifests")
-    manifests_dir.mkdir(exist_ok=True)
-
-    print("=" * 50)
-    print("Manifest Generation")
-    print("=" * 50)
-    print(f"Configs: {args.configs}")
-    print(f"Entities per dataset: {args.n}")
-    print(f"Generators dir: {generators_path}")
-    print(f"Output: {manifests_dir.resolve()}")
-
-    for config_path in args.configs:
-        if not Path(config_path).exists():
-            print(f"\nERROR: Config not found: {config_path}")
-            sys.exit(1)
-
-        config = _load_config(config_path)
-        name = Path(config_path).stem
-        label = config.get("label", config["key"])
-        generator_module = config["generator"]
-
-        print(f"\n--- Generating {label} ({name}) ---")
-
-        module = importlib.import_module(generator_module)
-        module.generate(str(manifests_dir), n_entities=args.n)
 
     print("\nDone!")
 
@@ -221,7 +162,7 @@ def register_main():
             print(f"\nERROR: Parquet files not found for '{name}':")
             print(f"  Expected: {ent_path}")
             print(f"  Expected: {art_path}")
-            print(f"  Run generate.py first.")
+            print(f"  Place Parquet manifests in manifests/ first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
