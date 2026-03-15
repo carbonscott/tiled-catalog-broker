@@ -11,6 +11,27 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 
+def _load_dotenv(path=".env"):
+    """Load key=value pairs from a .env file into os.environ.
+
+    Skips blank lines and comments (#). Explicit env vars take precedence
+    (uses setdefault). No external dependencies.
+    """
+    p = Path(path)
+    if not p.exists():
+        return
+    for line in p.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        if key and sep:
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_dotenv()
+
+
 # Module-level config cache
 _config = None
 _config_path = None

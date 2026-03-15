@@ -31,14 +31,17 @@ from .utils import (
 )
 
 
-def create_data_source(art_row, base_dir):
+def create_data_source(art_row, base_dir, server_base_dir=None):
     """Create a Tiled DataSource for an artifact pointing to external HDF5.
 
     Reads dataset path and shape from the manifest and HDF5 file directly.
 
     Args:
         art_row: DataFrame row with artifact manifest columns.
-        base_dir: Base directory for resolving relative file paths.
+        base_dir: Base directory for resolving relative file paths (local).
+        server_base_dir: If provided, used for the asset data_uri instead of
+            base_dir.  Needed when the server sees the filesystem at a
+            different mount point (e.g. K8s pod).
 
     Returns:
         Tuple of (DataSource, data_shape, data_dtype).
@@ -48,7 +51,8 @@ def create_data_source(art_row, base_dir):
     from tiled.structures.data_source import Asset, DataSource, Management
 
     h5_rel_path = art_row["file"]
-    h5_full_path = os.path.join(base_dir, h5_rel_path)
+    uri_base = server_base_dir if server_base_dir is not None else base_dir
+    h5_full_path = os.path.join(uri_base, h5_rel_path)
     dataset_path = art_row["dataset"]
 
     # Determine index for batched files
@@ -91,7 +95,8 @@ def create_data_source(art_row, base_dir):
 
 
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
-                          dataset_key, dataset_metadata):
+                          dataset_key, dataset_metadata,
+                          server_base_dir=None):
     """Register one dataset via HTTP through a running Tiled server.
 
     Creates a dataset container, then entity containers with locator
@@ -101,10 +106,13 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         client: Tiled client connected to a running server.
         ent_df: Entity manifest DataFrame.
         art_df: Artifact manifest DataFrame.
-        base_dir: Base directory for resolving relative file paths.
+        base_dir: Base directory for resolving relative file paths (local).
         label: Dataset name (for logging).
         dataset_key: Key for the dataset container (e.g. "VDP").
         dataset_metadata: Metadata dict for the dataset container.
+        server_base_dir: If provided, used for asset data_uri instead of
+            base_dir.  Needed when the server sees the filesystem at a
+            different mount point.
 
     Returns:
         bool: True if any entities were registered.
@@ -177,7 +185,8 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
 
                     # Create data source pointing to external HDF5
                     data_source, data_shape, data_dtype = create_data_source(
-                        art_row, base_dir=base_dir
+                        art_row, base_dir=base_dir,
+                        server_base_dir=server_base_dir,
                     )
 
                     # Build artifact metadata dynamically from non-standard columns
@@ -235,13 +244,26 @@ def verify_registration_http(client):
         print("No containers registered yet.")
         return
 
-    keys = list(client.keys())[:3]
-    print(f"First 3 container keys: {keys}")
+    keys = list(client.keys())[:10]
+    print(f"First keys: {keys[:3]}")
 
-    if keys:
-        ent_key = keys[0]
-        h = client[ent_key]
-        meta = dict(h.metadata)
+    # Find a container node to verify (skip non-container nodes like arrays)
+    # TODO: each client[k] is an HTTP request; could be slow on servers with
+    # many non-container nodes at root level.
+    h = None
+    ent_key = None
+    for k in keys:
+        node = client[k]
+        if hasattr(node, "keys"):
+            h = node
+            ent_key = k
+            break
+
+    if h is None:
+        print("No container nodes found at root level.")
+        return
+
+    meta = dict(h.metadata)
 
         print(f"\nContainer '{ent_key}':")
 

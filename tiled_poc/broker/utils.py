@@ -53,6 +53,7 @@ def check_server():
     Returns:
         bool: True if server responds, False otherwise.
     """
+    import ssl
     import urllib.request
     import urllib.error
 
@@ -64,7 +65,12 @@ def check_server():
             f"{url}/api/v1/",
             headers={"Authorization": f"Apikey {api_key}"}
         )
-        with urllib.request.urlopen(req, timeout=5) as response:
+        # Allow self-signed certificates for internal HTTPS servers
+        ctx = ssl.create_default_context()
+        if url.startswith("https"):
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as response:
             return response.status == 200
     except (urllib.error.URLError, urllib.error.HTTPError):
         return False

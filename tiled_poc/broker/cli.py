@@ -177,9 +177,11 @@ def register_main():
 
         dataset_key = config["key"]
         dataset_metadata = config.get("metadata", {"label": label})
+        server_base_dir = config.get("server_base_dir")
         register_dataset_http(client, ent_df, art_df, base_dir, label,
                               dataset_key=dataset_key,
-                              dataset_metadata=dataset_metadata)
+                              dataset_metadata=dataset_metadata,
+                              server_base_dir=server_base_dir)
 
     # Verify
     verify_registration_http(client)
