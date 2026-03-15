@@ -1,7 +1,7 @@
 # Plan: Split VDP into Three Separate Datasets
 
 **Date:** 2026-03-14
-**Status:** Approved, ready for implementation
+**Status:** Complete
 
 ## Background
 
@@ -54,66 +54,59 @@ VDP is a coworker's name (the person who ran the simulations), not a material.
 | | `GenericSpin_Sunny_MH` (80K magnetization curves) |
 | | `GenericSpin_Sunny_INS` (20K INS spectra) |
 
-## Implementation Plan
+## Implementation (completed 2026-03-14)
 
-### Step 1: Create Three Manifest Generators
+Generators were placed in `$DATA_BROKER_DIR/generators/` (not in the broker
+repo) per the separation established in commit `d5acd61`.
 
-New files in `tiled_poc/extra/`:
-- `gen_genericspin_sunny_gs_manifest.py` -- filters to `gs_state` only
-- `gen_genericspin_sunny_mh_manifest.py` -- filters to `mh_*` (8 per entity)
-- `gen_genericspin_sunny_ins_manifest.py` -- filters to `ins_*` (2 per entity)
+### Files created in `$DATA_BROKER_DIR`
 
-Each generator:
-- Reads the same raw VDP Parquet manifests
-- Filters artifacts by type
-- Writes `{name}_entities.parquet` and `{name}_artifacts.parquet`
+**Generators:**
+- `generators/_vdp_common.py` -- shared logic (load raw manifests, rename
+  columns, filter, transform)
+- `generators/gen_genericspin_sunny_gs_manifest.py` -- filters to `gs_state`
+- `generators/gen_genericspin_sunny_mh_manifest.py` -- filters to `mh_curve`
+- `generators/gen_genericspin_sunny_ins_manifest.py` -- filters to `ins_powder`
 
-### Step 2: Create Dataset YAML Configs
+**Dataset configs:**
+- `datasets/genericspin_sunny_gs.yaml` -- key: `GenericSpin_Sunny_GS`, measurement: `ground_state`
+- `datasets/genericspin_sunny_mh.yaml` -- key: `GenericSpin_Sunny_MH`, measurement: `magnetization`
+- `datasets/genericspin_sunny_ins.yaml` -- key: `GenericSpin_Sunny_INS`, measurement: `inelastic_neutron_scattering`
 
-New files in `$DATA_BROKER_DIR/datasets/`:
-- `genericspin_sunny_gs.yaml`
-- `genericspin_sunny_mh.yaml`
-- `genericspin_sunny_ins.yaml`
+**Generated manifests:**
+- `manifests/genericspin_sunny_gs_{entities,artifacts}.parquet`
+- `manifests/genericspin_sunny_mh_{entities,artifacts}.parquet`
+- `manifests/genericspin_sunny_ins_{entities,artifacts}.parquet`
 
-All share:
-- `base_dir: /sdf/.../vdp/data/schema_v1`
-- `metadata.organization: MAIQMag`
-- `metadata.material: generic spin model`
-- `metadata.producer: Sunny.jl`
+### Validation results
 
-Differentiated by `metadata.data_type` and `metadata.measurement`.
+- **Entity match:** All 10,000 entities matched by UID; physics parameters
+  (Ja, Jb, Jc, Dc, spin_s, g_factor) identical across old VDP and all three
+  new datasets
+- **Artifact match:** All 110,000 (uid, type, file, dataset) tuples match
+  exactly between old VDP and the union of three new datasets
+- **Database counts:** GS=10K/10K, MH=10K/80K, INS=10K/20K
 
-### Step 3: Generate Manifests
+### VDP removal
 
-Run `generate.py` for each config to produce 6 Parquet files in
-`$DATA_BROKER_DIR/manifests/`.
+Old VDP container (id=1) removed via set-based SQLite deletes:
+- Deleted 10,000 entities + 110,000 artifacts + associated data_sources
+  and associations
+- Zero orphaned assets (HDF5 files shared with new datasets)
+- Closure table rebuilt (806,190 rows)
 
-### Step 4: Ingest into Production catalog.db
+### Final catalog state (8 datasets)
 
-Run `ingest.py` for each config. The existing `ensure_catalog()` connects to
-the DB without reinitializing. New dataset containers are added alongside
-existing ones.
-
-### Step 5: Validate
-
-For each new dataset:
-1. Match entities by physics parameters (Ja, Jb, Jc, Dc, spin_s, g_factor)
-   to old VDP entities
-2. Confirm artifact arrays are identical (same file path, same HDF5 dataset)
-
-### Step 6: Remove Old VDP
-
-Direct SQLite operations on `catalog.db`:
-1. Find VDP container node
-2. Delete all descendant nodes (entities + artifacts)
-3. Delete associated data_sources, assets, closure table entries
-4. Rebuild closure table
-5. Delete VDP container node
-
-### Step 7: Update Configs
-
-- Add new dataset YAML configs to demo (`tiled_poc/demo/datasets/`)
-- Remove or update old `vdp.yml` / `vdp.yaml`
+| Dataset | Entities | Artifacts |
+|---------|----------|-----------|
+| GenericSpin_Sunny_GS | 10,000 | 10,000 |
+| GenericSpin_Sunny_MH | 10,000 | 80,000 |
+| GenericSpin_Sunny_INS | 10,000 | 20,000 |
+| EDRIXS | 10,000 | 10,000 |
+| NiPS3_Multimodal | 7,616 | 45,696 |
+| RIXS | 7 | 42 |
+| Challenge | 1 | 9 |
+| SEQUOIA | 3 | 76 |
 
 ## Design Notes
 
@@ -123,3 +116,6 @@ Direct SQLite operations on `catalog.db`:
   `config.yml` already includes the VDP data path
 - **Generator output filename must match config YAML stem** -- the CLI
   resolves manifests as `{stem}_entities.parquet`
+- **Shared helper `_vdp_common.py`** avoids code duplication across three
+  generators while keeping each generator a standalone file with the
+  standard `generate()` interface
