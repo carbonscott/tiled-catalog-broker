@@ -604,20 +604,20 @@ uv run --with $BROKER tiled serve config config.yml --api-key secret
 ```python
 from tiled.client import from_uri
 
-client = from_uri("http://localhost:8006", api_key="secret")
+client = from_uri("http://localhost:8005", api_key="secret")
 
 # Check the dataset container exists
 ds = client["SpinWave"]
 print(f"SpinWave: {len(ds)} entities")
 
 # List some entities
-for key in list(ds.keys()[:3]):
+for key in list(ds.keys())[:3]:
     h = ds[key]
     print(f"{key}: metadata keys = {list(h.metadata.keys())}")
     print(f"  children: {list(h)}")
 
 # Check a specific artifact loads correctly
-h = ds[list(ds.keys()[:1])[0]]
+h = ds[list(ds.keys())[:1][0]]
 arr = h[list(h)[0]].read()
 print(f"  shape={arr.shape}, dtype={arr.dtype}")
 
