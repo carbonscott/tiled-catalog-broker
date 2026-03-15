@@ -244,13 +244,24 @@ def verify_registration_http(client):
         print("No containers registered yet.")
         return
 
-    keys = list(client.keys())[:3]
-    print(f"First 3 container keys: {keys}")
+    keys = list(client.keys())[:10]
+    print(f"First keys: {keys[:3]}")
 
-    if keys:
-        ent_key = keys[0]
-        h = client[ent_key]
-        meta = dict(h.metadata)
+    # Find a container node to verify (skip non-container nodes like arrays)
+    h = None
+    ent_key = None
+    for k in keys:
+        node = client[k]
+        if hasattr(node, "keys"):
+            h = node
+            ent_key = k
+            break
+
+    if h is None:
+        print("No container nodes found at root level.")
+        return
+
+    meta = dict(h.metadata)
 
         print(f"\nContainer '{ent_key}':")
 
