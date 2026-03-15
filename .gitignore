@@ -26,3 +26,6 @@ tiled_poc/PROFILING_REPORT.md
 # Generated manifests and storage
 tiled_poc/manifests/
 tiled_poc/storage/
+
+# Environment secrets
+.env
