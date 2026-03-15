@@ -12,13 +12,15 @@ For experienced users who have done this before:
 - [ ] **Assess:** Talk to the data provider — what parameters, what artifacts, what file layout?
 - [ ] **Explore:** Open the files yourself, inspect shapes/dtypes/structure.
 - [ ] **Pattern:** Identify which data pattern applies (A: one file per artifact, B: batched, C: multi-artifact per file).
-- [ ] **Generator:** Write `extra/gen_{name}_manifest.py` with `generate(output_dir, n_entities) → (ent_df, art_df)`.
+- [ ] **Generator:** Write a manifest generator script (in your application directory) that produces the two Parquet files.
 - [ ] **Entities Parquet:** One row per entity. Required columns: `uid`, `key`. All other columns become metadata.
 - [ ] **Artifacts Parquet:** One row per artifact. Required columns: `uid`, `type`, `file`, `dataset`. Optional: `index`.
 - [ ] **Key rule:** `type` must be unique per `uid`.
 - [ ] **Generate:** Run your generator, inspect the Parquet output.
-- [ ] **Ingest:** Bulk ingest into catalog with `broker/ingest.py` or `broker/bulk_register.py`.
-- [ ] **Verify:** Spot-check with a Tiled client.
+- [ ] **Config:** Write a dataset YAML config with `key`, `base_dir`, and `metadata`. Filename stem must match Parquet prefix.
+- [ ] **Server config:** Add `base_dir` to `readable_storage` in `config.yml`.
+- [ ] **Ingest:** `broker-ingest datasets/<name>.yaml`
+- [ ] **Verify:** Spot-check with a Tiled client — container exists, metadata correct, arrays load.
 
 If anything in the checklist is unclear, read the full guide below.
 
@@ -226,7 +228,7 @@ data/
 | H001 | mh | artifacts/H001_mh.h5 | /curve | |
 | H001 | gs | artifacts/H001_gs.h5 | /gs | |
 
-**Reference implementation:** `extra/gen_vdp_manifest.py`
+**Reference implementation:** See your application directory's generators.
 
 ### Pattern B: Batched file (many entities in one file)
 
@@ -244,7 +246,7 @@ data/
 | H0001 | rixs | all_spectra.h5 | /spectra | 1 |
 | H0002 | rixs | all_spectra.h5 | /spectra | 2 |
 
-**Reference implementation:** `extra/gen_edrixs_manifest.py`
+**Reference implementation:** See your application directory's generators.
 
 ### Pattern C: One file per entity, multiple datasets inside
 
@@ -263,7 +265,7 @@ data/
 | mm_401 | dispersion | 401.h5 | /dispersion | |
 | mm_401 | dos | 401.h5 | /dos | |
 
-**Reference implementation:** `extra/gen_multimodal_manifest.py`
+**Reference implementation:** See your application directory's generators.
 
 ### Mixed patterns
 
@@ -275,8 +277,9 @@ paths). The manifest handles this naturally — each row specifies its own
 
 ## Step 4: Write the Manifest Generator
 
-Place your script in `tiled_poc/extra/gen_{name}_manifest.py`. It must expose
-one function:
+Manifest generators are dataset-specific scripts that live in your application
+directory (not in this broker repo). Write a script that produces two Parquet
+files conforming to the manifest contract. A common interface is:
 
 ```python
 def generate(output_dir, n_entities=None):
@@ -405,6 +408,10 @@ def generate(output_dir, n_entities=None):
     return ent_df, art_df
 ```
 
+Note: the output filenames (`spinwave_entities.parquet`, `spinwave_artifacts.parquet`)
+must match the dataset config filename stem (`datasets/spinwave.yaml`). See
+[Step 6](#step-6-write-a-dataset-config) for why.
+
 ### Tips
 
 - **Start small.** Test with `n_entities=5` before processing the full
@@ -418,29 +425,17 @@ def generate(output_dir, n_entities=None):
 
 ## Step 5: Generate Manifests
 
-Run your generator to produce the Parquet files:
+Run your generator script from your application directory to produce the
+Parquet files. Place the output in the `manifests/` directory.
 
-```bash
-cd $PROJ_VDP/tiled_poc
-
-# Test with a small sample first
-uv run --with pandas --with pyarrow --with h5py \
-  python -c "
-from extra.gen_spinwave_manifest import generate
-ent, art = generate('demo/manifests', n_entities=5)
-print(ent)
-print(art)
-"
-```
-
-Inspect the output:
+Test with a small sample first, then inspect the output:
 
 ```bash
 uv run --with pandas --with pyarrow \
   python -c "
 import pandas as pd
-ent = pd.read_parquet('demo/manifests/spinwave_entities.parquet')
-art = pd.read_parquet('demo/manifests/spinwave_artifacts.parquet')
+ent = pd.read_parquet('manifests/spinwave_entities.parquet')
+art = pd.read_parquet('manifests/spinwave_artifacts.parquet')
 print(f'Entities:  {len(ent)} rows, columns: {list(ent.columns)}')
 print(f'Artifacts: {len(art)} rows, columns: {list(art.columns)}')
 print(ent.head())
@@ -456,24 +451,131 @@ print(art.head())
 
 ---
 
-## Step 6: Ingest into the Catalog
+## Step 6: Write a Dataset Config
 
-Two options depending on your situation:
+Your application directory should have this layout:
 
-### Option A: Bulk ingest (offline, recommended for initial load)
+```
+my-data-broker/
+├── config.yml          # Tiled server config (readable_storage, port, etc.)
+├── catalog.db          # SQLite catalog (created on first ingest)
+├── datasets/           # Dataset YAML configs (one per dataset)
+│   └── spinwave.yaml
+├── generators/         # Manifest generator scripts
+│   └── gen_spinwave_manifest.py
+├── manifests/          # Generated Parquet files (output of generators)
+│   ├── spinwave_entities.parquet
+│   └── spinwave_artifacts.parquet
+└── storage/            # Tiled writable storage (created automatically)
+```
 
-This writes directly to the SQLite catalog. No running server needed. Fast
-(~1,800 nodes/sec).
+Create a YAML config file in the `datasets/` folder. This tells the broker
+where the data lives and what metadata to attach to the dataset container.
+
+```yaml
+key: SpinWave
+base_dir: /sdf/data/.../spinwave/results
+metadata:
+  organization: MAIQMag
+  data_type: simulation
+  material: FeGe
+  producer: SpinWaveSim
+  measurement: dispersion
+```
+
+### Field reference
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `key` | **Yes** | Top-level container name in Tiled (e.g., `SpinWave`, `GenericSpin_Sunny_MH`). This is what users type in `client["SpinWave"]`. |
+| `base_dir` | **Yes** | Absolute path to the data directory. Artifact `file` paths in the manifest are relative to this. Must also be listed in `config.yml` under `readable_storage`. |
+| `metadata` | **Yes** | Dict of dataset-level metadata. Powers cross-dataset discovery queries like `client.search(Key("material") == "FeGe")`. |
+| `label` | No | Human-readable display name. Defaults to `key`. |
+| `generator` | No | Module name of the manifest generator (for documentation; not used by the ingest CLI). |
+
+### The naming rule
+
+**The YAML filename stem must match the Parquet filename prefix.** The
+`broker-ingest` CLI resolves manifests by config filename:
+
+```
+datasets/spinwave.yaml
+    ↓ stem = "spinwave"
+manifests/spinwave_entities.parquet   ← CLI looks for this
+manifests/spinwave_artifacts.parquet  ← and this
+```
+
+If these don't match, ingestion fails with "Parquet files not found." This is
+the most common setup mistake.
+
+### Dataset-level metadata for discovery
+
+The `metadata` block is what enables cross-dataset search without knowing
+container keys:
+
+```python
+# Find all simulation datasets
+client.search(Key("data_type") == "simulation")
+
+# Find datasets about a specific material
+client.search(Key("material") == "FeGe")
+
+# Combined
+client.search(Key("material") == "FeGe").search(Key("data_type") == "simulation")
+```
+
+Choose metadata fields that help users discover your dataset alongside others.
+Common fields: `organization`, `data_type` (simulation/experimental), `material`,
+`producer`, `facility`, `instrument`, `measurement`.
+
+### Server configuration
+
+Before ingesting, ensure your dataset's `base_dir` is listed in `config.yml`
+under `readable_storage` so Tiled can serve the HDF5 files:
+
+```yaml
+trees:
+  - path: /
+    tree: catalog
+    args:
+      uri: "sqlite:///catalog.db"
+      writable_storage: "storage"
+      readable_storage:
+        - /sdf/data/.../spinwave/results    # ← add your base_dir here
+        - /sdf/data/.../other_dataset
+```
+
+---
+
+## Step 7: Ingest into the Catalog
+
+Two options depending on your situation.
+
+### Option A: Bulk ingest via CLI (recommended)
+
+This writes directly to the SQLite catalog using `broker-ingest`. No running
+server needed. Fast (~1,800 nodes/sec).
+
+Run from your application directory (where `manifests/` and `datasets/` live):
 
 ```bash
-cd $PROJ_VDP/tiled_poc
+export BROKER=/path/to/tiled-catalog-broker/tiled_poc
 
-uv run --with 'tiled[server]' --with pandas --with pyarrow --with h5py \
-  --with canonicaljson --with 'ruamel.yaml' \
-  python broker/bulk_register.py \
-    --ent-manifest demo/manifests/spinwave_entities.parquet \
-    --art-manifest demo/manifests/spinwave_artifacts.parquet \
-    --base-dir /sdf/data/.../spinwave/results
+uv run --with $BROKER broker-ingest datasets/spinwave.yaml
+```
+
+The CLI will:
+1. Read `datasets/spinwave.yaml` for `key`, `base_dir`, and `metadata`
+2. Load `manifests/spinwave_entities.parquet` and `manifests/spinwave_artifacts.parquet`
+3. Create a dataset container named `SpinWave` in `catalog.db`
+4. Bulk-insert all entities and artifacts
+
+You can ingest multiple datasets at once:
+
+```bash
+uv run --with $BROKER broker-ingest \
+    datasets/spinwave.yaml \
+    datasets/another.yaml
 ```
 
 ### Option B: HTTP registration (incremental, for updates)
@@ -483,44 +585,54 @@ safe to run multiple times (skips existing entries).
 
 ```bash
 # Terminal 1: start the server
-uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
+uv run --with $BROKER tiled serve config config.yml --api-key secret
 
 # Terminal 2: register
-uv run --with 'tiled[server]' --with pandas --with pyarrow --with h5py \
-  --with 'ruamel.yaml' \
-  python broker/http_register.py \
-    --ent-manifest demo/manifests/spinwave_entities.parquet \
-    --art-manifest demo/manifests/spinwave_artifacts.parquet \
-    --base-dir /sdf/data/.../spinwave/results
+uv run --with $BROKER broker-register datasets/spinwave.yaml
 ```
 
 ---
 
-## Step 7: Verify
+## Step 8: Verify
 
-After ingestion, spot-check that the data is accessible:
+After ingestion, start the server and spot-check that the data is accessible:
+
+```bash
+uv run --with $BROKER tiled serve config config.yml --api-key secret
+```
 
 ```python
 from tiled.client import from_uri
 
 client = from_uri("http://localhost:8005", api_key="secret")
 
+# Check the dataset container exists
+ds = client["SpinWave"]
+print(f"SpinWave: {len(ds)} entities")
+
 # List some entities
-for key in list(client)[:3]:
-    h = client[key]
+for key in list(ds.keys())[:3]:
+    h = ds[key]
     print(f"{key}: metadata keys = {list(h.metadata.keys())}")
     print(f"  children: {list(h)}")
 
 # Check a specific artifact loads correctly
-h = client[list(client)[0]]
+h = ds[list(ds.keys())[:1][0]]
 arr = h[list(h)[0]].read()
 print(f"  shape={arr.shape}, dtype={arr.dtype}")
+
+# Verify dataset-level discovery works
+from tiled.queries import Key
+hits = client.search(Key("material") == "FeGe")
+print(f"Discovery query: {list(hits.keys())}")
 ```
 
 **Verify these things:**
+- The dataset container exists with the expected number of entities
 - Entities have all expected metadata keys (your physics parameters)
 - Each entity has the expected child artifacts
 - Arrays have the correct shapes
+- Dataset-level discovery queries return your dataset
 - A few random values match what you see when loading directly with h5py
 
 ---
@@ -582,6 +694,7 @@ whether the catalog is the right tool for this particular dataset.
 | **Artifact** | One data array produced by an entity (e.g., a magnetization curve, a spectrum, a ground state). |
 | **Locator** | The triple `(file, dataset, index)` that tells you exactly where to find one artifact in storage. |
 | **uid** | Unique ID. A string that uniquely identifies one entity across all manifests. |
+| **Dataset config** | A YAML file (`datasets/*.yaml`) that tells the broker the dataset's `key`, `base_dir`, and discovery `metadata`. The filename stem must match the Parquet manifest prefix. |
 | **Manifest** | A Parquet file listing entities or artifacts with their metadata and locators. The interface between data provider and broker. |
 | **Tiled** | The HTTP data catalog server. Stores metadata in SQLite/PostgreSQL and serves arrays over HTTP. |
 | **Mode A** | Expert access: query Tiled for metadata/locators, then load data directly via h5py. Fast for bulk ML workloads. |
@@ -596,9 +709,7 @@ whether the catalog is the right tool for this particular dataset.
 |----------|------|
 | Manifest contract (full spec) | [`docs/LOCATOR-AND-MANIFEST-CONTRACT.md`](LOCATOR-AND-MANIFEST-CONTRACT.md) |
 | Broker design document | [`docs/DESIGN-GENERIC-BROKER.md`](DESIGN-GENERIC-BROKER.md) |
-| VDP manifest generator | `tiled_poc/extra/gen_vdp_manifest.py` |
-| EDRIXS manifest generator | `tiled_poc/extra/gen_edrixs_manifest.py` |
-| Multimodal manifest generator | `tiled_poc/extra/gen_multimodal_manifest.py` |
-| Bulk registration script | `tiled_poc/broker/bulk_register.py` |
-| HTTP registration script | `tiled_poc/broker/http_register.py` |
+| Ingest CLI | `tiled_poc/broker/cli.py` (`ingest_main`) |
+| Bulk registration engine | `tiled_poc/broker/bulk_register.py` |
+| HTTP registration engine | `tiled_poc/broker/http_register.py` |
 | Bulk ingest results | [`docs/BULK-INGEST-RESULTS.md`](BULK-INGEST-RESULTS.md) |

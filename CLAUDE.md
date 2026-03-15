@@ -4,6 +4,7 @@ Set these environment variables before running any commands:
 
 ```bash
 export PROJ_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/codes/tiled-catalog-broker
+export DATA_BROKER_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/cwang31-data-broker
 export UV_CACHE_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/.UV_CACHE
 ```
 
@@ -45,7 +46,6 @@ tiled-catalog-broker/
 ├── externals/             # Reference materials (PDFs, diagrams)
 └── tiled_poc/             # Main implementation
     ├── config.yml         # Server configuration (port 8005)
-    ├── generate.py        # CLI: generate Parquet manifests
     ├── ingest.py          # CLI: bulk ingest into catalog.db
     ├── register.py        # CLI: HTTP register into running server
     ├── broker/            # Core library (1,800+ LOC)
@@ -55,14 +55,6 @@ tiled-catalog-broker/
     │   ├── http_register.py   # HTTP registration via Tiled client
     │   ├── catalog.py     # Catalog creation + dataset containers
     │   └── query_manifest.py  # Mode A discovery API
-    ├── extra/             # Manifest generators (one per dataset)
-    │   ├── gen_vdp_manifest.py
-    │   ├── gen_edrixs_manifest.py
-    │   └── gen_multimodal_manifest.py
-    ├── demo/              # Self-contained multi-dataset demo
-    │   ├── config.yml     # Demo server (port 8006)
-    │   ├── explore.py     # Marimo notebook
-    │   └── datasets/      # Dataset YAML configs
     ├── examples/          # Standalone example scripts
     └── tests/             # Test suite
 ```
@@ -77,10 +69,9 @@ cd $PROJ_DIR/tiled_poc
 # Common deps shorthand
 UV_DEPS="--with 'tiled[server]' --with pandas --with pyarrow --with h5py --with 'ruamel.yaml' --with canonicaljson"
 
-# Pipeline: generate → ingest → serve
-uv run $UV_DEPS python generate.py demo/datasets/vdp.yml -n 10
-uv run $UV_DEPS python ingest.py demo/datasets/vdp.yml
-uv run --with 'tiled[server]' tiled serve config demo/config.yml --api-key secret
+# Pipeline: (pre-built manifests in manifests/) → ingest → serve
+uv run $UV_DEPS python ingest.py datasets/mydata.yml
+uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
 
 ## Running Tests

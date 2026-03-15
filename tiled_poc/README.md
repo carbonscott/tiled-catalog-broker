@@ -32,31 +32,21 @@ UV_DEPS="--with 'tiled[server]' --with pandas --with pyarrow --with h5py --with 
 
 ---
 
-## Quickstart (Demo Walkthrough)
+## Quickstart
 
-The `demo/` directory contains a self-contained example with three datasets
-(VDP, EDRIXS, Multimodal). This walkthrough goes from raw HDF5 files to
-querying data in Python.
+The broker consumes pre-built Parquet manifests. Manifest generators are
+dataset-specific scripts that live in your application directory (not in
+this repo). See [`docs/INGESTION-GUIDE.md`](../docs/INGESTION-GUIDE.md)
+for how to create manifests and onboard new datasets.
 
-### Step 1: Generate Manifests
+### Step 1: Place Manifests
 
-Manifest generators in `extra/` scan HDF5 source data and produce Parquet
-manifests. Each dataset has a YAML config in `demo/datasets/`:
+Place your pre-built Parquet manifests in `manifests/`:
 
-```bash
-cd demo
-
-# Generate manifests for VDP and EDRIXS (10 entities each)
-uv run $UV_DEPS python ../generate.py datasets/vdp.yml datasets/edrixs.yml -n 10
 ```
-
-This creates:
-```
-demo/manifests/
-  vdp_entities.parquet
-  vdp_artifacts.parquet
-  edrixs_entities.parquet
-  edrixs_artifacts.parquet
+manifests/
+  mydata_entities.parquet
+  mydata_artifacts.parquet
 ```
 
 ### Step 2: Ingest into Catalog
@@ -65,27 +55,22 @@ demo/manifests/
 SQLAlchemy (no running server needed).
 
 ```bash
-# Still in demo/
-uv run $UV_DEPS python ../ingest.py datasets/vdp.yml datasets/edrixs.yml
+uv run $UV_DEPS python ingest.py datasets/mydata.yml
 ```
 
-This creates `demo/catalog.db` with all entities and their artifacts.
+This creates `catalog.db` with all entities and their artifacts.
 
 ### Step 3: Start the Tiled Server
 
 ```bash
-# Still in demo/
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
-
-The demo server runs on **port 8006** (production uses 8005).
 
 ### Step 4: Retrieve Data
 
 Open a new terminal (keep the server running) and start Python:
 
 ```bash
-cd demo
 uv run $UV_DEPS python
 ```
 
@@ -94,14 +79,18 @@ uv run $UV_DEPS python
 ```python
 from tiled.client import from_uri
 
-client = from_uri("http://localhost:8006", api_key="secret")
+client = from_uri("http://localhost:8005", api_key="secret")
 
-# List entities
-print(list(client)[:5])
-# ['H_636ce3e4', 'H_7a1b2c3d', ...]
+# List dataset containers
+print(list(client))
+# ['VDP', 'EDRIXS', ...]
+
+# Navigate into a dataset, list entities
+vdp = client["VDP"]
+print(list(vdp)[:5])
 
 # Pick one, list its children
-h = client[list(client)[0]]
+h = vdp[list(vdp)[0]]
 print(list(h))
 # ['mh_powder_30T', 'gs_state', 'ins_12meV']
 
@@ -115,7 +104,7 @@ print(curve.shape)  # (200,)
 ```python
 import h5py
 
-h = client[list(client)[0]]
+h = client["VDP"][list(client["VDP"])[0]]
 
 # Metadata contains HDF5 locators
 rel_path = h.metadata["path_mh_powder_30T"]
@@ -127,32 +116,23 @@ with h5py.File(f"{base_dir}/{rel_path}") as f:
     curve = f[dataset][:]
 ```
 
-### Step 5: Interactive Exploration (Optional)
-
-```bash
-cd demo
-uv run $UV_DEPS --with marimo --with matplotlib \
-  marimo edit explore.py
-```
-
 ---
 
 ## Workflow Overview
 
-The three CLI scripts form a pipeline:
+The two CLI scripts form a pipeline:
 
 ```
-generate.py          ingest.py             tiled serve
-  (manifests)   --->   (catalog.db)   --->   (HTTP API)
-                       [offline bulk]        [serve queries]
+(pre-built manifests)     ingest.py             tiled serve
+  in manifests/      --->   (catalog.db)   --->   (HTTP API)
+                            [offline bulk]        [serve queries]
 
-                     register.py
-                       [online HTTP]  --->   (running server)
+                          register.py
+                            [online HTTP]  --->   (running server)
 ```
 
 | Script | Purpose | Server needed? |
 |--------|---------|----------------|
-| `generate.py` | Scan HDF5 data, produce Parquet manifests | No |
 | `ingest.py` | Bulk-load manifests into `catalog.db` (SQLAlchemy) | No |
 | `register.py` | Register manifests into a running server (HTTP) | Yes |
 
@@ -187,74 +167,62 @@ uv run $UV_DEPS python ../register.py datasets/vdp.yml datasets/edrixs.yml
 
 ## Adding Your Own Dataset
 
-Three things are needed:
+Two things are needed:
 
-### 1. Dataset Config (`datasets/mydata.yml`)
+### 1. Parquet Manifests
 
-```yaml
-label: MyData
-generator: gen_mydata_manifest
-base_dir: /path/to/hdf5/root
-```
+Write a dataset-specific generator script (in your application directory)
+that produces two Parquet files in `manifests/`. See
+[`docs/INGESTION-GUIDE.md`](../docs/INGESTION-GUIDE.md) for the manifest
+contract and worked examples.
 
-- `label` -- Human-readable name (for logging).
-- `generator` -- Python module name in `extra/` that generates manifests.
-- `base_dir` -- Root directory. All HDF5 `file` paths in the manifest are
-  relative to this.
-
-### 2. Manifest Generator (`extra/gen_mydata_manifest.py`)
-
-Must expose one function:
-
-```python
-def generate(output_dir, n_entities=10):
-    """
-    Returns:
-        (ent_df, art_df): Two DataFrames written as Parquet.
-    """
-```
-
-**Entity DataFrame** -- one row per entity:
+**Entity manifest** (`manifests/{name}_entities.parquet`) -- one row per entity:
 
 | Column | Required | Description |
 |--------|----------|-------------|
-| `uid` | Yes | Unique identifier (first 8 chars become the Tiled key) |
+| `uid` | Yes | Unique identifier |
+| `key` | Yes | Tiled catalog key (must be unique) |
 | *(any others)* | No | Become container metadata automatically |
 
-**Artifact DataFrame** -- one row per artifact:
+**Artifact manifest** (`manifests/{name}_artifacts.parquet`) -- one row per artifact:
 
 | Column | Required | Description |
 |--------|----------|-------------|
 | `uid` | Yes | Links to parent entity |
-| `type` | Yes | Artifact key (e.g. `rixs`, `mh_powder_30T`) |
+| `type` | Yes | Artifact key (e.g. `rixs`, `mh_powder_30T`) -- must be unique per uid |
 | `file` | Yes | Relative path to HDF5 file (from `base_dir`) |
 | `dataset` | Yes | HDF5 internal dataset path (e.g. `/spectra`) |
 | `index` | No | Row index for batched arrays |
 | *(any others)* | No | Become artifact metadata automatically |
 
-### 3. Server Config
-
-Add your `base_dir` to `readable_storage` in `config.yml`:
+### 2. Dataset Config (`datasets/mydata.yml`)
 
 ```yaml
-readable_storage:
-  - "/existing/path"
-  - "/path/to/hdf5/root"   # <-- add this
+key: MyData
+label: My Dataset
+base_dir: /path/to/hdf5/root
+metadata:
+  organization: MAIQMag
+  data_type: simulation
+  producer: MyCode
 ```
+
+- `key` -- Tiled container key (immutable after first ingestion).
+- `label` -- Human-readable name (for logging).
+- `base_dir` -- Root directory. All HDF5 `file` paths in the manifest are
+  relative to this.
+- `metadata` -- Optional provenance metadata for the dataset container.
+
+Add your `base_dir` to `readable_storage` in `config.yml`.
 
 ### Run It
 
 ```bash
-cd demo
-
-# Generate manifests
-uv run $UV_DEPS python ../generate.py datasets/mydata.yml -n 100
-
 # Bulk ingest (offline)
-uv run $UV_DEPS python ../ingest.py datasets/mydata.yml
+uv run $UV_DEPS python ingest.py datasets/mydata.yml
 
 # Or HTTP register (live server)
-uv run $UV_DEPS python ../register.py datasets/mydata.yml
+uv run $UV_DEPS python register.py datasets/mydata.yml
 ```
 
 ---
@@ -293,7 +261,6 @@ uv run --with pytest --with 'ruamel.yaml' pytest tests/ -v
 ```
 tiled_poc/
 ├── config.yml                  # Server config (port 8005)
-├── generate.py                 # CLI: generate Parquet manifests
 ├── ingest.py                   # CLI: bulk ingest into catalog.db
 ├── register.py                 # CLI: HTTP register into running server
 │
@@ -304,19 +271,6 @@ tiled_poc/
 │   ├── http_register.py        # HTTP registration via Tiled client
 │   ├── catalog.py              # Catalog creation + dataset registration
 │   └── query_manifest.py       # Mode A discovery API
-│
-├── extra/                      # Manifest generators (one per dataset)
-│   ├── gen_vdp_manifest.py
-│   ├── gen_edrixs_manifest.py
-│   └── gen_multimodal_manifest.py
-│
-├── demo/                       # Self-contained multi-dataset demo
-│   ├── config.yml              # Demo server config (port 8006)
-│   ├── explore.py              # Marimo notebook
-│   └── datasets/               # Dataset YAML configs
-│       ├── vdp.yml
-│       ├── edrixs.yml
-│       └── multimodal.yml
 │
 ├── examples/                   # Standalone example scripts
 │   ├── demo_dual_mode.py

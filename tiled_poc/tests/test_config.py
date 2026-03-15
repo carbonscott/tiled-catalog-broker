@@ -86,7 +86,7 @@ class TestGetBaseDir:
 class TestGetLatestManifest:
     """Tests for get_latest_manifest()."""
 
-    @pytest.mark.skip(reason="requires generated manifests (run generate.py first)")
+    @pytest.mark.skip(reason="requires pre-built manifests in manifests/")
     def test_finds_entities_manifest(self):
         from broker.config import get_latest_manifest
         path = get_latest_manifest("entities")

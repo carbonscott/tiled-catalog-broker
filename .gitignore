@@ -23,6 +23,6 @@ tiled_poc/profile_*.py
 tiled_poc/config_postgres.yml
 tiled_poc/PROFILING_REPORT.md
 
-# Generated demo manifests and storage
-tiled_poc/demo/manifests/
-tiled_poc/demo/storage/
+# Generated manifests and storage
+tiled_poc/manifests/
+tiled_poc/storage/
