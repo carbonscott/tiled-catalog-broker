@@ -24,8 +24,8 @@ def _load_dotenv(path=".env"):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        key, _, value = line.partition("=")
-        if key and _:
+        key, sep, value = line.partition("=")
+        if key and sep:
             os.environ.setdefault(key.strip(), value.strip())
 
 

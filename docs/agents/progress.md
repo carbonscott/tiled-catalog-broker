@@ -93,10 +93,10 @@ work, verify array reads work (after path fix), then compare with catalog.db.
 - [x] Review ingestion code for SQLite-specific patterns
 - [x] Research Tiled PostgreSQL support and version compatibility
 - [x] Create branch
-- [ ] Implement `server_base_dir` support
-- [ ] Trial registration of all 8 datasets (2-3 entities each)
-- [ ] Compare with existing catalog.db
-- [ ] Report findings
+- [x] Implement `server_base_dir` support
+- [x] Trial registration of all 8 datasets (2-3 entities each)
+- [x] Compare with existing catalog.db
+- [x] Report findings
 
 ## 2026-03-14: Remove generators and demo from broker repo
 

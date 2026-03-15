@@ -248,6 +248,8 @@ def verify_registration_http(client):
     print(f"First keys: {keys[:3]}")
 
     # Find a container node to verify (skip non-container nodes like arrays)
+    # TODO: each client[k] is an HTTP request; could be slow on servers with
+    # many non-container nodes at root level.
     h = None
     ent_key = None
     for k in keys:
