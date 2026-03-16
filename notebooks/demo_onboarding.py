@@ -121,14 +121,14 @@ def _(mo):
     mo.md(r"""
     ### Run the inspector
 
-    We'll inspect the EDRIXS simulation data as a concrete example.
+    We'll inspect a RIXS simulation dataset as a concrete example.
     """)
     return
 
 
 @app.cell
 def _():
-    # Point to the EDRIXS data directory as our example
+    # Point to the RIXS simulation data directory as our example
     DATA_DIR = "/sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper"
 
     # Import the inspection engine
@@ -354,8 +354,9 @@ def _(mo):
     With the semantic model and validation rules in mind, refinement is
     straightforward:
 
-    1. **`key` and `label`** — pick a name for the Tiled hierarchy
-       (e.g. `EDRIXS_SBI`) and a human-readable label
+    1. **`key` and `label`** — key follows the convention
+       `{METHOD}_{SIM|EXP}_{DISTINGUISHING_FEATURE}` (e.g. `RIXS_SIM_BROAD_SIGMA`),
+       label is a human-readable name for what's unique about the dataset
     2. **`metadata`** — select values from the controlled vocabulary
        tables above; the draft shows allowed options in TODO comments
     3. **`parameters`** — verify the auto-detected `location` and `group`
@@ -364,9 +365,9 @@ def _(mo):
        names aren't meaningful (e.g. `spectra` → `rixs_spectrum`)
     5. **Reclassify** — move any mis-classified datasets between
        `artifacts:`, `shared:`, and `extra_metadata:` sections
-    6. **`provenance`** (optional) — add code version, round number, etc.
-       The inspector discovers some of these from HDF5 attributes
-       (e.g. `round_number`)
+    6. **`provenance`** (optional) — add code version, commit hash,
+       creation date. The inspector discovers some of these from HDF5
+       attributes
 
     ### Parameter locations
 
@@ -380,7 +381,7 @@ def _(mo):
     | `group_scalars` | Scalar datasets inside each entity's group | grouped |
     | `manifest` | Parameters from an external CSV/Parquet file, not from HDF5 | any |
 
-    For our EDRIXS example, `location: group` with `group: /params` means
+    For our RIXS example, `location: group` with `group: /params` means
     the HDF5 files have a `/params` group containing 12 parameter arrays,
     each with shape `(2000,)` — one value per entity in the batch.
 
@@ -392,16 +393,17 @@ def _(mo):
 @app.cell
 def _(Path, mo):
     # Show the finalized YAML for comparison
-    finalized_path = Path(__file__).parent.parent / "datasets" / "edrixs_sbi.yml"
+    finalized_path = Path(__file__).parent / "datasets" / "sam_klein.yml"
     finalized_yaml = finalized_path.read_text()
     mo.md(
         "### Finalized YAML (human-refined)\n\n"
         "Compare to the draft above — the user filled in:\n"
-        "- `key` and `label`\n"
-        "- `metadata` fields (method, data_type, material, producer, project)\n"
+        "- `key` following the convention: `{METHOD}_{SIM|EXP}_{DISTINGUISHING_FEATURE}`\n"
+        "- `label` — human-readable name\n"
+        "- `metadata` fields (method, data_type, material, producer, project, prior_distribution)\n"
         "- Renamed artifact type from `spectra` → `rixs_spectrum`\n"
         "- Removed TODO comments\n"
-        "- Added provenance (optional)\n\n"
+        "- Added provenance (code_version, code_commit)\n\n"
         f"```yaml\n{finalized_yaml}\n```"
     )
     return
@@ -417,14 +419,15 @@ def _(mo):
 
     | Field | Why it needs human input |
     |-------|-------------------------|
-    | `key` | Naming convention for the Tiled hierarchy |
-    | `label` | Human-readable name |
-    | `method` | Scientific method (EDRIXS, RIXS, VDP, ...) |
+    | `key` | Follows convention: `{METHOD}_{SIM\|EXP}_{DISTINGUISHING_FEATURE}` |
+    | `label` | Human-readable name (what's unique about this dataset) |
+    | `method` | Scientific method (RIXS, INS, VDP, ...) |
     | `data_type` | simulation vs. experimental |
     | `material` | What system was studied |
-    | `producer` | What code generated the data |
+    | `producer` | Code repo that generated the data (with GitHub link in model) |
+    | `prior_distribution` | How parameters were sampled (uniform, LHS, ...) |
     | Artifact names | `spectra` → `rixs_spectrum` (domain knowledge) |
-    | Provenance | Code version, round number, etc. |
+    | Provenance | Code version, commit hash, creation date |
 
     **Feedback loop**: The "Recommendations" section in the draft YAML
     tells data producers what HDF5 attributes to add so that future

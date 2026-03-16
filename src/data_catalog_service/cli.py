@@ -57,16 +57,23 @@ def _find_manifests(config_path, label, name):
     Searches in order:
       1. Next to the YAML file: <yaml_dir>/manifests/<label>/
       2. CWD manifests: manifests/<label>/
-      3. Legacy CWD: manifests/<name>_entities.parquet
+      3. Same as 1-2 but with underscores instead of spaces
+      4. Legacy CWD: manifests/<name>_entities.parquet
 
     Returns:
         (Path, Path) or (None, None)
     """
     yaml_dir = Path(config_path).parent
-    candidates = [
-        (yaml_dir / "manifests" / label, "next to YAML"),
-        (MANIFESTS_DIR / label, f"in {MANIFESTS_DIR}/"),
-    ]
+    # Try both exact label and underscore-normalized version
+    label_variants = [label]
+    normalized = label.replace(" ", "_")
+    if normalized != label:
+        label_variants.append(normalized)
+
+    candidates = []
+    for lbl in label_variants:
+        candidates.append((yaml_dir / "manifests" / lbl, "next to YAML"))
+        candidates.append((MANIFESTS_DIR / lbl, f"in {MANIFESTS_DIR}/"))
 
     for cand_dir, desc in candidates:
         ep = cand_dir / "entities.parquet"
@@ -217,20 +224,25 @@ def register_main():
     print(f"Configs: {args.configs}")
 
     # Check server is running
-    print("\nChecking Tiled server...")
+    from data_catalog_service.config import get_tiled_url, get_api_key
+    tiled_url = get_tiled_url()
+    api_key = get_api_key()
+
+    print(f"\nChecking Tiled server at {tiled_url} ...")
     if not check_server():
-        print("ERROR: Tiled server not running!")
-        print("\nStart the server first:")
-        print("  uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret")
+        print(f"ERROR: Cannot reach Tiled server at {tiled_url}")
+        if not api_key:
+            print("\n  No API key set. Export TILED_API_KEY:")
+            print("    export TILED_API_KEY=your-key-here")
+        print(f"\n  To use a different server, export TILED_URL:")
+        print(f"    export TILED_URL=http://localhost:8005")
         sys.exit(1)
     print("Server is running.")
 
     # Connect to Tiled
-    from data_catalog_service.config import get_tiled_url, get_api_key
     from tiled.client import from_uri
 
-    tiled_url = get_tiled_url()
-    client = from_uri(tiled_url, api_key=get_api_key())
+    client = from_uri(tiled_url, api_key=api_key)
     print(f"Connected to {tiled_url} ({len(client)} existing containers)")
 
     # Load and register each dataset

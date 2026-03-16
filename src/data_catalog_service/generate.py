@@ -13,15 +13,16 @@ Handles three layout patterns:
   - batched: entities stacked along axis-0 of datasets in each file
   - grouped: one HDF5 group per entity inside a single file
 
-Supports four parameter locations:
+Supports five parameter locations:
   - root_scalars: scalar HDF5 datasets at file root
+  - root_attributes: HDF5 root-level file attributes (f.attrs)
   - group: datasets inside a named HDF5 group (e.g., /params)
   - group_scalars: scalars inside entity groups (grouped layout)
   - manifest: external CSV or Parquet file with parameter columns
 
 Usage:
-    python -m broker.generate datasets/edrixs_sbi.yml
-    python -m broker.generate datasets/edrixs_sbi.yml --append
+    dcs generate datasets/edrixs_sbi.yml
+    dcs generate datasets/edrixs_sbi.yml --append
 """
 
 import os
@@ -255,6 +256,9 @@ def _generate_per_entity(h5_files, root, key_prefix, artifacts_cfg,
                         ds = f[ds_name]
                         if isinstance(ds, h5py.Dataset) and ds.ndim == 0:
                             entity_row[ds_name] = _to_python(ds[()])
+                elif loc == "root_attributes":
+                    for attr_name in sorted(f.attrs.keys()):
+                        entity_row[attr_name] = _to_python(f.attrs[attr_name])
                 elif loc == "group":
                     group_name = params_cfg["group"].lstrip("/")
                     if group_name in f:
@@ -331,6 +335,12 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
                     ds = f[ds_name]
                     if isinstance(ds, h5py.Dataset) and ds.ndim == 1 and ds.shape[0] == batch_size:
                         param_arrays[ds_name] = ds[:]
+            elif loc == "root_attributes":
+                # Attributes are scalars — same value for all entities in batch
+                root_attr_params = {
+                    attr_name: _to_python(f.attrs[attr_name])
+                    for attr_name in sorted(f.attrs.keys())
+                }
             # loc == "manifest" handled below per-entity
 
             # Read extra metadata arrays
@@ -364,6 +374,8 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
                                 val = row[col]
                                 if pd.notna(val):
                                     entity_row[col] = _to_python(val)
+                elif loc == "root_attributes":
+                    entity_row.update(root_attr_params)
                 else:
                     for pname, arr in param_arrays.items():
                         entity_row[pname] = _to_python(arr[i])
@@ -466,6 +478,9 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
                             ds = g[ds_name]
                             if isinstance(ds, h5py.Dataset) and ds.ndim == 0:
                                 entity_row[ds_name] = _to_python(ds[()])
+                elif loc == "root_attributes":
+                    for attr_name in sorted(f.attrs.keys()):
+                        entity_row[attr_name] = _to_python(f.attrs[attr_name])
 
                 ent_rows.append(entity_row)
 
