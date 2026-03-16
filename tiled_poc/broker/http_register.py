@@ -265,42 +265,42 @@ def verify_registration_http(client):
 
     meta = dict(h.metadata)
 
-        print(f"\nContainer '{ent_key}':")
+    print(f"\nContainer '{ent_key}':")
 
-        param_keys = [k for k in meta if not k.startswith(("path_", "dataset_", "index_"))]
-        print(f"  Metadata keys: {param_keys}")
+    param_keys = [k for k in meta if not k.startswith(("path_", "dataset_", "index_"))]
+    print(f"  Metadata keys: {param_keys}")
 
-        path_keys = [k for k in meta if k.startswith("path_")]
-        dataset_keys = [k for k in meta if k.startswith("dataset_")]
-        index_keys = [k for k in meta if k.startswith("index_")]
-        print(f"\n  Locators in metadata:")
-        print(f"    path_*:    {len(path_keys)}")
-        print(f"    dataset_*: {len(dataset_keys)}")
-        print(f"    index_*:   {len(index_keys)}")
-        for pk in path_keys[:3]:
-            val = meta[pk]
-            if isinstance(val, str) and len(val) > 50:
-                val = "..." + val[-47:]
-            print(f"    {pk}: {val}")
+    path_keys = [k for k in meta if k.startswith("path_")]
+    dataset_keys = [k for k in meta if k.startswith("dataset_")]
+    index_keys = [k for k in meta if k.startswith("index_")]
+    print(f"\n  Locators in metadata:")
+    print(f"    path_*:    {len(path_keys)}")
+    print(f"    dataset_*: {len(dataset_keys)}")
+    print(f"    index_*:   {len(index_keys)}")
+    for pk in path_keys[:3]:
+        val = meta[pk]
+        if isinstance(val, str) and len(val) > 50:
+            val = "..." + val[-47:]
+        print(f"    {pk}: {val}")
 
-        children = list(h.keys())
-        print(f"\n  Array children: {len(children)}")
-        if children:
-            print(f"    {children[:5]}")
-            if len(children) > 5:
-                print(f"    ... and {len(children) - 5} more")
+    children = list(h.keys())
+    print(f"\n  Array children: {len(children)}")
+    if children:
+        print(f"    {children[:5]}")
+        if len(children) > 5:
+            print(f"    ... and {len(children) - 5} more")
 
-            child_key = children[0]
-            child = h[child_key]
-            print(f"\n  Sample child '{child_key}':")
-            print(f"    Shape: {child.shape}")
-            print(f"    Dtype: {child.dtype}")
+        child_key = children[0]
+        child = h[child_key]
+        print(f"\n  Sample child '{child_key}':")
+        print(f"    Shape: {child.shape}")
+        print(f"    Dtype: {child.dtype}")
 
-        if path_keys and children:
-            print("\n  VERIFIED: Both locators AND array children present!")
-        else:
-            print("\n  WARNING: Dual-mode incomplete!")
-            if not path_keys:
-                print("    Missing: path_* metadata")
-            if not children:
-                print("    Missing: array children")
+    if path_keys and children:
+        print("\n  VERIFIED: Both locators AND array children present!")
+    else:
+        print("\n  WARNING: Dual-mode incomplete!")
+        if not path_keys:
+            print("    Missing: path_* metadata")
+        if not children:
+            print("    Missing: array children")
