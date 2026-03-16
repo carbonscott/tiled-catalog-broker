@@ -97,6 +97,51 @@ work, verify array reads work (after path fix), then compare with catalog.db.
 - [x] Trial registration of all 8 datasets (2-3 entities each)
 - [x] Compare with existing catalog.db
 - [x] Report findings
+- [x] Full production ingestion
+
+### Full production ingestion (2026-03-15)
+
+Ran full HTTP registration of all 8 datasets into the centralized server.
+Idempotent -- skipped the 2 trial entities per dataset from earlier.
+
+| Dataset | Entities | Artifacts | Time |
+|---------|----------|-----------|------|
+| RIXS | 5 | 30 | 3s |
+| Challenge | 0 (skipped) | 0 | 0.1s |
+| SEQUOIA | 1 | 25 | 2s |
+| EDRIXS | 9,998 | 9,998 | 12.6 min |
+| NiPS3_Multimodal | 7,614 | 45,684 | 31.2 min |
+| GenericSpin_Sunny_INS | 9,998 | 19,996 | 18.7 min |
+| GenericSpin_Sunny_MH | 9,998 | 79,984 | 53.5 min |
+| GenericSpin_Sunny_GS | 9,998 | 9,998 | 13.0 min |
+| **Total** | **47,612** | **165,715** | **~2.2 hours** |
+
+Rate: ~13 entities/sec sustained (faster than trial estimates).
+
+### Additional findings
+
+**JSONB confirmed:** Tiled's ORM uses `JSON().with_variant(JSONB(), "postgresql")`
+for the metadata column, with a GIN index for full-text search:
+```sql
+USING gin (jsonb_to_tsvector('simple', metadata, '["string"]'))
+```
+
+**4-layer hierarchy verified** in PostgreSQL via the API:
+- Level 0: Root (container, ancestors=`[]`)
+- Level 1: Dataset (container, ancestors=`[]`, has provenance metadata)
+- Level 2: Entity (container, ancestors=`['EDRIXS']`, has physics params)
+- Level 3: Artifact (array, ancestors=`['EDRIXS', 'H_edx00000']`, has shape/dtype)
+
+**Remaining:** Mode B array reads still return 500. Server admin needs to add
+`/prjmaiqmag01/` to `readable_storage`. See `docs/agents/notes.md` for the
+ask to Hans.
+
+### PRs merged
+
+- PR #3: Remove generators, update docs for config-driven workflow
+- PR #4: Support registration into centralized Tiled server
+- PR #5: Add GitHub Actions CI for unit tests
+- PR #6: Fix indentation in verify_registration_http
 
 ## 2026-03-14: Remove generators and demo from broker repo
 
