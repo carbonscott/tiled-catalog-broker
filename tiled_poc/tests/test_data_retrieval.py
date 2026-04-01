@@ -118,6 +118,14 @@ class TestModeAQueryCatalog:
 class TestModeBTiledAdapter:
     """Tests for Mode B: Visualizer access via Tiled adapters."""
 
+    def test_mh_array_child_registered(self, mh_dataset_client):
+        """mh_powder_30T must be a registered array child — hard failure if absent."""
+        ent_key = list(mh_dataset_client.keys())[0]
+        h = mh_dataset_client[ent_key]
+        assert "mh_powder_30T" in h.keys(), (
+            "mh_powder_30T not found as a child node — registration may have failed"
+        )
+
     def test_access_mh_curve_array(self, mh_dataset_client):
         """Test accessing M(H) curve as Tiled array."""
         ent_key = list(mh_dataset_client.keys())[0]

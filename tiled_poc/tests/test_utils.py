@@ -18,12 +18,13 @@ Run with:
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from broker.utils import make_artifact_key
+from broker.utils import make_artifact_key, to_json_safe, clear_artifact_cache
 
 
 class TestMakeArtifactKey:
@@ -72,3 +73,55 @@ class TestMakeArtifactKey:
         """Only the type column matters for key generation."""
         row = {"type": "rixs", "axis": "powder", "Hmax_T": 30}
         assert make_artifact_key(row) == "rixs"
+
+
+class TestToJsonSafe:
+    """Tests for to_json_safe() edge cases."""
+
+    def test_np_bool_true(self):
+        """np.bool_ True → Python bool True (not raw np.bool_)."""
+        result = to_json_safe(np.bool_(True))
+        assert result is True
+        assert type(result) is bool
+
+    def test_np_bool_false(self):
+        """np.bool_ False → Python bool False."""
+        result = to_json_safe(np.bool_(False))
+        assert result is False
+        assert type(result) is bool
+
+    def test_list_passthrough(self):
+        """Plain Python list passes through unchanged."""
+        value = [1, 2, 3]
+        assert to_json_safe(value) == [1, 2, 3]
+
+    def test_dict_passthrough(self):
+        """Plain Python dict passes through unchanged."""
+        value = {"a": 1}
+        assert to_json_safe(value) == {"a": 1}
+
+    def test_np_int(self):
+        assert type(to_json_safe(np.int64(5))) is int
+
+    def test_np_float(self):
+        assert type(to_json_safe(np.float32(1.5))) is float
+
+    def test_nan_becomes_none(self):
+        import math
+        assert to_json_safe(float("nan")) is None
+
+    def test_none_becomes_none(self):
+        assert to_json_safe(None) is None
+
+
+class TestClearArtifactCache:
+    """Tests for clear_artifact_cache()."""
+
+    def test_runs_without_error(self):
+        """clear_artifact_cache() should not raise."""
+        clear_artifact_cache()
+
+    def test_idempotent(self):
+        """Calling twice is safe."""
+        clear_artifact_cache()
+        clear_artifact_cache()

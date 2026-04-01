@@ -80,6 +80,23 @@ def _(TILED_URL, API_KEY, mo):
     return Key, client, from_uri
 
 
+@app.cell
+def _(client, mo):
+    # Navigate to dataset-level container: root -> dataset containers -> entities
+    # The catalog hierarchy has two levels; client.keys() returns dataset containers.
+    _mh_ds = None
+    for _key in client.keys():
+        _container = client[_key]
+        _ents = list(_container.keys())[:1]
+        if _ents and "path_mh_powder_30T" in dict(_container[_ents[0]].metadata):
+            _mh_ds = _container
+            break
+    if _mh_ds is None:
+        mo.stop(True, mo.md("**No dataset with `mh_powder_30T` found.** Is the server running with data registered?"))
+    mh_dataset = _mh_ds
+    return (mh_dataset,)
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
@@ -93,13 +110,13 @@ def _(mo):
 
 
 @app.cell
-def _(client, mo):
+def _(mh_dataset, mo):
     # Get first entity container
-    ent_keys = list(client.keys())[:5]
+    ent_keys = list(mh_dataset.keys())[:5]
     ent_key = ent_keys[0] if ent_keys else None
 
     if ent_key:
-        h = client[ent_key]
+        h = mh_dataset[ent_key]
         children = list(h.keys())
 
         # Physics parameters
@@ -250,7 +267,7 @@ def _(mo):
 
 
 @app.cell
-def _(client, np, mo, time):
+def _(mh_dataset, np, mo, time):
     # Mode B: Load via Tiled adapters
     def build_mh_dataset_mode_b(tiled_client, *, axis="powder", Hmax_T=30, clamp_H0=True):
         """Build M(H) dataset using Tiled adapters (Mode B)."""
@@ -293,7 +310,7 @@ def _(client, np, mo, time):
         return X, h_grid, Theta
 
     _t0 = time.perf_counter()
-    X_b, h_grid, Theta_b = build_mh_dataset_mode_b(client, axis="powder", Hmax_T=30)
+    X_b, h_grid, Theta_b = build_mh_dataset_mode_b(mh_dataset, axis="powder", Hmax_T=30)
     total_time_b = (time.perf_counter() - _t0) * 1000
 
     mo.md(f"""
@@ -382,7 +399,7 @@ def _(mo):
 
 
 @app.cell
-def _(np, client):
+def _(np, mh_dataset):
     import torch
     from torch.utils.data import Dataset, DataLoader
 
@@ -424,9 +441,9 @@ def _(np, client):
 
 
 @app.cell
-def _(DataLoader, VDPDataset, client, mo, time):
+def _(DataLoader, VDPDataset, mh_dataset, mo, time):
     # Create dataset and dataloader
-    dataset = VDPDataset(client, artifact_key="mh_powder_30T")
+    dataset = VDPDataset(mh_dataset, artifact_key="mh_powder_30T")
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 
     # Load first batch

@@ -119,7 +119,7 @@ def register_main():
     args = parser.parse_args()
 
     import pandas as pd
-    from broker.utils import check_server, get_artifact_shape
+    from broker.utils import check_server, clear_artifact_cache
     from broker.http_register import register_dataset_http, verify_registration_http
 
     print("=" * 50)
@@ -173,7 +173,7 @@ def register_main():
             ent_df = ent_df.head(args.max_entities)
 
         # Clear shape cache between datasets
-        get_artifact_shape.__defaults__[-1].clear()
+        clear_artifact_cache()
 
         dataset_key = config["key"]
         dataset_metadata = config.get("metadata", {"label": label})
