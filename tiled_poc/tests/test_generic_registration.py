@@ -59,10 +59,10 @@ def nips3_manifests():
 @pytest.fixture(autouse=True)
 def clear_shape_cache():
     """Clear the HDF5 shape cache between tests."""
-    from broker.utils import get_artifact_shape
-    get_artifact_shape.__defaults__[-1].clear()
+    from broker.utils import clear_artifact_cache
+    clear_artifact_cache()
     yield
-    get_artifact_shape.__defaults__[-1].clear()
+    clear_artifact_cache()
 
 
 # ─── VDP Tests ───────────────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ def _(mo):
 
     | Mode | Pattern | Best For |
     |------|---------|----------|
-    | **Mode A (Expert)** | `query_manifest()` → direct HDF5 | ML pipelines, bulk loading |
+    | **Mode A (Expert)** | `query_catalog()` → direct HDF5 | ML pipelines, bulk loading |
     | **Mode B (Visualizer)** | `h["mh_powder_30T"][:]` | Interactive exploration, remote |
 
     ## Architecture
@@ -80,6 +80,23 @@ def _(TILED_URL, API_KEY, mo):
     return Key, client, from_uri
 
 
+@app.cell
+def _(client, mo):
+    # Navigate to dataset-level container: root -> dataset containers -> entities
+    # The catalog hierarchy has two levels; client.keys() returns dataset containers.
+    _mh_ds = None
+    for _key in client.keys():
+        _container = client[_key]
+        _ents = list(_container.keys())[:1]
+        if _ents and "path_mh_powder_30T" in dict(_container[_ents[0]].metadata):
+            _mh_ds = _container
+            break
+    if _mh_ds is None:
+        mo.stop(True, mo.md("**No dataset with `mh_powder_30T` found.** Is the server running with data registered?"))
+    mh_dataset = _mh_ds
+    return (mh_dataset,)
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
@@ -93,13 +110,13 @@ def _(mo):
 
 
 @app.cell
-def _(client, mo):
+def _(mh_dataset, mo):
     # Get first entity container
-    ent_keys = list(client.keys())[:5]
+    ent_keys = list(mh_dataset.keys())[:5]
     ent_key = ent_keys[0] if ent_keys else None
 
     if ent_key:
-        h = client[ent_key]
+        h = mh_dataset[ent_key]
         children = list(h.keys())
 
         # Physics parameters
@@ -156,31 +173,62 @@ def _(mo):
     **Best for:** ML pipelines, bulk loading, maximum performance
 
     ```python
-    from query_manifest import build_mh_dataset
+    from broker.query_manifest import query_catalog, load_artifacts
 
-    # Query Tiled -> get paths -> load directly from HDF5
-    X, h_grid, Theta, manifest = build_mh_dataset(client, axis="powder", Hmax_T=30)
+    # Query Tiled -> get all metadata as DataFrame
+    manifest = query_catalog(client, artifact_type="mh_powder_30T")
+
+    # Load raw arrays directly from HDF5
+    arrays = load_artifacts(manifest, artifact_type="mh_powder_30T")
+    X = np.stack(arrays, dtype=np.float32)
+
+    # Normalize and assemble Theta (caller's responsibility)
+    Msat = manifest["g_factor"].values * manifest["spin_s"].values
+    X = X / Msat[:, None]
+    Theta = manifest[["Ja_meV", "Jb_meV", "Jc_meV", "Dc_meV"]].to_numpy(dtype=np.float32)
     ```
 
-    **Tiled provides:** Queryable manifest with HDF5 paths
-    **You do:** Direct HDF5 loading (no HTTP overhead)
+    **Tiled provides:** Queryable metadata with HDF5 locators
+    **You do:** Direct HDF5 loading + any normalization (no HTTP overhead)
     """)
     return
 
 
 @app.cell
-def _(client, mo, time):
-    from broker.query_manifest import query_manifest, load_from_manifest, build_mh_dataset
+def _(client, mo, np, time):
+    from broker.query_manifest import query_catalog, load_artifacts
 
-    # Step 1: Query manifest
+    # Navigate to dataset-level container: root -> dataset containers -> entities
+    _artifact_type = "mh_powder_30T"
+    _dataset_client = None
+    for _key in client.keys():
+        _container = client[_key]
+        _ents = list(_container.keys())
+        if _ents and f"path_{_artifact_type}" in dict(_container[_ents[0]].metadata):
+            _dataset_client = _container
+            break
+
+    if _dataset_client is None:
+        mo.stop(True, mo.md(f"**No dataset with `{_artifact_type}` found in catalog.** Check that the server is running with data registered."))
+
+    # Step 1: Query catalog — returns ALL metadata columns
     _t0 = time.perf_counter()
-    manifest = query_manifest(client, axis="powder", Hmax_T=30)
+    manifest = query_catalog(_dataset_client, artifact_type=_artifact_type)
     query_time = (time.perf_counter() - _t0) * 1000
 
-    # Step 2: Load from HDF5
+    # Step 2: Load raw arrays from HDF5
     _t1 = time.perf_counter()
-    X_a, Theta_a = load_from_manifest(manifest)
+    _arrays = load_artifacts(manifest, artifact_type=_artifact_type)
     load_time = (time.perf_counter() - _t1) * 1000
+
+    # Normalize M(H) by Msat = g * S (caller's responsibility)
+    X_a = np.stack(_arrays, dtype=np.float32)
+    _Msat = (manifest["g_factor"].values * manifest["spin_s"].values).astype(np.float32)
+    X_a = X_a / _Msat[:, None]
+    X_a[:, 0] = 0.0  # clamp M(H=0) to zero
+
+    # Assemble Theta from manifest columns (caller's choice)
+    Theta_a = manifest[["Ja_meV", "Jb_meV", "Jc_meV", "Dc_meV", "spin_s", "g_factor"]].to_numpy(dtype=np.float32)
 
     total_time_a = query_time + load_time
 
@@ -189,13 +237,13 @@ def _(client, mo, time):
 
 | Step | Time |
 |------|------|
-| Query manifest | {query_time:.1f} ms |
+| Query catalog | {query_time:.1f} ms |
 | Load from HDF5 | {load_time:.1f} ms |
 | **Total** | **{total_time_a:.1f} ms** |
 
 **Loaded:** {len(X_a)} curves, shape `{X_a.shape}`
     """)
-    return query_manifest, load_from_manifest, build_mh_dataset, manifest, X_a, Theta_a, query_time, load_time, total_time_a
+    return manifest, X_a, Theta_a, query_time, load_time, total_time_a
 
 
 @app.cell(hide_code=True)
@@ -219,7 +267,7 @@ def _(mo):
 
 
 @app.cell
-def _(client, np, mo, time):
+def _(mh_dataset, np, mo, time):
     # Mode B: Load via Tiled adapters
     def build_mh_dataset_mode_b(tiled_client, *, axis="powder", Hmax_T=30, clamp_H0=True):
         """Build M(H) dataset using Tiled adapters (Mode B)."""
@@ -262,7 +310,7 @@ def _(client, np, mo, time):
         return X, h_grid, Theta
 
     _t0 = time.perf_counter()
-    X_b, h_grid, Theta_b = build_mh_dataset_mode_b(client, axis="powder", Hmax_T=30)
+    X_b, h_grid, Theta_b = build_mh_dataset_mode_b(mh_dataset, axis="powder", Hmax_T=30)
     total_time_b = (time.perf_counter() - _t0) * 1000
 
     mo.md(f"""
@@ -304,7 +352,8 @@ def _(mo):
     ```python
     # Filter BEFORE loading
     ferromagnetic = client.search(Key("Ja_meV") > 0)
-    X, h_grid, Theta, manifest = build_mh_dataset(ferromagnetic, axis="powder", Hmax_T=30)
+    manifest = query_catalog(ferromagnetic, artifact_type="mh_powder_30T")
+    arrays = load_artifacts(manifest, artifact_type="mh_powder_30T")
     ```
     """)
     return
@@ -350,7 +399,7 @@ def _(mo):
 
 
 @app.cell
-def _(np, client):
+def _(np, mh_dataset):
     import torch
     from torch.utils.data import Dataset, DataLoader
 
@@ -392,9 +441,9 @@ def _(np, client):
 
 
 @app.cell
-def _(DataLoader, VDPDataset, client, mo, time):
+def _(DataLoader, VDPDataset, mh_dataset, mo, time):
     # Create dataset and dataloader
-    dataset = VDPDataset(client, artifact_key="mh_powder_30T")
+    dataset = VDPDataset(mh_dataset, artifact_key="mh_powder_30T")
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 
     # Load first batch
@@ -492,7 +541,10 @@ def _(mo):
 
     **Python (Mode A - Expert):**
     ```python
-    X, h_grid, Theta, manifest = build_mh_dataset(client, axis="powder", Hmax_T=30)
+    manifest = query_catalog(client, artifact_type="mh_powder_30T")
+    arrays = load_artifacts(manifest, artifact_type="mh_powder_30T")
+    X = np.stack(arrays, dtype=np.float32) / (manifest["g_factor"].values * manifest["spin_s"].values)[:, None]
+    Theta = manifest[["Ja_meV", "Jb_meV", "Jc_meV", "Dc_meV"]].to_numpy(dtype=np.float32)
     ```
 
     **Python (Mode B - Visualizer):**
@@ -527,7 +579,7 @@ def _(mo):
                   ▼                           ▼
     ┌─────────────────────────┐   ┌─────────────────────────┐
     │    Mode A (Expert)      │   │  Mode B (Visualizer)    │
-    │ query_manifest() → h5py │   │  h["artifact"][:]       │
+    │ query_catalog() → h5py  │   │  h["artifact"][:]       │
     │ Maximum performance     │   │  Remote access, slicing │
     └─────────────────────────┘   └─────────────────────────┘
     ```

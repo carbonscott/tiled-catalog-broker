@@ -31,10 +31,22 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from broker.config import get_tiled_url, get_api_key, get_base_dir, get_service_dir
+
+
+def _find_dataset_container(client, artifact_type):
+    """Find the first dataset-level container that has the given artifact type."""
+    for key in client.keys():
+        container = client[key]
+        ents = list(container.keys())[:1]
+        if ents and f"path_{artifact_type}" in dict(container[ents[0]].metadata):
+            return container
+    return None
 
 
 def demo_mode_a_expert(client):
@@ -46,7 +58,7 @@ def demo_mode_a_expert(client):
     - Users who want to handle file I/O themselves
     - Maximum performance (direct HDF5, no HTTP overhead)
     """
-    from broker.query_manifest import query_manifest, load_from_manifest, build_mh_dataset
+    from broker.query_manifest import query_catalog, load_artifacts
 
     print("=" * 60)
     print("MODE A: Expert Path-Based Access")
@@ -54,39 +66,48 @@ def demo_mode_a_expert(client):
     print("Best for: ML pipelines, bulk loading, maximum performance")
     print()
 
-    # Step 1: Query to get manifest with paths
-    print("Step 1: Query manifest (Tiled filters -> DataFrame with paths)")
+    # Navigate to dataset-level container (root -> dataset containers -> entities)
+    artifact_type = "mh_powder_30T"
+    dataset_client = _find_dataset_container(client, artifact_type)
+    if dataset_client is None:
+        print(f"  No dataset found with artifact_type={artifact_type}")
+        return
+
+    # Step 1: Query to get manifest with all metadata
+    print("Step 1: Query catalog (Tiled filters -> DataFrame with all metadata)")
     t0 = time.perf_counter()
-    manifest = query_manifest(client, axis="powder", Hmax_T=30)
+    manifest = query_catalog(dataset_client, artifact_type=artifact_type)
     query_time = (time.perf_counter() - t0) * 1000
     print(f"  Found {len(manifest)} curves in {query_time:.1f} ms")
+    print(f"  Metadata columns: {list(manifest.columns)}")
 
     if len(manifest) > 0:
         print(f"\n  Sample manifest row:")
         row = manifest.iloc[0]
         print(f"    ent_key: {row['ent_key']}")
-        print(f"    Ja_meV: {row['Ja_meV']:.3f}")
-        print(f"    path_rel: ...{row['path_rel'][-40:]}")
+        if "Ja_meV" in manifest.columns:
+            print(f"    Ja_meV: {row['Ja_meV']:.3f}")
+        print(f"    path_{artifact_type}: ...{str(row[f'path_{artifact_type}'])[-40:]}")
 
     # Step 2: Load data directly from HDF5
     print("\nStep 2: Load data directly from HDF5 (no Tiled)")
     t0 = time.perf_counter()
-    X, Theta = load_from_manifest(manifest)
+    arrays = load_artifacts(manifest, artifact_type=artifact_type)
     load_time = (time.perf_counter() - t0) * 1000
-    print(f"  Loaded {len(X)} curves in {load_time:.1f} ms")
-    print(f"  X shape: {X.shape}")
+    print(f"  Loaded {len(arrays)} arrays in {load_time:.1f} ms")
+    if arrays:
+        print(f"  Array shape: {arrays[0].shape}")
+
+    # Caller assembles X and Theta (normalization is the caller's job)
+    X = np.stack(arrays, dtype=np.float32)
+    if "g_factor" in manifest.columns and "spin_s" in manifest.columns:
+        Msat = manifest["g_factor"].values * manifest["spin_s"].values
+        X = X / Msat[:, None]
+    Theta = manifest[["Ja_meV", "Jb_meV", "Jc_meV", "Dc_meV"]].to_numpy(dtype=np.float32)
+
+    print(f"  X shape (normalized): {X.shape}")
     print(f"  Theta shape: {Theta.shape}")
-
-    # Total time
-    total = query_time + load_time
-    print(f"\n  Total time: {total:.1f} ms")
-
-    # Alternative: One-step API
-    print("\nAlternative: One-step build_mh_dataset() (Julia-equivalent)")
-    t0 = time.perf_counter()
-    X2, h_grid, Theta2, manifest2 = build_mh_dataset(client, axis="powder", Hmax_T=30)
-    total_time = (time.perf_counter() - t0) * 1000
-    print(f"  Loaded {len(X2)} curves in {total_time:.1f} ms")
+    print(f"\n  Total time: {query_time + load_time:.1f} ms")
 
 
 def demo_mode_b_visualizer(client):
@@ -104,17 +125,19 @@ def demo_mode_b_visualizer(client):
     print("Best for: Visualization, interactive exploration, remote access")
     print()
 
-    # Get first container
-    keys = list(client.keys())
-    if not keys:
-        print("No containers found!")
+    # Navigate to dataset-level container (root -> dataset containers -> entities)
+    dataset_client = _find_dataset_container(client, "mh_powder_30T")
+    if dataset_client is None:
+        print("No dataset with mh_powder_30T found!")
         return
 
-    ent_key = keys[0]
-    h = client[ent_key]
+    ent_key = list(dataset_client.keys())[0]
+    h = dataset_client[ent_key]
 
     print(f"Container: {ent_key}")
-    print(f"  Physics params: Ja={h.metadata['Ja_meV']:.3f}, Jb={h.metadata['Jb_meV']:.3f}")
+    meta = h.metadata
+    if "Ja_meV" in meta and "Jb_meV" in meta:
+        print(f"  Physics params: Ja={meta['Ja_meV']:.3f}, Jb={meta['Jb_meV']:.3f}")
 
     # List available arrays
     children = list(h.keys())
@@ -124,13 +147,11 @@ def demo_mode_b_visualizer(client):
     if "ins_12meV" in children:
         print("\n  INS spectrum (600x400 = 240K points):")
 
-        # Full array
         t0 = time.perf_counter()
         ins_full = h["ins_12meV"][:]
         full_time = (time.perf_counter() - t0) * 1000
         print(f"    Full array: shape={ins_full.shape}, time={full_time:.1f} ms")
 
-        # Sliced access (useful for visualization)
         t0 = time.perf_counter()
         ins_slice = h["ins_12meV"][100:200, 50:150]
         slice_time = (time.perf_counter() - t0) * 1000
@@ -145,7 +166,6 @@ def demo_mode_b_visualizer(client):
         mh_time = (time.perf_counter() - t0) * 1000
         print(f"    Full curve: shape={mh_full.shape}, time={mh_time:.1f} ms")
 
-        # Slice works too (though less useful for small arrays)
         mh_slice = h["mh_powder_30T"][50:100]
         print(f"    Partial [50:100]: shape={mh_slice.shape}")
 
@@ -161,7 +181,6 @@ def demo_same_data_two_modes(client):
     Show that both modes access the SAME underlying data.
     """
     import h5py
-    import numpy as np
 
     base_dir = get_base_dir()
 
@@ -169,24 +188,26 @@ def demo_same_data_two_modes(client):
     print("SAME DATA, TWO ACCESS PATTERNS")
     print("=" * 60)
 
-    # Get first container
-    keys = list(client.keys())
-    if not keys:
-        print("No containers found!")
+    # Navigate to dataset-level container (root -> dataset containers -> entities)
+    dataset_client = _find_dataset_container(client, "mh_powder_30T")
+    if dataset_client is None:
+        print("No dataset with mh_powder_30T found!")
         return
 
-    ent_key = keys[0]
-    h = client[ent_key]
+    ent_key = list(dataset_client.keys())[0]
+    h = dataset_client[ent_key]
 
-    # Mode A: Get path from metadata, load directly
+    # Mode A: Get locators from metadata, load directly
     print(f"\nContainer: {ent_key}")
     print("\nMode A (Expert):")
     path_rel = h.metadata.get("path_mh_powder_30T")
-    if path_rel:
+    dataset_path = h.metadata.get("dataset_mh_powder_30T")
+    if path_rel and dataset_path:
         path = os.path.join(base_dir, path_rel)
         print(f"  Path from metadata: ...{path_rel[-40:]}")
+        print(f"  Dataset path: {dataset_path}")
         with h5py.File(path, "r") as f:
-            data_a = f["/curve/M_parallel"][:]
+            data_a = f[dataset_path][:]
         print(f"  Loaded via h5py: shape={data_a.shape}")
 
     # Mode B: Access via Tiled adapter
@@ -196,7 +217,7 @@ def demo_same_data_two_modes(client):
         print(f"  Loaded via Tiled: shape={data_b.shape}")
 
     # Verify they're the same
-    if path_rel and "mh_powder_30T" in h.keys():
+    if path_rel and dataset_path and "mh_powder_30T" in h.keys():
         match = np.allclose(data_a, data_b)
         print(f"\nData matches: {match}")
         if match:

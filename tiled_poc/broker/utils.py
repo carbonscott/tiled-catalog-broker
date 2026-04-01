@@ -22,29 +22,49 @@ def to_json_safe(value):
     """Convert a value to a JSON-serializable type."""
     if isinstance(value, (np.integer,)):
         return int(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
     if isinstance(value, (np.floating,)):
         return float(value)
     if isinstance(value, (np.ndarray,)):
         return value.tolist()
+    if isinstance(value, (list, dict)):
+        return value
     if pd.isna(value):
         return None
     return value
 
 
-def get_artifact_shape(base_dir, file_path, dataset_path, index=None, _cache={}):
-    """Read artifact shape from HDF5, with caching by dataset path.
+def get_artifact_info(base_dir, file_path, dataset_path, index=None, _cache={}):
+    """Read artifact shape and dtype from HDF5, cached by (base_dir, file_path, dataset_path).
 
-    Caches by dataset_path to avoid re-opening files for artifacts
-    that share the same HDF5 internal structure.
+    Returns:
+        tuple: (shape, dtype_str, kind, itemsize) where shape is a list of ints,
+            dtype_str is the numpy dtype string (e.g. "float64"), kind is the
+            single-char numpy kind code (e.g. "f", "i", "c"), and itemsize is
+            the number of bytes per element.
     """
-    if dataset_path not in _cache:
+    cache_key = (base_dir, file_path, dataset_path)
+    if cache_key not in _cache:
         full_path = os.path.join(base_dir, file_path)
         with h5py.File(full_path, "r") as f:
-            _cache[dataset_path] = f[dataset_path].shape
-    full_shape = _cache[dataset_path]
+            ds = f[dataset_path]
+            _cache[cache_key] = (ds.shape, str(ds.dtype), ds.dtype.kind, ds.dtype.itemsize)
+    full_shape, dtype_str, kind, itemsize = _cache[cache_key]
     if index is not None:
-        return list(full_shape[1:])  # Skip batch dimension
-    return list(full_shape)
+        return list(full_shape[1:]), dtype_str, kind, itemsize
+    return list(full_shape), dtype_str, kind, itemsize
+
+
+def clear_artifact_cache():
+    """Clear the HDF5 artifact info cache (call between datasets to avoid cross-dataset collisions)."""
+    get_artifact_info.__defaults__[-1].clear()
+
+
+def get_artifact_shape(base_dir, file_path, dataset_path, index=None):
+    """Read artifact shape from HDF5. Deprecated: use get_artifact_info instead."""
+    shape, _, _, _ = get_artifact_info(base_dir, file_path, dataset_path, index)
+    return shape
 
 
 def check_server():

@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 @pytest.fixture(scope="session")
 def tiled_client():
-    """Connect to running Tiled server.
+    """Connect to running Tiled server (root level).
 
     Requires server to be running:
         uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
@@ -49,6 +49,22 @@ def tiled_client():
         pytest.skip(f"Tiled server not available at {url}: {e}")
 
 
+@pytest.fixture(scope="session")
+def mh_dataset_client(tiled_client):
+    """Return the dataset-level client for a dataset containing mh_powder_30T artifacts.
+
+    The catalog has a two-level hierarchy: root -> dataset containers -> entities.
+    query_catalog and load_artifacts must be called at the dataset level (or on a
+    search() result), not at the root.
+    """
+    for key in tiled_client.keys():
+        dataset = tiled_client[key]
+        ents = list(dataset.keys())
+        if ents and "path_mh_powder_30T" in dict(dataset[ents[0]].metadata):
+            return dataset
+    pytest.skip("No dataset with mh_powder_30T artifacts found in catalog")
+
+
 @pytest.fixture
 def temp_catalog_db(tmp_path):
     """Temporary database for bulk registration tests."""
@@ -56,12 +72,11 @@ def temp_catalog_db(tmp_path):
 
 
 @pytest.fixture(scope="session")
-def small_manifest(tiled_client):
+def small_manifest(mh_dataset_client):
     """Load a small manifest for fast integration tests.
 
     Returns first 5 entities' manifest data.
     """
-    from broker.query_manifest import query_manifest
+    from broker.query_manifest import query_catalog
 
-    manifest = query_manifest(tiled_client, axis="powder", Hmax_T=30)
-    return manifest.head(5)
+    return query_catalog(mh_dataset_client, artifact_type="mh_powder_30T", limit=5)

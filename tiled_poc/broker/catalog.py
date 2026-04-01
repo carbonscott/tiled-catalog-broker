@@ -55,13 +55,13 @@ def register_dataset(engine, ent_df, art_df, base_dir, label,
         dataset_metadata: Metadata dict for the dataset container.
     """
     from .bulk_register import prepare_node_data, bulk_register
-    from .utils import get_artifact_shape
+    from .utils import clear_artifact_cache
 
     n = len(ent_df)
     print(f"\n--- Registering {label} ({n} entities) ---")
 
     # Clear shape cache to avoid cross-dataset collisions
-    get_artifact_shape.__defaults__[-1].clear()
+    clear_artifact_cache()
 
     ent_nodes, art_nodes, art_data_sources = prepare_node_data(
         ent_df, art_df, max_entities=n, base_dir=base_dir,

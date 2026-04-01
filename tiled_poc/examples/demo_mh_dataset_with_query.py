@@ -45,7 +45,7 @@ def _(mo):
 
     | Mode | Pattern | Best For |
     |------|---------|----------|
-    | **Mode A (Expert)** | `query_manifest()` → direct HDF5 | ML pipelines, bulk loading |
+    | **Mode A (Expert)** | `query_catalog()` → direct HDF5 | ML pipelines, bulk loading |
     | **Mode B (Visualizer)** | `h["mh_powder_30T"][:]` | Interactive exploration, remote |
 
     **Prerequisites:** Start the Tiled server:
@@ -199,31 +199,49 @@ def _(mo):
     **Best for:** ML pipelines, bulk loading, maximum performance
 
     ```python
-    from query_manifest import build_mh_dataset
+    from broker.query_manifest import query_catalog, load_artifacts
 
-    # Query Tiled -> get paths -> load directly from HDF5
-    X, h_grid, Theta, manifest = build_mh_dataset(subset, axis="powder", Hmax_T=30)
+    # Query filtered subset -> get all metadata as DataFrame
+    manifest = query_catalog(subset, artifact_type="mh_powder_30T")
+
+    # Load raw arrays directly from HDF5
+    arrays = load_artifacts(manifest, artifact_type="mh_powder_30T")
+    X = np.stack(arrays, dtype=np.float32)
+
+    # Normalize and assemble Theta (caller's responsibility)
+    Msat = manifest["g_factor"].values * manifest["spin_s"].values
+    X = X / Msat[:, None]
+    Theta = manifest[["Ja_meV", "Jb_meV", "Jc_meV", "Dc_meV"]].to_numpy(dtype=np.float32)
     ```
 
-    **Tiled provides:** Queryable manifest with HDF5 paths
-    **You do:** Direct HDF5 loading (no HTTP overhead)
+    **Tiled provides:** Queryable metadata with HDF5 locators
+    **You do:** Direct HDF5 loading + any normalization (no HTTP overhead)
     """)
     return
 
 
 @app.cell
-def _(AXIS, HMAX_T, mo, subset, time):
-    from broker.query_manifest import query_manifest, load_from_manifest, build_mh_dataset
+def _(AXIS, HMAX_T, mo, np, subset, time):
+    from broker.query_manifest import query_catalog, load_artifacts
 
-    # Step 1: Query manifest from the filtered subset
+    # Step 1: Query catalog from the filtered subset — returns ALL metadata columns
     _t0 = time.perf_counter()
-    manifest = query_manifest(subset, axis=AXIS, Hmax_T=HMAX_T)
+    manifest = query_catalog(subset, artifact_type=f"mh_{AXIS}_{HMAX_T}T")
     query_time = (time.perf_counter() - _t0) * 1000
 
-    # Step 2: Load from HDF5
+    # Step 2: Load raw arrays from HDF5
     _t1 = time.perf_counter()
-    X_a, Theta_a = load_from_manifest(manifest)
+    _arrays = load_artifacts(manifest, artifact_type=f"mh_{AXIS}_{HMAX_T}T")
     load_time = (time.perf_counter() - _t1) * 1000
+
+    # Normalize M(H) by Msat = g * S (caller's responsibility)
+    X_a = np.stack(_arrays, dtype=np.float32)
+    _Msat = (manifest["g_factor"].values * manifest["spin_s"].values).astype(np.float32)
+    X_a = X_a / _Msat[:, None]
+    X_a[:, 0] = 0.0  # clamp M(H=0) to zero
+
+    # Assemble Theta from manifest columns (caller's choice)
+    Theta_a = manifest[["Ja_meV", "Jb_meV", "Jc_meV", "Dc_meV", "spin_s", "g_factor"]].to_numpy(dtype=np.float32)
 
     total_time_a = query_time + load_time
 
@@ -232,7 +250,7 @@ def _(AXIS, HMAX_T, mo, subset, time):
 
     | Step | Time |
     |------|------|
-    | Query manifest | {query_time:.1f} ms |
+    | Query catalog | {query_time:.1f} ms |
     | Load from HDF5 | {load_time:.1f} ms |
     | **Total** | **{total_time_a:.1f} ms** |
 
@@ -574,7 +592,10 @@ def _(mo):
 
     client = from_uri(TILED_URL, api_key=API_KEY)
     subset = client.search(Key("Ja_meV") > 0.5).search(Key("Dc_meV") < -0.5)
-    X, h_grid, Theta, manifest = build_mh_dataset(subset, axis="powder", Hmax_T=30)
+    manifest = query_catalog(subset, artifact_type="mh_powder_30T")
+    arrays = load_artifacts(manifest, artifact_type="mh_powder_30T")
+    X = np.stack(arrays, dtype=np.float32) / (manifest["g_factor"].values * manifest["spin_s"].values)[:, None]
+    Theta = manifest[["Ja_meV", "Jb_meV", "Jc_meV", "Dc_meV"]].to_numpy(dtype=np.float32)
 
     # X: training inputs (M(H) curves)
     # Theta: training labels (Hamiltonian parameters)
