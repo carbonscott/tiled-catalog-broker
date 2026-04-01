@@ -78,22 +78,20 @@ class TestModeAQueryCatalog:
         # Should include physics params beyond the old hardcoded 6
         assert len(manifest.columns) > 8
 
-    def test_query_catalog_with_search_filter(self, tiled_client):
+    def test_query_catalog_with_search_filter(self, mh_dataset_client):
         """Test filtering via Tiled's native search before calling query_catalog.
 
-        search() on root returns entity-level results directly, so query_catalog
-        works correctly on a search result regardless of hierarchy depth.
+        search() on the dataset-level client returns a filtered view of entities,
+        which query_catalog can iterate directly.
         """
         from tiled.queries import Key
         from broker.query_manifest import query_catalog
 
-        # Use a narrow range to keep result size small
-        narrow = tiled_client.search(Key("Ja_meV") >= 0).search(Key("Ja_meV") <= 0.05)
-        manifest = query_catalog(narrow, artifact_type="mh_powder_30T")
+        filtered = mh_dataset_client.search(Key("Ja_meV") >= 0)
+        manifest = query_catalog(filtered, artifact_type="mh_powder_30T", limit=5)
 
-        if len(manifest) > 0:
-            assert all(manifest["Ja_meV"] >= 0)
-            assert all(manifest["Ja_meV"] <= 0.05)
+        assert len(manifest) > 0
+        assert all(manifest["Ja_meV"] >= 0)
 
     def test_load_artifacts_returns_arrays(self, small_manifest):
         """Test that load_artifacts returns a list of numpy arrays."""

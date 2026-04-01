@@ -98,7 +98,7 @@ def load_artifacts(manifest_df, artifact_type, base_dir=None):
         path = os.path.join(base_dir, row[path_col])
         with h5py.File(path, "r") as f:
             ds = f[row[dataset_col]]
-            if index_col in row.index and pd.notna(row.get(index_col)):
+            if index_col in manifest_df.columns and pd.notna(row.get(index_col)):
                 arrays.append(ds[int(row[index_col])])
             else:
                 arrays.append(ds[:])

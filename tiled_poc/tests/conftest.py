@@ -60,7 +60,7 @@ def mh_dataset_client(tiled_client):
     for key in tiled_client.keys():
         dataset = tiled_client[key]
         ents = list(dataset.keys())
-        if ents and f"path_mh_powder_30T" in dict(dataset[ents[0]].metadata):
+        if ents and "path_mh_powder_30T" in dict(dataset[ents[0]].metadata):
             return dataset
     pytest.skip("No dataset with mh_powder_30T artifacts found in catalog")
 
@@ -79,5 +79,4 @@ def small_manifest(mh_dataset_client):
     """
     from broker.query_manifest import query_catalog
 
-    manifest = query_catalog(mh_dataset_client, artifact_type="mh_powder_30T")
-    return manifest.head(5)
+    return query_catalog(mh_dataset_client, artifact_type="mh_powder_30T", limit=5)

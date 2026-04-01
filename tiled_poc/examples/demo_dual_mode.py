@@ -56,10 +56,23 @@ def demo_mode_a_expert(client):
     print("Best for: ML pipelines, bulk loading, maximum performance")
     print()
 
+    # Navigate to dataset-level container (root -> dataset containers -> entities)
+    artifact_type = "mh_powder_30T"
+    dataset_client = None
+    for key in client.keys():
+        container = client[key]
+        ents = list(container.keys())
+        if ents and f"path_{artifact_type}" in dict(container[ents[0]].metadata):
+            dataset_client = container
+            break
+    if dataset_client is None:
+        print(f"  No dataset found with artifact_type={artifact_type}")
+        return
+
     # Step 1: Query to get manifest with all metadata
     print("Step 1: Query catalog (Tiled filters -> DataFrame with all metadata)")
     t0 = time.perf_counter()
-    manifest = query_catalog(client, artifact_type="mh_powder_30T")
+    manifest = query_catalog(dataset_client, artifact_type=artifact_type)
     query_time = (time.perf_counter() - t0) * 1000
     print(f"  Found {len(manifest)} curves in {query_time:.1f} ms")
     print(f"  Metadata columns: {list(manifest.columns)}")
@@ -70,12 +83,12 @@ def demo_mode_a_expert(client):
         print(f"    ent_key: {row['ent_key']}")
         if "Ja_meV" in manifest.columns:
             print(f"    Ja_meV: {row['Ja_meV']:.3f}")
-        print(f"    path_mh_powder_30T: ...{str(row['path_mh_powder_30T'])[-40:]}")
+        print(f"    path_{artifact_type}: ...{str(row[f'path_{artifact_type}'])[-40:]}")
 
     # Step 2: Load data directly from HDF5
     print("\nStep 2: Load data directly from HDF5 (no Tiled)")
     t0 = time.perf_counter()
-    arrays = load_artifacts(manifest, artifact_type="mh_powder_30T")
+    arrays = load_artifacts(manifest, artifact_type=artifact_type)
     load_time = (time.perf_counter() - t0) * 1000
     print(f"  Loaded {len(arrays)} arrays in {load_time:.1f} ms")
     if arrays:

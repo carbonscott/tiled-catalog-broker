@@ -181,14 +181,24 @@ def _(mo):
 def _(client, mo, np, time):
     from broker.query_manifest import query_catalog, load_artifacts
 
+    # Navigate to dataset-level container: root -> dataset containers -> entities
+    _artifact_type = "mh_powder_30T"
+    _dataset_client = None
+    for _key in client.keys():
+        _container = client[_key]
+        _ents = list(_container.keys())
+        if _ents and f"path_{_artifact_type}" in dict(_container[_ents[0]].metadata):
+            _dataset_client = _container
+            break
+
     # Step 1: Query catalog — returns ALL metadata columns
     _t0 = time.perf_counter()
-    manifest = query_catalog(client, artifact_type="mh_powder_30T")
+    manifest = query_catalog(_dataset_client or client, artifact_type=_artifact_type)
     query_time = (time.perf_counter() - _t0) * 1000
 
     # Step 2: Load raw arrays from HDF5
     _t1 = time.perf_counter()
-    _arrays = load_artifacts(manifest, artifact_type="mh_powder_30T")
+    _arrays = load_artifacts(manifest, artifact_type=_artifact_type)
     load_time = (time.perf_counter() - _t1) * 1000
 
     # Normalize M(H) by Msat = g * S (caller's responsibility)
