@@ -191,9 +191,12 @@ def _(client, mo, np, time):
             _dataset_client = _container
             break
 
+    if _dataset_client is None:
+        mo.stop(True, mo.md(f"**No dataset with `{_artifact_type}` found in catalog.** Check that the server is running with data registered."))
+
     # Step 1: Query catalog — returns ALL metadata columns
     _t0 = time.perf_counter()
-    manifest = query_catalog(_dataset_client or client, artifact_type=_artifact_type)
+    manifest = query_catalog(_dataset_client, artifact_type=_artifact_type)
     query_time = (time.perf_counter() - _t0) * 1000
 
     # Step 2: Load raw arrays from HDF5

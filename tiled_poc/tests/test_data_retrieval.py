@@ -123,43 +123,47 @@ class TestModeBTiledAdapter:
         ent_key = list(mh_dataset_client.keys())[0]
         h = mh_dataset_client[ent_key]
 
-        if "mh_powder_30T" in h.keys():
-            arr = h["mh_powder_30T"][:]
-            assert arr.ndim == 1
-            assert len(arr) == 200
+        if "mh_powder_30T" not in h.keys():
+            pytest.skip("mh_powder_30T not available for this entity")
+        arr = h["mh_powder_30T"][:]
+        assert arr.ndim == 1
+        assert len(arr) == 200
 
     def test_access_ins_spectrum_array(self, mh_dataset_client):
         """Test accessing INS spectrum as Tiled array."""
         ent_key = list(mh_dataset_client.keys())[0]
         h = mh_dataset_client[ent_key]
 
-        if "ins_12meV" in h.keys():
-            arr = h["ins_12meV"][:]
-            assert arr.ndim == 2
-            assert arr.shape[0] > 0
-            assert arr.shape[1] > 0
+        if "ins_12meV" not in h.keys():
+            pytest.skip("ins_12meV not available for this entity")
+        arr = h["ins_12meV"][:]
+        assert arr.ndim == 2
+        assert arr.shape[0] > 0
+        assert arr.shape[1] > 0
 
     def test_access_gs_state_array(self, mh_dataset_client):
         """Test accessing ground state as Tiled array."""
         ent_key = list(mh_dataset_client.keys())[0]
         h = mh_dataset_client[ent_key]
 
-        if "gs_state" in h.keys():
-            arr = h["gs_state"][:]
-            assert arr.ndim == 2
-            assert arr.shape == (3, 8)
+        if "gs_state" not in h.keys():
+            pytest.skip("gs_state not available for this entity")
+        arr = h["gs_state"][:]
+        assert arr.ndim == 2
+        assert arr.shape == (3, 8)
 
     def test_array_slicing_works(self, mh_dataset_client):
         """Test that array slicing works via Tiled."""
         ent_key = list(mh_dataset_client.keys())[0]
         h = mh_dataset_client[ent_key]
 
-        if "mh_powder_30T" in h.keys():
-            arr_slice = h["mh_powder_30T"][:100]
-            assert len(arr_slice) == 100
+        if "mh_powder_30T" not in h.keys():
+            pytest.skip("mh_powder_30T not available for this entity")
+        arr_slice = h["mh_powder_30T"][:100]
+        assert len(arr_slice) == 100
 
-            arr_mid = h["mh_powder_30T"][50:150]
-            assert len(arr_mid) == 100
+        arr_mid = h["mh_powder_30T"][50:150]
+        assert len(arr_mid) == 100
 
     def test_metadata_accessible(self, mh_dataset_client):
         """Test that entity physics metadata is accessible."""

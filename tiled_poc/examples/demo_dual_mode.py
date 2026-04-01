@@ -39,6 +39,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from broker.config import get_tiled_url, get_api_key, get_base_dir, get_service_dir
 
 
+def _find_dataset_container(client, artifact_type):
+    """Find the first dataset-level container that has the given artifact type."""
+    for key in client.keys():
+        container = client[key]
+        ents = list(container.keys())[:1]
+        if ents and f"path_{artifact_type}" in dict(container[ents[0]].metadata):
+            return container
+    return None
+
+
 def demo_mode_a_expert(client):
     """
     Mode A: Expert path-based access.
@@ -58,13 +68,7 @@ def demo_mode_a_expert(client):
 
     # Navigate to dataset-level container (root -> dataset containers -> entities)
     artifact_type = "mh_powder_30T"
-    dataset_client = None
-    for key in client.keys():
-        container = client[key]
-        ents = list(container.keys())
-        if ents and f"path_{artifact_type}" in dict(container[ents[0]].metadata):
-            dataset_client = container
-            break
+    dataset_client = _find_dataset_container(client, artifact_type)
     if dataset_client is None:
         print(f"  No dataset found with artifact_type={artifact_type}")
         return
@@ -121,14 +125,14 @@ def demo_mode_b_visualizer(client):
     print("Best for: Visualization, interactive exploration, remote access")
     print()
 
-    # Get first container
-    keys = list(client.keys())
-    if not keys:
-        print("No containers found!")
+    # Navigate to dataset-level container (root -> dataset containers -> entities)
+    dataset_client = _find_dataset_container(client, "mh_powder_30T")
+    if dataset_client is None:
+        print("No dataset with mh_powder_30T found!")
         return
 
-    ent_key = keys[0]
-    h = client[ent_key]
+    ent_key = list(dataset_client.keys())[0]
+    h = dataset_client[ent_key]
 
     print(f"Container: {ent_key}")
     meta = h.metadata
@@ -184,14 +188,14 @@ def demo_same_data_two_modes(client):
     print("SAME DATA, TWO ACCESS PATTERNS")
     print("=" * 60)
 
-    # Get first container
-    keys = list(client.keys())
-    if not keys:
-        print("No containers found!")
+    # Navigate to dataset-level container (root -> dataset containers -> entities)
+    dataset_client = _find_dataset_container(client, "mh_powder_30T")
+    if dataset_client is None:
+        print("No dataset with mh_powder_30T found!")
         return
 
-    ent_key = keys[0]
-    h = client[ent_key]
+    ent_key = list(dataset_client.keys())[0]
+    h = dataset_client[ent_key]
 
     # Mode A: Get locators from metadata, load directly
     print(f"\nContainer: {ent_key}")
