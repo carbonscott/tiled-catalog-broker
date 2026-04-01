@@ -203,7 +203,7 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir=None):
                 art_key = make_artifact_key(art_row)
                 metadata[f"path_{art_key}"] = art_row["file"]
                 metadata[f"dataset_{art_key}"] = art_row["dataset"]
-                if "index" in art_row.index and pd.notna(art_row.get("index")):
+                if "index" in art_df.columns and pd.notna(art_row.get("index")):
                     metadata[f"index_{art_key}"] = int(art_row["index"])
 
         ent_nodes.append({
@@ -223,7 +223,7 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir=None):
                 h5_full_path = os.path.join(base_dir, h5_rel_path)
                 dataset_path = art_row["dataset"]
                 index = None
-                if "index" in art_row.index and pd.notna(art_row.get("index")):
+                if "index" in art_df.columns and pd.notna(art_row.get("index")):
                     index = int(art_row["index"])
 
                 # Get shape and dtype from HDF5 (cached by file+dataset path)
