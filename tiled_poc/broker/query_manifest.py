@@ -18,7 +18,9 @@ Usage:
     manifest = query_catalog(filtered, artifact_type="mh_powder_30T")
 
     # Step 2: Load — returns raw arrays (no normalization)
-    arrays = load_artifacts(manifest, artifact_type="mh_powder_30T")
+    #   base_dir comes from the dataset's YAML config (e.g. config["base_dir"])
+    arrays = load_artifacts(manifest, artifact_type="mh_powder_30T",
+                            base_dir="/path/to/data")
     X = np.stack(arrays, dtype=np.float32)
 
     # Assemble Theta from the manifest (caller's choice of columns)
@@ -30,8 +32,6 @@ import os
 import h5py
 import numpy as np
 import pandas as pd
-
-from .config import get_base_dir
 
 
 def query_catalog(client, artifact_type, limit=None):
@@ -68,14 +68,14 @@ def query_catalog(client, artifact_type, limit=None):
     return pd.DataFrame(rows)
 
 
-def load_artifacts(manifest_df, artifact_type, base_dir=None):
+def load_artifacts(manifest_df, artifact_type, base_dir):
     """Load artifact arrays directly from HDF5 using locator columns.
 
     Args:
         manifest_df: DataFrame from query_catalog() containing locator columns.
         artifact_type: Artifact type string matching the query_catalog call.
-        base_dir: Base directory for resolving HDF5 file paths.
-            Defaults to value from config.
+        base_dir: Base directory for resolving relative HDF5 file paths.
+            Typically from the dataset's YAML config (config["base_dir"]).
 
     Returns:
         list[np.ndarray]: Raw arrays, one per manifest row, in row order.
@@ -86,9 +86,6 @@ def load_artifacts(manifest_df, artifact_type, base_dir=None):
         FileNotFoundError: If an HDF5 file referenced in the manifest does
             not exist.
     """
-    if base_dir is None:
-        base_dir = get_base_dir()
-
     path_col = f"path_{artifact_type}"
     dataset_col = f"dataset_{artifact_type}"
     index_col = f"index_{artifact_type}"

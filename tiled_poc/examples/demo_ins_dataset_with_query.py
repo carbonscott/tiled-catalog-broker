@@ -191,25 +191,44 @@ def _(mo):
     # Query Tiled for metadata → get HDF5 paths → load directly
     for ent_key, h in subset.items():
         path = h.metadata["path_ins_12meV"]
-        with h5py.File(path, "r") as f:
-            spectrum = f["data"][:]
+        dataset = h.metadata["dataset_ins_12meV"]
+        with h5py.File(base_dir + "/" + path, "r") as f:
+            spectrum = f[dataset][:]
     ```
     """)
     return
 
 
 @app.cell
-def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
+def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, client, mo, np, subset, time):
     import h5py
     import os
-    from broker.config import get_base_dir, get_dataset_paths
+    from pathlib import Path as _Path
+    from ruamel.yaml import YAML as _YAML
 
-    def load_ins_mode_a(tiled_client, *, Ei_meV=12, max_spectra=None):
+    # Load base_dir from each dataset YAML config
+    _yaml = _YAML()
+    _datasets_dir = _Path(__file__).parent.parent / "datasets"
+    _base_dirs = {}
+    for _cfg_path in sorted(_datasets_dir.glob("*.yaml")):
+        with open(_cfg_path) as _f:
+            _cfg = _yaml.load(_f)
+        _base_dirs[_cfg["key"]] = _cfg["base_dir"]
+
+    # Find the INS dataset container to get its base_dir
+    _ins_base_dir = None
+    for _dk in client.keys():
+        _ds = client[_dk]
+        _ents = list(_ds.keys())[:1]
+        if _ents and f"path_ins_{INCIDENT_ENERGY_MEV}meV" in dict(_ds[_ents[0]].metadata):
+            _ins_base_dir = _base_dirs.get(_dk)
+            break
+
+    def load_ins_mode_a(tiled_client, base_dir, *, Ei_meV=12, max_spectra=None):
         """Load INS spectra using Mode A (direct HDF5)."""
-        base_dir = get_base_dir()
-        dataset_path = get_dataset_paths()["ins_powder"]  # "/ins/broadened"
         artifact_key = f"ins_{int(Ei_meV)}meV"
         path_key = f"path_{artifact_key}"
+        dataset_key = f"dataset_{artifact_key}"
 
         spectra_list = []
         params_list = []
@@ -219,12 +238,13 @@ def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
                 break
 
             path_rel = h.metadata.get(path_key)
-            if not path_rel:
+            h5_dataset = h.metadata.get(dataset_key)
+            if not path_rel or not h5_dataset:
                 continue
 
             path = os.path.join(base_dir, path_rel)
             with h5py.File(path, "r") as f:
-                spectrum = f[dataset_path][:]
+                spectrum = f[h5_dataset][:]
 
             spectra_list.append(spectrum)
             params_list.append([
@@ -238,7 +258,7 @@ def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
         return np.stack(spectra_list), np.array(params_list, dtype=np.float32)
 
     _t0 = time.perf_counter()
-    spectra_a, params_a = load_ins_mode_a(subset, Ei_meV=INCIDENT_ENERGY_MEV, max_spectra=MAX_SPECTRA_DEMO)
+    spectra_a, params_a = load_ins_mode_a(subset, _ins_base_dir, Ei_meV=INCIDENT_ENERGY_MEV, max_spectra=MAX_SPECTRA_DEMO)
     time_a = (time.perf_counter() - _t0) * 1000
 
     mo.md(f"""

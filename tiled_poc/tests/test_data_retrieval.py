@@ -33,9 +33,28 @@ from pathlib import Path
 import pytest
 import numpy as np
 import h5py
+from ruamel.yaml import YAML
 
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def _load_base_dirs():
+    """Load base_dir from each dataset YAML config in datasets/."""
+    yaml = YAML()
+    base_dirs = {}
+    datasets_dir = Path(__file__).parent.parent / "datasets"
+    for cfg_path in sorted(datasets_dir.glob("*.yaml")):
+        with open(cfg_path) as f:
+            cfg = yaml.load(f)
+        base_dirs[cfg["key"]] = cfg["base_dir"]
+    return base_dirs
+
+
+@pytest.fixture(scope="session")
+def base_dirs():
+    """Load base_dir for each dataset from YAML configs."""
+    return _load_base_dirs()
 
 
 @pytest.mark.integration
@@ -93,22 +112,33 @@ class TestModeAQueryCatalog:
         assert len(manifest) > 0
         assert all(manifest["Ja_meV"] >= 0)
 
-    def test_load_artifacts_returns_arrays(self, small_manifest):
+    def test_load_artifacts_returns_arrays(self, small_manifest, base_dirs):
         """Test that load_artifacts returns a list of numpy arrays."""
         from broker.query_manifest import load_artifacts
 
-        arrays = load_artifacts(small_manifest, artifact_type="mh_powder_30T")
+        # Find the base_dir for the MH dataset
+        mh_base_dir = base_dirs.get("GenericSpin_Sunny_MH")
+        if mh_base_dir is None:
+            pytest.skip("No dataset config found for GenericSpin_Sunny_MH")
+
+        arrays = load_artifacts(small_manifest, artifact_type="mh_powder_30T",
+                                base_dir=mh_base_dir)
 
         assert len(arrays) == len(small_manifest)
         for arr in arrays:
             assert isinstance(arr, np.ndarray)
             assert arr.ndim >= 1
 
-    def test_load_artifacts_correct_shape(self, small_manifest):
+    def test_load_artifacts_correct_shape(self, small_manifest, base_dirs):
         """Test that loaded M(H) arrays have expected shape."""
         from broker.query_manifest import load_artifacts
 
-        arrays = load_artifacts(small_manifest, artifact_type="mh_powder_30T")
+        mh_base_dir = base_dirs.get("GenericSpin_Sunny_MH")
+        if mh_base_dir is None:
+            pytest.skip("No dataset config found for GenericSpin_Sunny_MH")
+
+        arrays = load_artifacts(small_manifest, artifact_type="mh_powder_30T",
+                                base_dir=mh_base_dir)
 
         for arr in arrays:
             assert arr.shape == (200,)  # M(H) has 200 field points
@@ -185,9 +215,11 @@ class TestModeBTiledAdapter:
 class TestModeAModeBEquivalence:
     """Tests verifying both modes return identical data."""
 
-    def test_mh_curve_data_matches(self, mh_dataset_client):
+    def test_mh_curve_data_matches(self, mh_dataset_client, base_dirs):
         """Test that Mode A and Mode B return same M(H) data."""
-        from broker.config import get_base_dir
+        mh_base_dir = base_dirs.get("GenericSpin_Sunny_MH")
+        if mh_base_dir is None:
+            pytest.skip("No dataset config found for GenericSpin_Sunny_MH")
 
         ent_key = list(mh_dataset_client.keys())[0]
         h = mh_dataset_client[ent_key]
@@ -204,17 +236,18 @@ class TestModeAModeBEquivalence:
         if not path_rel or not dataset_path:
             pytest.skip("Locator metadata not available")
 
-        base_dir = get_base_dir()
-        path = os.path.join(base_dir, path_rel)
+        path = os.path.join(mh_base_dir, path_rel)
 
         with h5py.File(path, "r") as f:
             mode_a_data = f[dataset_path][:]
 
         assert np.allclose(mode_a_data, mode_b_data), "Mode A and Mode B data mismatch!"
 
-    def test_metadata_matches_hdf5(self, mh_dataset_client):
+    def test_metadata_matches_hdf5(self, mh_dataset_client, base_dirs):
         """Test that metadata matches values in HDF5 files."""
-        from broker.config import get_base_dir
+        mh_base_dir = base_dirs.get("GenericSpin_Sunny_MH")
+        if mh_base_dir is None:
+            pytest.skip("No dataset config found for GenericSpin_Sunny_MH")
 
         ent_key = list(mh_dataset_client.keys())[0]
         h = mh_dataset_client[ent_key]
@@ -223,7 +256,6 @@ class TestModeAModeBEquivalence:
         if not path_rel:
             pytest.skip("No path metadata available")
 
-        base_dir = get_base_dir()
-        path = os.path.join(base_dir, path_rel)
+        path = os.path.join(mh_base_dir, path_rel)
 
         assert os.path.exists(path), f"HDF5 file not found: {path}"

@@ -1,17 +1,3 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#     "tiled[server]",
-#     "pandas",
-#     "pyarrow",
-#     "h5py",
-#     "numpy",
-#     "ruamel.yaml",
-#     "canonicaljson",
-#     "sqlalchemy",
-# ]
-# ///
 """
 Generic Bulk Registration with SQLAlchemy.
 
@@ -35,43 +21,18 @@ When to use:
 When NOT to use:
 - Incremental updates (use register_catalog.py instead)
 - Server is running and serving queries
-
-Usage:
-    # Register with defaults (10 entities to catalog.db)
-    python bulk_register.py
-
-    # Register specific number of entities
-    python bulk_register.py -n 1000
-
-    # Register all entities to a specific database
-    python bulk_register.py -n 10000 -o catalog-bulk.db
-
-    # Force overwrite without prompting
-    python bulk_register.py -n 100 --force
-
-    # Environment variables still work as fallbacks
-    MAX_ENTITIES=10000 CATALOG_DB=catalog-bulk.db python bulk_register.py
 """
 
 import os
-import sys
 import time
 import json
 import hashlib
-import argparse
 from pathlib import Path
 
 import pandas as pd
 import canonicaljson
 from sqlalchemy import create_engine, text
 
-# Import from shared helpers
-from .config import (
-    get_base_dir,
-    get_latest_manifest,
-    get_max_entities,
-    get_catalog_db_path,
-)
 from .utils import (
     make_artifact_key,
     to_json_safe,
@@ -101,11 +62,15 @@ END
 """
 
 
-def init_database(db_path):
+def init_database(db_path, readable_storage):
     """Initialize database with Tiled schema.
 
     Uses Tiled's catalog adapter to create schema, then returns
     a raw SQLAlchemy engine for bulk operations.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        readable_storage: List of directories Tiled is allowed to read from.
     """
     from tiled.catalog import from_uri as catalog_from_uri
 
@@ -122,7 +87,7 @@ def init_database(db_path):
     catalog_from_uri(
         uri,
         writable_storage=str(Path(db_path).parent / "storage"),
-        readable_storage=[get_base_dir()],
+        readable_storage=readable_storage,
         init_if_not_exists=True,
     )
 
@@ -131,26 +96,7 @@ def init_database(db_path):
     return engine
 
 
-def load_manifests():
-    """Load entity and artifact manifests."""
-    base_dir = get_base_dir()
-    print(f"Loading manifests from {base_dir}...")
-
-    ent_path = get_latest_manifest("entities")
-    art_path = get_latest_manifest("artifacts")
-
-    print(f"  Entities:  {Path(ent_path).name}")
-    print(f"  Artifacts: {Path(art_path).name}")
-
-    ent_df = pd.read_parquet(ent_path)
-    art_df = pd.read_parquet(art_path)
-
-    print(f"  Rows: {len(ent_df)} entities, {len(art_df)} artifacts")
-
-    return ent_df, art_df
-
-
-def prepare_node_data(ent_df, art_df, max_entities, base_dir=None):
+def prepare_node_data(ent_df, art_df, max_entities, base_dir):
     """Prepare all node data for bulk insert.
 
     Reads all metadata columns dynamically from manifests -- no hardcoded
@@ -161,16 +107,12 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir=None):
         art_df: Artifact manifest DataFrame.
         max_entities: Maximum number of entities to process.
         base_dir: Base directory for resolving relative file paths.
-            Defaults to get_base_dir().
 
     Returns:
         ent_nodes: List of entity node dicts
         art_nodes: List of artifact node dicts (with placeholder parent)
         art_data_sources: List of data source info for artifacts
     """
-    if base_dir is None:
-        base_dir = get_base_dir()
-
     if "key" not in ent_df.columns:
         raise ValueError(
             "Entity manifest missing required 'key' column. "
@@ -593,111 +535,3 @@ def verify_registration(db_path):
    print(f'Data shape: {h[list(h.keys())[0]].read().shape}')
    "
 """)
-
-
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Bulk register entities to Tiled catalog using SQLAlchemy.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                        # Register 10 entities (default)
-  %(prog)s -n 1000                # Register 1000 entities
-  %(prog)s -n 10000 -o bulk.db    # Register all to bulk.db
-  %(prog)s -n 100 --force         # Overwrite without prompting
-
-Environment variables (used as fallbacks):
-  MAX_ENTITIES           Number of entities (default: from config)
-  CATALOG_DB             Database filename (default: catalog.db)
-"""
-    )
-
-    parser.add_argument(
-        "-n", "--max-entities",
-        type=int,
-        default=None,
-        metavar="NUM",
-        help="Number of entities to register (default: 10 or MAX_ENTITIES)"
-    )
-
-    parser.add_argument(
-        "-o", "--output",
-        type=str,
-        default=None,
-        metavar="DB_NAME",
-        help="Output database filename (default: catalog.db or CATALOG_DB)"
-    )
-
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite existing database without prompting"
-    )
-
-    return parser.parse_args()
-
-
-def main():
-    args = parse_args()
-
-    print("=" * 60)
-    print("Generic Bulk Registration (SQLAlchemy + Trigger Rebuild)")
-    print("=" * 60)
-
-    # Determine database path (CLI > env var > config default)
-    from .config import get_service_dir
-
-    if args.output:
-        db_path = os.path.join(get_service_dir(), args.output)
-    elif os.environ.get("CATALOG_DB"):
-        db_path = os.path.join(get_service_dir(), os.environ.get("CATALOG_DB"))
-    else:
-        db_path = get_catalog_db_path()
-
-    # Determine max entities (CLI > env var > config default)
-    if args.max_entities is not None:
-        max_entities = args.max_entities
-    else:
-        max_entities = get_max_entities()
-
-    print(f"Database:       {db_path}")
-    print(f"Data dir:       {get_base_dir()}")
-    print(f"Max entities:   {max_entities}")
-    print()
-
-    # Check if database exists and handle --force
-    if os.path.exists(db_path) and not args.force:
-        print(f"WARNING: Database already exists: {db_path}")
-        response = input("Overwrite? [y/N]: ").strip().lower()
-        if response != 'y':
-            print("Aborted.")
-            sys.exit(0)
-
-    # Initialize database
-    print("Initializing database...")
-    engine = init_database(db_path)
-
-    # Load manifests
-    ent_df, art_df = load_manifests()
-
-    # Prepare data
-    ent_nodes, art_nodes, art_data_sources = prepare_node_data(
-        ent_df, art_df, max_entities
-    )
-
-    # Bulk register
-    print("\nStarting bulk registration...")
-    elapsed = bulk_register(engine, ent_nodes, art_nodes, art_data_sources)
-
-    # Calculate rate
-    total_nodes = len(ent_nodes) + len(art_nodes) + 1  # +1 for root
-    rate = total_nodes / elapsed if elapsed > 0 else 0
-    print(f"Rate: {rate:.0f} nodes/sec")
-
-    # Verify
-    verify_registration(db_path)
-
-
-if __name__ == "__main__":
-    main()

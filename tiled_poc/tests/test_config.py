@@ -42,7 +42,6 @@ class TestLoadConfig:
         from broker.config import load_config
         cfg = load_config()
         assert isinstance(cfg, dict)
-        assert "data_dir" in cfg
         assert "service_dir" in cfg
 
     def test_no_manifests_section(self):
@@ -62,55 +61,6 @@ class TestLoadConfig:
         from broker.config import load_config
         cfg = load_config()
         assert "default_shapes" not in cfg
-
-
-class TestGetBaseDir:
-    """Tests for get_base_dir()."""
-
-    def test_returns_string(self):
-        from broker.config import get_base_dir
-        base = get_base_dir()
-        assert isinstance(base, str)
-
-    def test_contains_schema_version(self):
-        from broker.config import get_base_dir
-        base = get_base_dir()
-        assert "schema_v1" in base
-
-    def test_contains_data_path(self):
-        from broker.config import get_base_dir
-        base = get_base_dir()
-        assert "/data/" in base
-
-
-class TestGetLatestManifest:
-    """Tests for get_latest_manifest()."""
-
-    @pytest.mark.skip(reason="requires pre-built manifests in manifests/")
-    def test_finds_entities_manifest(self):
-        from broker.config import get_latest_manifest
-        path = get_latest_manifest("entities")
-        assert path.endswith(".parquet")
-        assert os.path.exists(path)
-
-    @pytest.mark.skip(reason="requires pre-built manifests in manifests/")
-    def test_finds_artifacts_manifest(self):
-        from broker.config import get_latest_manifest
-        path = get_latest_manifest("artifacts")
-        assert path.endswith(".parquet")
-        assert os.path.exists(path)
-
-    def test_raises_for_invalid_prefix(self):
-        from broker.config import get_latest_manifest
-        with pytest.raises(FileNotFoundError):
-            get_latest_manifest("nonexistent_prefix")
-
-    def test_fallback_pattern_is_generic(self):
-        """Without manifests config, fallback uses manifest_{prefix}_*.parquet."""
-        from broker.config import get_latest_manifest, get_base_dir
-        # The fallback pattern should be generic (no dataset-specific names)
-        with pytest.raises(FileNotFoundError, match="manifest_entities_"):
-            get_latest_manifest("entities")
 
 
 class TestGetMaxEntities:
