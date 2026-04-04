@@ -33,11 +33,6 @@ import pandas as pd
 import canonicaljson
 from sqlalchemy import create_engine, text
 
-# Import from shared helpers
-from .config import (
-    get_max_entities,
-    get_catalog_db_path,
-)
 from .utils import (
     make_artifact_key,
     to_json_safe,

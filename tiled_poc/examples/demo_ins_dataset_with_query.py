@@ -200,13 +200,13 @@ def _(mo):
 
 
 @app.cell
-def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
+def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, client, mo, np, subset, time):
     import h5py
     import os
     from pathlib import Path as _Path
     from ruamel.yaml import YAML as _YAML
 
-    # Load base_dir from the INS dataset's YAML config
+    # Load base_dir from each dataset YAML config
     _yaml = _YAML()
     _datasets_dir = _Path(__file__).parent.parent / "datasets"
     _base_dirs = {}
@@ -215,12 +215,16 @@ def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
             _cfg = _yaml.load(_f)
         _base_dirs[_cfg["key"]] = _cfg["base_dir"]
 
-    # Find which dataset key the subset belongs to (INS dataset)
-    _first_key = list(subset.keys())[0]
-    _first_meta = subset[_first_key].metadata
-    _dataset_key = _first_meta.get("key", None)
+    # Find the INS dataset container to get its base_dir
+    _ins_base_dir = None
+    for _dk in client.keys():
+        _ds = client[_dk]
+        _ents = list(_ds.keys())[:1]
+        if _ents and f"path_ins_{INCIDENT_ENERGY_MEV}meV" in dict(_ds[_ents[0]].metadata):
+            _ins_base_dir = _base_dirs.get(_dk)
+            break
 
-    def load_ins_mode_a(tiled_client, *, Ei_meV=12, max_spectra=None):
+    def load_ins_mode_a(tiled_client, base_dir, *, Ei_meV=12, max_spectra=None):
         """Load INS spectra using Mode A (direct HDF5)."""
         artifact_key = f"ins_{int(Ei_meV)}meV"
         path_key = f"path_{artifact_key}"
@@ -238,10 +242,6 @@ def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
             if not path_rel or not h5_dataset:
                 continue
 
-            # Resolve base_dir from the entity's dataset_key metadata
-            ent_dataset_key = h.metadata.get("key")
-            base_dir = _base_dirs.get(ent_dataset_key, "")
-
             path = os.path.join(base_dir, path_rel)
             with h5py.File(path, "r") as f:
                 spectrum = f[h5_dataset][:]
@@ -258,7 +258,7 @@ def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
         return np.stack(spectra_list), np.array(params_list, dtype=np.float32)
 
     _t0 = time.perf_counter()
-    spectra_a, params_a = load_ins_mode_a(subset, Ei_meV=INCIDENT_ENERGY_MEV, max_spectra=MAX_SPECTRA_DEMO)
+    spectra_a, params_a = load_ins_mode_a(subset, _ins_base_dir, Ei_meV=INCIDENT_ENERGY_MEV, max_spectra=MAX_SPECTRA_DEMO)
     time_a = (time.perf_counter() - _t0) * 1000
 
     mo.md(f"""
