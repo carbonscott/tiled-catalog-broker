@@ -18,9 +18,5 @@ broker:
   # Service directory (where catalog.db and storage/ live)
   service_dir: "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/proj-vdp/tiled_poc"
 
-  # Data directory root
-  data_dir: "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/vdp"
-  schema_version: "schema_v1"
-
   # Registration defaults (override with MAX_ENTITIES env var)
   max_entities: 10

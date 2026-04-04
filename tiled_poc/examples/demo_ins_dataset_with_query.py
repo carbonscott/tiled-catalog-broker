@@ -191,8 +191,9 @@ def _(mo):
     # Query Tiled for metadata → get HDF5 paths → load directly
     for ent_key, h in subset.items():
         path = h.metadata["path_ins_12meV"]
-        with h5py.File(path, "r") as f:
-            spectrum = f["data"][:]
+        dataset = h.metadata["dataset_ins_12meV"]
+        with h5py.File(base_dir + "/" + path, "r") as f:
+            spectrum = f[dataset][:]
     ```
     """)
     return
@@ -202,14 +203,28 @@ def _(mo):
 def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
     import h5py
     import os
-    from broker.config import get_base_dir, get_dataset_paths
+    from pathlib import Path as _Path
+    from ruamel.yaml import YAML as _YAML
+
+    # Load base_dir from the INS dataset's YAML config
+    _yaml = _YAML()
+    _datasets_dir = _Path(__file__).parent.parent / "datasets"
+    _base_dirs = {}
+    for _cfg_path in sorted(_datasets_dir.glob("*.yaml")):
+        with open(_cfg_path) as _f:
+            _cfg = _yaml.load(_f)
+        _base_dirs[_cfg["key"]] = _cfg["base_dir"]
+
+    # Find which dataset key the subset belongs to (INS dataset)
+    _first_key = list(subset.keys())[0]
+    _first_meta = subset[_first_key].metadata
+    _dataset_key = _first_meta.get("key", None)
 
     def load_ins_mode_a(tiled_client, *, Ei_meV=12, max_spectra=None):
         """Load INS spectra using Mode A (direct HDF5)."""
-        base_dir = get_base_dir()
-        dataset_path = get_dataset_paths()["ins_powder"]  # "/ins/broadened"
         artifact_key = f"ins_{int(Ei_meV)}meV"
         path_key = f"path_{artifact_key}"
+        dataset_key = f"dataset_{artifact_key}"
 
         spectra_list = []
         params_list = []
@@ -219,12 +234,17 @@ def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
                 break
 
             path_rel = h.metadata.get(path_key)
-            if not path_rel:
+            h5_dataset = h.metadata.get(dataset_key)
+            if not path_rel or not h5_dataset:
                 continue
+
+            # Resolve base_dir from the entity's dataset_key metadata
+            ent_dataset_key = h.metadata.get("key")
+            base_dir = _base_dirs.get(ent_dataset_key, "")
 
             path = os.path.join(base_dir, path_rel)
             with h5py.File(path, "r") as f:
-                spectrum = f[dataset_path][:]
+                spectrum = f[h5_dataset][:]
 
             spectra_list.append(spectrum)
             params_list.append([

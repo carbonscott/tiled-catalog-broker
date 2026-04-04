@@ -32,11 +32,24 @@ import time
 from pathlib import Path
 
 import numpy as np
+from ruamel.yaml import YAML
 
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from broker.config import get_tiled_url, get_api_key, get_base_dir, get_service_dir
+from broker.config import get_tiled_url, get_api_key, get_service_dir
+
+
+def _load_base_dirs():
+    """Load base_dir from each dataset YAML config in datasets/."""
+    yaml = YAML()
+    base_dirs = {}
+    datasets_dir = Path(__file__).parent.parent / "datasets"
+    for cfg_path in sorted(datasets_dir.glob("*.yaml")):
+        with open(cfg_path) as f:
+            cfg = yaml.load(f)
+        base_dirs[cfg["key"]] = cfg["base_dir"]
+    return base_dirs
 
 
 def _find_dataset_container(client, artifact_type):
@@ -45,8 +58,8 @@ def _find_dataset_container(client, artifact_type):
         container = client[key]
         ents = list(container.keys())[:1]
         if ents and f"path_{artifact_type}" in dict(container[ents[0]].metadata):
-            return container
-    return None
+            return key, container
+    return None, None
 
 
 def demo_mode_a_expert(client):
@@ -68,9 +81,16 @@ def demo_mode_a_expert(client):
 
     # Navigate to dataset-level container (root -> dataset containers -> entities)
     artifact_type = "mh_powder_30T"
-    dataset_client = _find_dataset_container(client, artifact_type)
+    dataset_key, dataset_client = _find_dataset_container(client, artifact_type)
     if dataset_client is None:
         print(f"  No dataset found with artifact_type={artifact_type}")
+        return
+
+    # Load base_dir for this dataset from its YAML config
+    base_dirs = _load_base_dirs()
+    base_dir = base_dirs.get(dataset_key)
+    if base_dir is None:
+        print(f"  No dataset config found for '{dataset_key}'")
         return
 
     # Step 1: Query to get manifest with all metadata
@@ -92,7 +112,7 @@ def demo_mode_a_expert(client):
     # Step 2: Load data directly from HDF5
     print("\nStep 2: Load data directly from HDF5 (no Tiled)")
     t0 = time.perf_counter()
-    arrays = load_artifacts(manifest, artifact_type=artifact_type)
+    arrays = load_artifacts(manifest, artifact_type=artifact_type, base_dir=base_dir)
     load_time = (time.perf_counter() - t0) * 1000
     print(f"  Loaded {len(arrays)} arrays in {load_time:.1f} ms")
     if arrays:
@@ -126,7 +146,7 @@ def demo_mode_b_visualizer(client):
     print()
 
     # Navigate to dataset-level container (root -> dataset containers -> entities)
-    dataset_client = _find_dataset_container(client, "mh_powder_30T")
+    _, dataset_client = _find_dataset_container(client, "mh_powder_30T")
     if dataset_client is None:
         print("No dataset with mh_powder_30T found!")
         return
@@ -182,16 +202,21 @@ def demo_same_data_two_modes(client):
     """
     import h5py
 
-    base_dir = get_base_dir()
-
     print("\n" + "=" * 60)
     print("SAME DATA, TWO ACCESS PATTERNS")
     print("=" * 60)
 
     # Navigate to dataset-level container (root -> dataset containers -> entities)
-    dataset_client = _find_dataset_container(client, "mh_powder_30T")
+    dataset_key, dataset_client = _find_dataset_container(client, "mh_powder_30T")
     if dataset_client is None:
         print("No dataset with mh_powder_30T found!")
+        return
+
+    # Load base_dir for this dataset
+    base_dirs = _load_base_dirs()
+    base_dir = base_dirs.get(dataset_key)
+    if base_dir is None:
+        print(f"  No dataset config found for '{dataset_key}'")
         return
 
     ent_key = list(dataset_client.keys())[0]
