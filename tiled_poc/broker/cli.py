@@ -1,9 +1,11 @@
 """
 CLI entry points for the broker package.
 
-Provides two commands:
-  - broker-ingest:    Bulk SQL registration from Parquet manifests
-  - broker-register:  HTTP registration against a running Tiled server
+Provides four commands:
+  - broker-inspect:    Auto-scan HDF5 directory and emit draft YAML config
+  - broker-generate:   Generate Parquet manifests from a dataset YAML config
+  - broker-ingest:     Bulk SQL registration from Parquet manifests
+  - broker-register:   HTTP registration against a running Tiled server
 
 All paths (catalog.db, manifests/, storage/, datasets/) are resolved
 relative to the current working directory.
@@ -27,7 +29,31 @@ def _load_config(config_path):
         return yaml.load(f)
 
 
-# ── broker-ingest ────────────────────────────────────────────────
+# -- broker-inspect ---------------------------------------------------
+
+def inspect_main():
+    """Auto-scan an HDF5 data directory and emit a draft YAML config.
+
+    Detects layout (per_entity, batched, grouped), classifies datasets,
+    and writes a draft YAML with TODO markers for the user to complete.
+    """
+    from broker.onboarding.inspect import main as _inspect_main
+    _inspect_main()
+
+
+# -- broker-generate --------------------------------------------------
+
+def generate_main():
+    """Generate Parquet manifests from a finalized dataset YAML config.
+
+    Reads the YAML contract, validates it against the catalog model,
+    and produces entities.parquet + artifacts.parquet.
+    """
+    from broker.onboarding.generate import main as _generate_main
+    _generate_main()
+
+
+# -- broker-ingest ----------------------------------------------------
 
 def ingest_main():
     """Bulk SQL registration (from ingest.py).
@@ -96,7 +122,7 @@ def ingest_main():
     print("\nDone!")
 
 
-# ── broker-register ──────────────────────────────────────────────
+# -- broker-register --------------------------------------------------
 
 def register_main():
     """HTTP registration against a running Tiled server (from register.py).
