@@ -61,7 +61,7 @@ def _():
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     # Use config module for configuration
-    from broker.config import get_tiled_url, get_api_key
+    from data_catalog_service.config import get_tiled_url, get_api_key
 
     TILED_URL = get_tiled_url()
     API_KEY = get_api_key()
@@ -173,7 +173,7 @@ def _(mo):
     **Best for:** ML pipelines, bulk loading, maximum performance
 
     ```python
-    from broker.query_manifest import query_catalog, load_artifacts
+    from data_catalog_service.query_manifest import query_catalog, load_artifacts
 
     # Query Tiled -> get all metadata as DataFrame
     manifest = query_catalog(client, artifact_type="mh_powder_30T")
@@ -196,7 +196,7 @@ def _(mo):
 
 @app.cell
 def _(client, mo, np, time):
-    from broker.query_manifest import query_catalog, load_artifacts
+    from data_catalog_service.query_manifest import query_catalog, load_artifacts
 
     # Navigate to dataset-level container: root -> dataset containers -> entities
     _artifact_type = "mh_powder_30T"

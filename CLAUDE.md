@@ -3,8 +3,6 @@
 Set these environment variables before running any commands:
 
 ```bash
-export PROJ_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/codes/tiled-catalog-broker
-export DATA_BROKER_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/cwang31-data-broker
 export UV_CACHE_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/.UV_CACHE
 ```
 
@@ -12,11 +10,12 @@ Use `uv` to run python programs. The UV_CACHE_DIR avoids repeated package downlo
 
 ## Project Overview
 
-**Tiled Catalog Broker** — a config-driven system for registering multi-modal
-scientific HDF5 datasets into a [Tiled](https://blueskyproject.io/tiled/)
-catalog. Data model inspired by [ArrayLake](https://docs.earthmover.io/concepts/data-model)
-(Organization → Repo → Group → Array), adapted for many-entity scientific data
-with queryable metadata.
+**Data Catalog Service (DCS)** — a config-driven system for registering
+multi-modal scientific HDF5 datasets into a
+[Tiled](https://blueskyproject.io/tiled/) catalog. Data model inspired by
+[ArrayLake](https://docs.earthmover.io/concepts/data-model) (Organization →
+Repo → Group → Array), adapted for many-entity scientific data with queryable
+metadata.
 
 **Hierarchy:** Dataset → Entity → Artifact
 - **Datasets** are top-level containers (VDP, EDRIXS, RIXS, SEQUOIA, etc.)
@@ -29,62 +28,53 @@ with queryable metadata.
 - **Mode A (Expert):** Query metadata for HDF5 paths, load directly with h5py
 - **Mode B (Visualizer):** Access arrays via Tiled HTTP adapters (chunked)
 
-The broker is **dataset-agnostic**. The Parquet manifest is the contract: no
+The service is **dataset-agnostic**. The Parquet manifest is the contract: no
 parameter names, artifact types, or file layouts are hardcoded.
 
 ## Directory Structure
 
 ```
 tiled-catalog-broker/
-├── CLAUDE.md              # This file
-├── .gitignore
-├── docs/                  # Design docs, handoffs, lessons learned
-│   ├── SCHEMA-DESIGN.md   # Data model and hierarchy rationale
-│   ├── DESIGN-GENERIC-BROKER.md
-│   ├── INGESTION-GUIDE.md
-│   └── ...
-├── externals/             # Reference materials (PDFs, diagrams)
-└── tiled_poc/             # Main implementation
-    ├── config.yml         # Server configuration (port 8005)
-    ├── ingest.py          # CLI: bulk ingest into catalog.db
-    ├── register.py        # CLI: HTTP register into running server
-    ├── broker/            # Core library (1,800+ LOC)
-    │   ├── config.py      # YAML config loading
-    │   ├── utils.py       # Shared helpers
-    │   ├── bulk_register.py   # SQLAlchemy bulk registration
-    │   ├── http_register.py   # HTTP registration via Tiled client
-    │   ├── catalog.py     # Catalog creation + dataset containers
-    │   └── query_manifest.py  # Mode A discovery API
-    ├── examples/          # Standalone example scripts
-    └── tests/             # Test suite
+├── CLAUDE.md                  # This file
+├── pyproject.toml             # Package definition (data-catalog-service)
+├── config.yml                 # Tiled server configuration
+├── src/
+│   └── data_catalog_service/  # Installable Python package
+│       ├── cli.py             # CLI: dcs {ingest,register}
+│       ├── config.py          # YAML config loading
+│       ├── catalog.py         # Catalog creation + dataset containers
+│       ├── register.py        # SQLAlchemy bulk registration
+│       ├── http_register.py   # HTTP registration via Tiled client
+│       ├── query_manifest.py  # Mode A discovery API
+│       └── utils.py           # Shared helpers
+├── notebooks/                 # Marimo notebooks (demos, exploration)
+├── examples/                  # Standalone example scripts
+├── tests/                     # Test suite
+└── docs/                      # Design docs, handoffs, lessons learned
 ```
 
 ## How to Run
 
-See `tiled_poc/README.md` for the full quickstart. Summary:
-
 ```bash
-cd $PROJ_DIR/tiled_poc
+# Install in development mode
+uv pip install -e .
 
-# Common deps shorthand
-UV_DEPS="--with 'tiled[server]' --with pandas --with pyarrow --with h5py --with 'ruamel.yaml' --with canonicaljson"
+# Or run directly with uv
+uv run dcs --help
 
-# Pipeline: (pre-built manifests in manifests/) → ingest → serve
-uv run $UV_DEPS python ingest.py datasets/mydata.yml
+# Pipeline: ingest → serve
+dcs ingest datasets/my_dataset.yml
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
 
 ## Running Tests
 
 ```bash
-cd $PROJ_DIR/tiled_poc
-
 # Unit tests (no server required)
-uv run --with pytest $UV_DEPS \
-  pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py -v
+uv run --with pytest pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py -v
 
 # Integration tests (requires running server with data)
-uv run --with pytest $UV_DEPS pytest tests/ -v
+uv run --with pytest pytest tests/ -v
 ```
 
 ## Architecture
@@ -129,4 +119,3 @@ uv run --with pytest $UV_DEPS pytest tests/ -v
 | `docs/INGESTION-GUIDE.md` | How to add new datasets |
 | `docs/LOCATOR-AND-MANIFEST-CONTRACT.md` | Manifest contract specification |
 | `docs/LESSONS_LEARNED.md` | Lessons learned |
-| `tiled_poc/README.md` | Full quickstart and API reference |

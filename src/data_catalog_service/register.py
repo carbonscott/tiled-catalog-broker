@@ -162,7 +162,7 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir):
             for _, art_row in artifacts.iterrows():
                 art_key = make_artifact_key(art_row)
                 h5_rel_path = art_row["file"]
-                h5_full_path = os.path.join(base_dir, h5_rel_path)
+                h5_full_path = os.path.realpath(os.path.join(base_dir, h5_rel_path))
                 dataset_path = art_row["dataset"]
                 index = None
                 if "index" in art_df.columns and pd.notna(art_row.get("index")):
@@ -227,7 +227,7 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir):
 
 
 def bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
-                  dataset_key, dataset_metadata):
+                  dataset_key, dataset_metadata, config_hash=None):
     """Bulk insert all data with trigger disable/rebuild.
 
     Args:
@@ -237,33 +237,60 @@ def bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
         art_data_sources: List of data source info for artifacts.
         dataset_key: Key for the dataset container (e.g. "VDP").
         dataset_metadata: Metadata dict for the dataset container.
+        config_hash: SHA256 hash of the YAML config. If the stored
+            _config_hash differs, metadata is updated in place.
     """
+    import datetime as _dt
 
     start_time = time.time()
+
+    # Add tracking fields to metadata
+    tracking = {
+        "_last_registered": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "_manifest_entity_count": len(ent_nodes),
+    }
+    if config_hash:
+        tracking["_config_hash"] = config_hash
 
     with engine.connect() as conn:
         # Step 1: Disable closure table trigger
         print("Step 1: Disabling closure table trigger...")
         conn.execute(text("DROP TRIGGER IF EXISTS update_closure_table_when_inserting"))
 
-        # Step 1b: Create or reuse dataset container
-        print(f"Step 1b: Creating dataset container '{dataset_key}'...")
+        # Step 1b: Create or update dataset container
+        print(f"Step 1b: Dataset container '{dataset_key}'...")
         row = conn.execute(text(
-            "SELECT id FROM nodes WHERE parent = 0 AND key = :key"
+            "SELECT id, metadata FROM nodes WHERE parent = 0 AND key = :key"
         ), {"key": dataset_key}).fetchone()
 
         if row:
             dataset_parent_id = row[0]
-            print(f"  Using existing container (id={dataset_parent_id})")
+            existing_meta = json.loads(row[1]) if row[1] else {}
+            old_hash = existing_meta.get("_config_hash")
+
+            if config_hash and old_hash == config_hash:
+                print(f"  Using existing container (id={dataset_parent_id}, config unchanged)")
+            else:
+                # Merge new metadata into existing
+                merged = {**existing_meta, **dataset_metadata, **tracking}
+                conn.execute(text(
+                    "UPDATE nodes SET metadata = :metadata WHERE id = :id"
+                ), {"metadata": json.dumps(merged), "id": dataset_parent_id})
+                if old_hash:
+                    print(f"  Updated container metadata (id={dataset_parent_id}, config changed)")
+                else:
+                    print(f"  Updated container metadata (id={dataset_parent_id}, added tracking)")
         else:
+            full_metadata = {**dataset_metadata, **tracking}
             result = conn.execute(text("""
                 INSERT INTO nodes (parent, key, structure_family, metadata, specs, access_blob)
                 VALUES (0, :key, 'container', :metadata, '[]', '{}')
             """), {
                 "key": dataset_key,
-                "metadata": json.dumps(dataset_metadata),
+                "metadata": json.dumps(full_metadata),
             })
             dataset_parent_id = result.lastrowid
+            print(f"  Created new container (id={dataset_parent_id})")
 
         # Step 2: Insert entity nodes (skip existing)
         print(f"Step 2: Inserting {len(ent_nodes)} entity nodes...")

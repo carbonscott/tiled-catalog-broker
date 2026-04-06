@@ -77,6 +77,6 @@ def small_manifest(mh_dataset_client):
 
     Returns first 5 entities' manifest data.
     """
-    from broker.query_manifest import query_catalog
+    from data_catalog_service.query_manifest import query_catalog
 
     return query_catalog(mh_dataset_client, artifact_type="mh_powder_30T", limit=5)

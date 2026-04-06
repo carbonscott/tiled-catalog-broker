@@ -24,7 +24,7 @@ import pytest
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from broker.utils import make_artifact_key, to_json_safe, clear_artifact_cache
+from data_catalog_service.utils import make_artifact_key, to_json_safe, clear_artifact_cache
 
 
 class TestMakeArtifactKey:
