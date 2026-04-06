@@ -1,0 +1,194 @@
+# Semantic Model: Controlled Vocabulary for Dataset Catalog
+#
+# This file defines the allowed values for dataset metadata fields.
+# The inspector uses it to show options in draft YAMLs.
+# The generator/validator uses it to enforce consistency.
+#
+# To add a new method, material, etc., just add it here.
+
+# --- Methods ---
+# Scientific techniques / observable types that a dataset produces.
+# A dataset may have multiple methods (e.g., multimodal simulation).
+# Aliases map common shorthand names to canonical IDs. When an alias is
+# used, the validator resolves it to the canonical method. Some aliases
+# also imply a default data_type (e.g., EDRIXS → RIXS + simulation).
+methods:
+  - id: INS
+    label: Inelastic Neutron Scattering
+    description: S(Q,E) spectra from neutron scattering (powder or single-crystal)
+  - id: RIXS
+    label: Resonant Inelastic X-ray Scattering
+    description: RIXS spectra (energy loss vs. scattering angle)
+    aliases:
+      - id: EDRIXS
+        implies:
+          data_type: simulation
+  - id: Magnetization
+    label: Magnetization Curves
+    description: M(H) curves along crystal axes or powder-averaged
+  - id: VDP
+    label: Virtual Diffraction Pattern
+    description: Forward-model database spanning multiple observables
+  - id: XPS
+    label: X-ray Photoelectron Spectroscopy
+    description: Core-level photoelectron spectra
+  - id: XES
+    label: X-ray Emission Spectroscopy
+    description: X-ray emission spectra from radiative decay
+  - id: SWT
+    label: Spin Wave Theory
+    description: Linear spin wave theory S(Q,E) calculations
+
+# --- Materials ---
+materials:
+  - id: NiPS3
+    label: "NiPS3"
+    description: Nickel phosphorus trisulfide (van der Waals antiferromagnet)
+    aliases: [NIPS, nips3]
+  - id: NiO
+    label: "NiO"
+    description: Nickel oxide (antiferromagnetic insulator)
+  - id: generic_spin_model
+    label: Generic Spin Model
+    description: Not tied to a specific material
+  - id: YbBi2IO4
+    label: "YbBi2IO4"
+    description: Ytterbium bismuth iodate (2D quantum magnet)
+
+# --- Data Types ---
+data_types:
+  - id: simulation
+    label: Simulation
+  - id: experimental
+    label: Experimental
+  - id: benchmark
+    label: Benchmark
+  - id: optimization
+    label: Optimization
+
+# --- Projects ---
+projects:
+  - id: MAIQMag
+    label: MAIQMag
+    description: Machine-learning AI for Quantum Magnetism
+
+# --- Facilities ---
+# Only relevant for experimental data.
+facilities:
+  - id: LCLS
+    label: LCLS
+    description: Linac Coherent Light Source (SLAC)
+  - id: SNS
+    label: SNS
+    description: Spallation Neutron Source (ORNL)
+  - id: NSLS-II
+    label: NSLS-II
+    description: National Synchrotron Light Source II (BNL)
+
+# --- Producers ---
+# Code repositories that generated the dataset files. Track the repo URL
+# so it's clear exactly what code produced the data. The producer is the
+# pipeline/project, not its dependencies (e.g., edrixs the library is a
+# dependency of lajer2025Hamiltonian, not a separate producer).
+producers:
+  - id: sunny_jl
+    label: Sunny.jl
+    repo: https://github.com/SunnySuite/Sunny.jl
+    description: Julia spin-dynamics simulation (S(Q,E), magnetization)
+  - id: lajer2025Hamiltonian
+    label: lajer2025Hamiltonian
+    repo: https://github.com/mpmdean/lajer2025Hamiltonian
+    description: Bayesian optimization of Hamiltonian parameters from RIXS via edrixs exact-diagonalization
+  - id: edrixs
+    label: EDRIXS
+    repo: https://github.com/NSLS-II/edrixs
+    description: Exact-diagonalization RIXS simulation library (Python)
+
+# --- Dataset metadata fields ---
+# Defines which fields are required/optional on dataset container metadata.
+dataset_fields:
+  required:
+    - name: data_type
+      type: string
+      enum_ref: data_types
+      description: '"simulation" or "experimental"'
+    - name: method
+      type: list
+      enum_ref: methods
+      description: Scientific methods/observables (list)
+  optional:
+    - name: project
+      type: string
+      enum_ref: projects
+      description: Scientific project or collaboration
+    - name: material
+      type: string
+      enum_ref: materials
+      description: Target material or system
+    - name: producer
+      type: string
+      enum_ref: producers
+      description: Code that generated the data (simulation only)
+    - name: producer_version
+      type: string
+      description: Version tag or semver
+    - name: facility
+      type: string
+      enum_ref: facilities
+      description: Where data was collected (experimental only)
+    - name: instrument
+      type: string
+      description: Instrument or beamline
+    - name: organization
+      type: string
+      description: Owning organization or group
+    - name: description
+      type: string
+      description: Human-readable summary
+    - name: created_at
+      type: string
+      description: When the dataset was generated (ISO date)
+    - name: prior_distribution
+      type: string
+      description: How parameters were sampled (e.g., uniform, LHS)
+
+# --- Provenance fields ---
+# Optional fields for tracking how and when data was generated.
+# Stored on the dataset container alongside metadata.
+provenance_fields:
+  - name: created_at
+    type: string
+    description: When the dataset was generated (ISO 8601 date)
+  - name: code_version
+    type: string
+    description: Version tag of the generating code
+  - name: code_commit
+    type: string
+    description: Git commit hash of the generating code
+  - name: generation_host
+    type: string
+    description: Hostname where data was generated
+
+# --- Key convention ---
+# Dataset keys follow the formula: {METHOD}_{DATA_TYPE_SHORT}_{DISTINGUISHING_FEATURE}
+# This makes keys predictable — if you know the method, type, and what's
+# unique about the dataset, you can construct the key without searching.
+#
+# DATA_TYPE_SHORT abbreviations:
+#   simulation   → SIM
+#   experimental → EXP
+#   benchmark    → BENCH
+#   optimization → OPT
+#
+# Examples:
+#   RIXS_SIM_BROAD_SIGMA     — simulated RIXS with broad sigma parameter range
+#   RIXS_EXP_NIPS3_2024      — experimental RIXS on NiPS3 from 2024
+#   INS_SIM_10K              — simulated INS with 10K entities
+#   VDP_SIM_HEISENBERG       — VDP simulation for Heisenberg model
+key_convention:
+  formula: "{METHOD}_{DATA_TYPE_SHORT}_{DISTINGUISHING_FEATURE}"
+  data_type_abbreviations:
+    simulation: SIM
+    experimental: EXP
+    benchmark: BENCH
+    optimization: OPT

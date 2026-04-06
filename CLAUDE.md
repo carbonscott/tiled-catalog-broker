@@ -40,13 +40,18 @@ tiled-catalog-broker/
 ├── config.yml                 # Tiled server configuration
 ├── src/
 │   └── data_catalog_service/  # Installable Python package
-│       ├── cli.py             # CLI: dcs {ingest,register}
+│       ├── cli.py             # CLI: dcs {inspect,generate,ingest,register}
 │       ├── config.py          # YAML config loading
+│       ├── inspect.py         # HDF5 directory inspection & draft YAML generation
+│       ├── generate.py        # Parquet manifest generation from YAML contracts
+│       ├── schema.py          # YAML contract validation
+│       ├── schema/            # Semantic model (catalog_model.yml)
 │       ├── catalog.py         # Catalog creation + dataset containers
 │       ├── register.py        # SQLAlchemy bulk registration
 │       ├── http_register.py   # HTTP registration via Tiled client
 │       ├── query_manifest.py  # Mode A discovery API
 │       └── utils.py           # Shared helpers
+├── datasets/                  # Dataset YAML contracts
 ├── notebooks/                 # Marimo notebooks (demos, exploration)
 ├── examples/                  # Standalone example scripts
 ├── tests/                     # Test suite
@@ -62,7 +67,10 @@ uv pip install -e .
 # Or run directly with uv
 uv run dcs --help
 
-# Pipeline: ingest → serve
+# Pipeline: inspect → generate → ingest → serve
+dcs inspect /path/to/hdf5/data/
+# ... edit the draft YAML ...
+dcs generate datasets/my_dataset.yml
 dcs ingest datasets/my_dataset.yml
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```

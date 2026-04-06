@@ -1,7 +1,9 @@
 """
 CLI entry points for data-catalog-service.
 
-Provides two commands:
+Provides four commands:
+  - dcs inspect:        Scan HDF5 data directory, generate draft YAML contract
+  - dcs generate:       Generate Parquet manifests from a YAML contract
   - dcs ingest:         Bulk SQL registration from Parquet manifests
   - dcs register:       HTTP registration against a running Tiled server
 
@@ -86,6 +88,32 @@ def _find_manifests(config_path, label, name):
         return ep, ap
 
     return None, None
+
+
+# ── dcs inspect ───────────────────────────────────────────────
+
+def inspect_main():
+    """Scan an HDF5 data directory and generate a draft YAML contract.
+
+    The inspector auto-detects layout (per_entity, batched, grouped),
+    classifies datasets, checks consistency, and emits a YAML with
+    TODO markers for fields requiring human judgment.
+    """
+    from data_catalog_service.inspect import main as _inspect_main
+    _inspect_main()
+
+
+# ── dcs generate ────────────────────────────────────────────
+
+def generate_yaml_main():
+    """Generate Parquet manifests from a finalized YAML contract.
+
+    Reads a YAML config (produced by `dcs inspect` and finalized by user),
+    scans the HDF5 files, and produces entities.parquet + artifacts.parquet
+    compatible with `dcs ingest`.
+    """
+    from data_catalog_service.generate import main as _generate_main
+    _generate_main()
 
 
 # ── dcs ingest ────────────────────────────────────────────────
@@ -266,6 +294,8 @@ def register_main():
 def main():
     """Main entry point: dcs <command> [args]."""
     commands = {
+        "inspect": inspect_main,
+        "generate": generate_yaml_main,
         "ingest": ingest_main,
         "register": register_main,
     }
@@ -273,6 +303,8 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("usage: dcs <command> [args]\n")
         print("commands:")
+        print("  inspect    Scan HDF5 data directory, generate draft YAML contract")
+        print("  generate   Generate Parquet manifests from a finalized YAML contract")
         print("  ingest     Bulk SQL registration from Parquet manifests")
         print("  register   HTTP registration against a running Tiled server")
         sys.exit(0)

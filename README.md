@@ -33,13 +33,34 @@ uv pip install -e .
 
 ## Quickstart
 
-### Step 1: Prepare Manifests
+The `datasets/` directory contains YAML contracts for each dataset. This
+walkthrough goes from raw HDF5 files to querying data in Python.
 
-Each dataset needs a YAML contract (`datasets/mydata.yml`) and Parquet manifests
-(entity + artifact DataFrames). See [Adding Your Own Dataset](#adding-your-own-dataset)
-for the manifest format.
+### Step 1: Inspect HDF5 Data
 
-### Step 2: Ingest into Catalog
+`dcs inspect` scans a directory of HDF5 files and generates a draft YAML
+contract:
+
+```bash
+dcs inspect /path/to/hdf5/data/
+```
+
+Edit the draft YAML to refine entity parameters, artifact types, and metadata.
+Save it to `datasets/mydata.yml`.
+
+### Step 2: Generate Manifests
+
+`dcs generate` reads the YAML contract and produces Parquet manifests:
+
+```bash
+# Generate manifests (optionally limit to N entities with -n)
+dcs generate datasets/mydata.yml -n 10
+```
+
+This creates entity and artifact Parquet files in the manifest output directory
+specified by the YAML contract.
+
+### Step 3: Ingest into Catalog
 
 `dcs ingest` bulk-loads manifests into a SQLite catalog database using direct
 SQLAlchemy (no running server needed).
@@ -50,7 +71,7 @@ dcs ingest datasets/mydata.yml
 
 This creates `catalog.db` with all entities and their artifacts.
 
-### Step 3: Start the Tiled Server
+### Step 4: Start the Tiled Server
 
 ```bash
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
@@ -121,16 +142,18 @@ uv run --with marimo --with matplotlib \
 The `dcs` CLI subcommands form a pipeline:
 
 ```
-manifests   --->   dcs ingest   --->   tiled serve
-                   (catalog.db)        (HTTP API)
-                   [offline bulk]      [serve queries]
+dcs inspect          dcs generate         dcs ingest            tiled serve
+  (draft YAML)  --->   (manifests)   --->   (catalog.db)   --->   (HTTP API)
+                                            [offline bulk]        [serve queries]
 
-                 dcs register
-                   [online HTTP]  ---> (running server)
+                                          dcs register
+                                            [online HTTP]  --->   (running server)
 ```
 
 | Subcommand | Purpose | Server needed? |
 |------------|---------|----------------|
+| `dcs inspect` | Scan HDF5 directories, generate draft YAML contract | No |
+| `dcs generate` | Read YAML contract, produce Parquet manifests | No |
 | `dcs ingest` | Bulk-load manifests into `catalog.db` (SQLAlchemy) | No |
 | `dcs register` | Register manifests into a running server (HTTP) | Yes |
 
@@ -165,7 +188,18 @@ dcs register datasets/vdp.yml datasets/edrixs.yml
 
 Two things are needed:
 
-### 1. Dataset Contract (`datasets/mydata.yml`)
+### 1. Inspect Your Data
+
+Use `dcs inspect` to scan your HDF5 directory and generate a draft YAML
+contract:
+
+```bash
+dcs inspect /path/to/hdf5/data/
+```
+
+Review and edit the draft. Save it to `datasets/mydata.yml`.
+
+### 2. Dataset Contract (`datasets/mydata.yml`)
 
 The YAML contract describes your dataset's structure. Key fields:
 
@@ -178,9 +212,7 @@ base_dir: /path/to/hdf5/root
 - `base_dir` -- Root directory. All HDF5 `file` paths in the manifest are
   relative to this.
 
-### 2. Parquet Manifests
-
-The manifest contains two DataFrames:
+The manifest produced by `dcs generate` contains two DataFrames:
 
 **Entity DataFrame** -- one row per entity:
 
@@ -213,6 +245,9 @@ readable_storage:
 ### Run It
 
 ```bash
+# Generate manifests
+dcs generate datasets/mydata.yml -n 100
+
 # Bulk ingest (offline)
 dcs ingest datasets/mydata.yml
 
@@ -244,6 +279,9 @@ uv run --with pytest pytest tests/ -v
 |-----------|------|----------------|
 | `test_config.py` | Unit | Configuration loading, path resolution |
 | `test_utils.py` | Unit | Artifact key generation, shared helpers |
+| `test_schema.py` | Unit | YAML contract validation |
+| `test_inspect.py` | Unit | HDF5 directory inspection |
+| `test_generate.py` | Unit | Manifest generation |
 | `test_generic_registration.py` | Unit | Node preparation for VDP + NiPS3 datasets |
 | `test_registration.py` | Integration | HTTP and bulk registration |
 | `test_data_retrieval.py` | Integration | Mode A/B data access |
@@ -260,13 +298,19 @@ tiled-catalog-broker/
 │
 ├── src/
 │   └── data_catalog_service/  # Installable Python package
-│       ├── cli.py             # CLI: dcs {ingest,register}
+│       ├── cli.py             # CLI: dcs {inspect,generate,ingest,register}
 │       ├── config.py          # YAML config loading
+│       ├── inspect.py         # HDF5 directory inspection & draft YAML generation
+│       ├── generate.py        # Parquet manifest generation from YAML contracts
+│       ├── schema.py          # YAML contract validation
+│       ├── schema/            # Semantic model (catalog_model.yml)
 │       ├── catalog.py         # Catalog creation + dataset containers
 │       ├── register.py        # SQLAlchemy bulk registration
 │       ├── http_register.py   # HTTP registration via Tiled client
 │       ├── query_manifest.py  # Mode A discovery API
 │       └── utils.py           # Shared helpers
+│
+├── datasets/                  # Dataset YAML contracts
 │
 ├── notebooks/                 # Marimo notebooks (demos, exploration)
 │
@@ -276,6 +320,9 @@ tiled-catalog-broker/
 │   ├── conftest.py
 │   ├── test_config.py
 │   ├── test_utils.py
+│   ├── test_schema.py
+│   ├── test_inspect.py
+│   ├── test_generate.py
 │   ├── test_generic_registration.py
 │   ├── test_registration.py
 │   ├── test_data_retrieval.py
