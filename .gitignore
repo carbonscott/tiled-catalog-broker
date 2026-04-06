@@ -2,6 +2,12 @@
 *.db
 *.db.bak*
 
+# Claude Code
+.claude/
+
+# Marimo cache
+__marimo__/
+
 # Python cache
 __pycache__/
 *.pyc
@@ -15,14 +21,3 @@ data
 
 # External assets
 externals/
-
-# Profiling/debug scripts in tiled_poc
-tiled_poc/benchmark_*.py
-tiled_poc/compare_*.py
-tiled_poc/profile_*.py
-tiled_poc/config_postgres.yml
-tiled_poc/PROFILING_REPORT.md
-
-# Generated demo manifests and storage
-tiled_poc/demo/manifests/
-tiled_poc/demo/storage/

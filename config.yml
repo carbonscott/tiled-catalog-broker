@@ -1,0 +1,22 @@
+# Tiled server configuration
+uvicorn:
+  host: "127.0.0.1"
+  port: 8005
+
+trees:
+  - path: /
+    tree: catalog
+    args:
+      uri: "sqlite:///catalog.db"
+      init_if_not_exists: true
+      writable_storage: "storage"
+      readable_storage:
+        - "/sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper"
+        - "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/NiPS3_Multimodal_Synthetic/data"
+        - "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/data-tlinker/SUNNY/NIPS_10000"
+        - "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/vdp/data/schema_v1"
+
+# Broker configuration (dataset-agnostic)
+broker:
+  # Registration defaults (override with MAX_ENTITIES env var)
+  max_entities: 10

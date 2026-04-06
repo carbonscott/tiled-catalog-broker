@@ -15,7 +15,7 @@ from .config import get_tiled_url, get_api_key
 
 # Standard columns in the artifact manifest that are NOT stored as metadata.
 # Everything else becomes artifact-level metadata dynamically.
-ARTIFACT_STANDARD_COLS = {"uid", "type", "file", "dataset", "index"}
+ARTIFACT_STANDARD_COLS = {"uid", "type", "file", "dataset", "index", "file_size", "file_mtime"}
 
 
 def to_json_safe(value):
@@ -32,16 +32,17 @@ def to_json_safe(value):
 
 
 def get_artifact_shape(base_dir, file_path, dataset_path, index=None, _cache={}):
-    """Read artifact shape from HDF5, with caching by dataset path.
+    """Read artifact shape from HDF5, with caching by (file, dataset) pair.
 
-    Caches by dataset_path to avoid re-opening files for artifacts
-    that share the same HDF5 internal structure.
+    Caches by (file_path, dataset_path) to support variable-shape artifacts
+    where the same dataset path may have different shapes in different files.
     """
-    if dataset_path not in _cache:
+    cache_key = (file_path, dataset_path)
+    if cache_key not in _cache:
         full_path = os.path.join(base_dir, file_path)
         with h5py.File(full_path, "r") as f:
-            _cache[dataset_path] = f[dataset_path].shape
-    full_shape = _cache[dataset_path]
+            _cache[cache_key] = f[dataset_path].shape
+    full_shape = _cache[cache_key]
     if index is not None:
         return list(full_shape[1:])  # Skip batch dimension
     return list(full_shape)

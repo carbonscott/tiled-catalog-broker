@@ -41,7 +41,7 @@ class TestModeAQueryManifest:
 
     def test_query_manifest_returns_dataframe(self, tiled_client):
         """Test that query_manifest returns a DataFrame."""
-        from broker.query_manifest import query_manifest
+        from data_catalog_service.query_manifest import query_manifest
 
         manifest = query_manifest(tiled_client, axis="powder", Hmax_T=30)
 
@@ -50,7 +50,7 @@ class TestModeAQueryManifest:
 
     def test_query_manifest_has_required_columns(self, tiled_client):
         """Test that manifest has all required columns."""
-        from broker.query_manifest import query_manifest
+        from data_catalog_service.query_manifest import query_manifest
 
         manifest = query_manifest(tiled_client, axis="powder", Hmax_T=30)
 
@@ -60,7 +60,7 @@ class TestModeAQueryManifest:
 
     def test_query_manifest_with_ja_filter(self, tiled_client):
         """Test filtering by Ja_meV parameter."""
-        from broker.query_manifest import query_manifest
+        from data_catalog_service.query_manifest import query_manifest
 
         # Get all
         all_manifest = query_manifest(tiled_client, axis="powder", Hmax_T=30)
@@ -77,7 +77,7 @@ class TestModeAQueryManifest:
 
     def test_load_from_manifest_shapes(self, tiled_client):
         """Test that loaded data has correct shapes."""
-        from broker.query_manifest import query_manifest, load_from_manifest
+        from data_catalog_service.query_manifest import query_manifest, load_from_manifest
 
         manifest = query_manifest(tiled_client, axis="powder", Hmax_T=30)
         manifest = manifest.head(5)  # Small subset for speed
@@ -94,7 +94,7 @@ class TestModeAQueryManifest:
 
     def test_load_from_manifest_normalized(self, tiled_client):
         """Test that M(H) data is normalized to [-1, 1]."""
-        from broker.query_manifest import query_manifest, load_from_manifest
+        from data_catalog_service.query_manifest import query_manifest, load_from_manifest
 
         manifest = query_manifest(tiled_client, axis="powder", Hmax_T=30)
         manifest = manifest.head(5)
@@ -107,7 +107,7 @@ class TestModeAQueryManifest:
 
     def test_build_mh_dataset_complete_api(self, tiled_client):
         """Test the complete Julia-equivalent API."""
-        from broker.query_manifest import build_mh_dataset
+        from data_catalog_service.query_manifest import build_mh_dataset
 
         X, h_grid, Theta, manifest = build_mh_dataset(
             tiled_client, axis="powder", Hmax_T=30
@@ -190,7 +190,7 @@ class TestModeAModeBEquivalence:
 
     def test_mh_curve_data_matches(self, tiled_client):
         """Test that Mode A and Mode B return same M(H) data."""
-        from broker.config import get_base_dir
+        from data_catalog_service.config import get_base_dir
 
         ent_key = list(tiled_client.keys())[0]
         h = tiled_client[ent_key]
@@ -217,7 +217,7 @@ class TestModeAModeBEquivalence:
 
     def test_metadata_matches_hdf5(self, tiled_client):
         """Test that metadata matches values in HDF5 files."""
-        from broker.config import get_base_dir
+        from data_catalog_service.config import get_base_dir
 
         ent_key = list(tiled_client.keys())[0]
         h = tiled_client[ent_key]

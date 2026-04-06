@@ -48,7 +48,7 @@ def create_data_source(art_row, base_dir):
     from tiled.structures.data_source import Asset, DataSource, Management
 
     h5_rel_path = art_row["file"]
-    h5_full_path = os.path.join(base_dir, h5_rel_path)
+    h5_full_path = os.path.realpath(os.path.join(base_dir, h5_rel_path))
     dataset_path = art_row["dataset"]
 
     # Determine index for batched files
@@ -91,11 +91,15 @@ def create_data_source(art_row, base_dir):
 
 
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
-                          dataset_key, dataset_metadata):
+                          dataset_key, dataset_metadata, config_hash=None):
     """Register one dataset via HTTP through a running Tiled server.
 
     Creates a dataset container, then entity containers with locator
     metadata (Mode A) and array children via DataSource adapters (Mode B).
+
+    If the dataset container already exists and config_hash differs from
+    the stored _config_hash, updates the container metadata via
+    update_metadata() (dict.update semantics — merges, doesn't replace).
 
     Args:
         client: Tiled client connected to a running server.
@@ -105,16 +109,20 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         label: Dataset name (for logging).
         dataset_key: Key for the dataset container (e.g. "VDP").
         dataset_metadata: Metadata dict for the dataset container.
+        config_hash: SHA256 hash of the YAML config file. Used to detect
+            metadata changes and trigger update_metadata().
 
     Returns:
-        bool: True if any entities were registered.
+        bool: True if any entities were registered or metadata was updated.
     """
+    import datetime as _dt
     from tiled.structures.core import StructureFamily
 
     start_time = time.time()
     ent_count = 0
     art_count = 0
     skip_count = 0
+    metadata_updated = False
 
     if "key" not in ent_df.columns:
         raise ValueError(
@@ -122,14 +130,36 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
             "The manifest generator must provide a 'key' for each entity."
         )
 
-    # Create or reuse dataset container
+    # Tracking metadata (auto-managed, not user-facing)
+    tracking = {
+        "_last_registered": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "_manifest_entity_count": len(ent_df),
+    }
+    if config_hash:
+        tracking["_config_hash"] = config_hash
+
+    # Create or update dataset container
     if dataset_key in client:
         parent_client = client[dataset_key]
-        print(f"Using existing dataset container '{dataset_key}'")
+        existing_meta = dict(parent_client.metadata)
+        old_hash = existing_meta.get("_config_hash")
+
+        if config_hash and old_hash == config_hash:
+            print(f"Using existing dataset container '{dataset_key}' (config unchanged)")
+        else:
+            # Merge new metadata into existing container
+            update = {**dataset_metadata, **tracking}
+            parent_client.update_metadata(update)
+            metadata_updated = True
+            if old_hash:
+                print(f"Updated dataset container '{dataset_key}' metadata (config changed)")
+            else:
+                print(f"Updated dataset container '{dataset_key}' metadata (added tracking)")
     else:
+        full_metadata = {**dataset_metadata, **tracking}
         parent_client = client.create_container(
             key=dataset_key,
-            metadata=dataset_metadata,
+            metadata=full_metadata,
         )
         print(f"Created dataset container '{dataset_key}'")
 
@@ -210,12 +240,14 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
 
     elapsed_total = time.time() - start_time
     print(f"\nRegistration complete:")
-    print(f"  Entities:     {ent_count}")
-    print(f"  Artifacts:    {art_count}")
-    print(f"  Skipped:      {skip_count}")
+    print(f"  Entities:     {ent_count} new")
+    print(f"  Artifacts:    {art_count} new")
+    print(f"  Skipped:      {skip_count} existing")
+    if metadata_updated:
+        print(f"  Metadata:     updated (config hash changed)")
     print(f"  Time:         {elapsed_total:.1f} seconds")
 
-    return ent_count > 0
+    return ent_count > 0 or metadata_updated
 
 
 def verify_registration_http(client):
