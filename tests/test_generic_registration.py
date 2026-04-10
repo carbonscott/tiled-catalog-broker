@@ -72,7 +72,7 @@ class TestVDPRegistration:
     """Test generic registration with VDP-style data."""
 
     def test_correct_node_counts(self, vdp_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, art_nodes, art_ds = prepare_node_data(
@@ -85,7 +85,7 @@ class TestVDPRegistration:
 
     def test_entity_key_from_manifest(self, vdp_manifests):
         """Keys are read from the manifest's 'key' column, not computed."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, _, _ = prepare_node_data(
@@ -98,7 +98,7 @@ class TestVDPRegistration:
 
     def test_missing_key_column_raises(self, vdp_manifests):
         """Registration fails early if manifest lacks 'key' column."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_no_key = ent_df.drop(columns=["key"])
@@ -107,7 +107,7 @@ class TestVDPRegistration:
 
     def test_entity_metadata_has_vdp_params(self, vdp_manifests):
         """VDP metadata should have Ja_meV, Jb_meV, etc. (read dynamically)."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, _, _ = prepare_node_data(
@@ -125,7 +125,7 @@ class TestVDPRegistration:
 
     def test_entity_metadata_has_locators(self, vdp_manifests):
         """Locators (path_, dataset_) stored in entity metadata for Mode A."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, _, _ = prepare_node_data(
@@ -149,7 +149,7 @@ class TestVDPRegistration:
 
     def test_artifact_keys_match_types(self, vdp_manifests):
         """Artifact keys come directly from the type column."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         _, art_nodes, _ = prepare_node_data(
@@ -161,7 +161,7 @@ class TestVDPRegistration:
 
     def test_artifact_shapes_from_hdf5(self, vdp_manifests):
         """Shapes are read from actual HDF5 files, not hardcoded."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         _, art_nodes, _ = prepare_node_data(
@@ -175,7 +175,7 @@ class TestVDPRegistration:
 
     def test_data_source_parameters(self, vdp_manifests):
         """Data sources carry dataset path from manifest."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         _, _, art_ds = prepare_node_data(
@@ -188,7 +188,7 @@ class TestVDPRegistration:
         assert ds_by_key["ins_12meV"]["parameters"]["dataset"] == "/ins/broadened"
 
     def test_max_entities_limit(self, vdp_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, art_nodes, _ = prepare_node_data(
@@ -206,7 +206,7 @@ class TestNiPS3Registration:
     """Test generic registration with NiPS3-style data (batched files)."""
 
     def test_correct_node_counts(self, nips3_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = nips3_manifests
 
         ent_nodes, art_nodes, art_ds = prepare_node_data(
@@ -219,7 +219,7 @@ class TestNiPS3Registration:
 
     def test_entity_metadata_has_nips3_params(self, nips3_manifests):
         """NiPS3 metadata should have F2_dd, F2_dp, etc. (read dynamically)."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = nips3_manifests
 
         ent_nodes, _, _ = prepare_node_data(
@@ -240,7 +240,7 @@ class TestNiPS3Registration:
 
     def test_entity_metadata_has_index_locators(self, nips3_manifests):
         """NiPS3 locators should include index for batched files."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = nips3_manifests
 
         ent_nodes, _, _ = prepare_node_data(
@@ -261,7 +261,7 @@ class TestNiPS3Registration:
         assert meta["index_rixs"] == 0  # First entity
 
     def test_artifact_keys_match_types(self, nips3_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = nips3_manifests
 
         _, art_nodes, _ = prepare_node_data(
@@ -273,7 +273,7 @@ class TestNiPS3Registration:
 
     def test_batched_shapes_skip_batch_dimension(self, nips3_manifests):
         """For batched files, shape should be per-entity (batch dim removed)."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = nips3_manifests
 
         _, art_nodes, _ = prepare_node_data(
@@ -286,7 +286,7 @@ class TestNiPS3Registration:
 
     def test_data_source_has_slice_parameter(self, nips3_manifests):
         """Data sources for batched files include slice in parameters."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = nips3_manifests
 
         _, _, art_ds = prepare_node_data(
@@ -308,7 +308,7 @@ class TestNiPS3Registration:
 
     def test_shared_assets_for_batched_files(self, nips3_manifests):
         """Batched files: multiple artifacts share the same HDF5 file."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = nips3_manifests
 
         _, _, art_ds = prepare_node_data(
@@ -328,7 +328,7 @@ class TestGenericBehavior:
 
     def test_no_hardcoded_param_names_in_metadata(self, vdp_manifests, nips3_manifests):
         """Metadata keys come from manifests, not from hardcoded lists."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
 
         # VDP
         ent_df, art_df, base_dir = vdp_manifests
@@ -357,7 +357,7 @@ class TestGenericBehavior:
         assert shared == {"uid", "key"}
 
     def test_structure_family_correct(self, vdp_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, art_nodes, _ = prepare_node_data(
@@ -372,7 +372,7 @@ class TestGenericBehavior:
     def test_all_metadata_values_json_safe(self, vdp_manifests, nips3_manifests):
         """All metadata values must be JSON-serializable."""
         import json
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        from tiled_catalog_broker.register import prepare_node_data
 
         for manifests in [vdp_manifests, nips3_manifests]:
             ent_df, art_df, base_dir = manifests

@@ -42,7 +42,7 @@ class TestLoadConfig:
         from tiled_catalog_broker.config import load_config
         cfg = load_config()
         assert isinstance(cfg, dict)
-        assert "service_dir" in cfg
+        assert "max_entities" in cfg
 
     def test_no_manifests_section(self):
         """Manifests section removed; code uses fallback pattern."""
@@ -100,11 +100,11 @@ class TestGetTiledUrl:
         url = get_tiled_url()
         assert isinstance(url, str)
 
-    def test_default_is_localhost(self):
+    def test_default_is_slac_portal(self):
         from tiled_catalog_broker.config import get_tiled_url
         old_val = os.environ.pop("TILED_URL", None)
         url = get_tiled_url()
-        assert "localhost" in url
+        assert "slac.stanford.edu" in url
         if old_val:
             os.environ["TILED_URL"] = old_val
 
@@ -124,10 +124,13 @@ class TestGetApiKey:
         key = get_api_key()
         assert isinstance(key, str)
 
-    def test_default_is_secret(self):
+    def test_default_is_empty(self):
         from tiled_catalog_broker.config import get_api_key
         old_val = os.environ.pop("TILED_API_KEY", None)
+        old_key = os.environ.pop("TILED_KEY", None)
         key = get_api_key()
-        assert key == "secret"
+        assert key == ""
         if old_val:
             os.environ["TILED_API_KEY"] = old_val
+        if old_key:
+            os.environ["TILED_KEY"] = old_key
