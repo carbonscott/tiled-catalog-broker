@@ -101,6 +101,19 @@ def inspect_main():
     _inspect_main()
 
 
+# ── tcb generate ─────────────────────────────────────────────
+
+def generate_yaml_main():
+    """Generate Parquet manifests from a finalized YAML contract.
+
+    Reads a YAML config (produced by `tcb inspect` and finalized by user),
+    scans the HDF5 files, and produces entities.parquet + artifacts.parquet
+    compatible with `tcb ingest`.
+    """
+    from tiled_catalog_broker.generate import main as _generate_main
+    _generate_main()
+
+
 # ── tcb ingest ────────────────────────────────────────────────
 
 def ingest_main():
@@ -280,6 +293,7 @@ def main():
     """Main entry point: tcb <command> [args]."""
     commands = {
         "inspect": inspect_main,
+        "generate": generate_yaml_main,
         "ingest": ingest_main,
         "register": register_main,
     }
@@ -288,6 +302,7 @@ def main():
         print("usage: tcb <command> [args]\n")
         print("commands:")
         print("  inspect    Scan HDF5 data directory, generate draft YAML contract")
+        print("  generate   Generate Parquet manifests from a finalized YAML contract")
         print("  ingest     Bulk SQL registration from Parquet manifests")
         print("  register   HTTP registration against a running Tiled server")
         sys.exit(0)
