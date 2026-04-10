@@ -10,7 +10,7 @@ Use `uv` to run python programs. The UV_CACHE_DIR avoids repeated package downlo
 
 ## Project Overview
 
-**Data Catalog Service (DCS)** — a config-driven system for registering
+**Tiled Catalog Broker** — a config-driven system for registering
 multi-modal scientific HDF5 datasets into a
 [Tiled](https://blueskyproject.io/tiled/) catalog. Data model inspired by
 [ArrayLake](https://docs.earthmover.io/concepts/data-model) (Organization →
@@ -28,7 +28,7 @@ metadata.
 - **Mode A (Expert):** Query metadata for HDF5 paths, load directly with h5py
 - **Mode B (Visualizer):** Access arrays via Tiled HTTP adapters (chunked)
 
-The service is **dataset-agnostic**. The Parquet manifest is the contract: no
+The broker is **dataset-agnostic**. The Parquet manifest is the contract: no
 parameter names, artifact types, or file layouts are hardcoded.
 
 ## Directory Structure
@@ -36,19 +36,18 @@ parameter names, artifact types, or file layouts are hardcoded.
 ```
 tiled-catalog-broker/
 ├── CLAUDE.md                  # This file
-├── pyproject.toml             # Package definition (data-catalog-service)
+├── pyproject.toml             # Package definition (tiled-catalog-broker)
 ├── config.yml                 # Tiled server configuration
 ├── src/
-│   └── data_catalog_service/  # Installable Python package
-│       ├── cli.py             # CLI: dcs {ingest,register}
+│   └── tiled_catalog_broker/  # Installable Python package
+│       ├── cli.py             # CLI: tcb {ingest,register}
 │       ├── config.py          # YAML config loading
 │       ├── catalog.py         # Catalog creation + dataset containers
 │       ├── register.py        # SQLAlchemy bulk registration
 │       ├── http_register.py   # HTTP registration via Tiled client
 │       ├── query_manifest.py  # Mode A discovery API
 │       └── utils.py           # Shared helpers
-├── notebooks/                 # Marimo notebooks (demos, exploration)
-├── examples/                  # Standalone example scripts
+├── examples/                  # Standalone examples and marimo demos
 ├── tests/                     # Test suite
 └── docs/                      # Design docs, handoffs, lessons learned
 ```
@@ -60,10 +59,10 @@ tiled-catalog-broker/
 uv pip install -e .
 
 # Or run directly with uv
-uv run dcs --help
+uv run tcb --help
 
 # Pipeline: ingest → serve
-dcs ingest datasets/my_dataset.yml
+tcb ingest datasets/my_dataset.yml
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
 

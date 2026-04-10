@@ -37,7 +37,7 @@ from ruamel.yaml import YAML
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data_catalog_service.config import get_tiled_url, get_api_key, get_service_dir
+from tiled_catalog_broker.config import get_tiled_url, get_api_key, get_service_dir
 
 
 def _load_base_dirs():
@@ -71,7 +71,7 @@ def demo_mode_a_expert(client):
     - Users who want to handle file I/O themselves
     - Maximum performance (direct HDF5, no HTTP overhead)
     """
-    from data_catalog_service.query_manifest import query_catalog, load_artifacts
+    from tiled_catalog_broker.query_manifest import query_catalog, load_artifacts
 
     print("=" * 60)
     print("MODE A: Expert Path-Based Access")

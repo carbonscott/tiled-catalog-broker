@@ -1,4 +1,4 @@
-# Data Catalog Service (DCS)
+# Tiled Catalog Broker
 
 A config-driven system for registering scientific HDF5 datasets into a
 [Tiled](https://blueskyproject.io/tiled/) catalog and retrieving them via two
@@ -41,11 +41,11 @@ for the manifest format.
 
 ### Step 2: Ingest into Catalog
 
-`dcs ingest` bulk-loads manifests into a SQLite catalog database using direct
+`tcb ingest` bulk-loads manifests into a SQLite catalog database using direct
 SQLAlchemy (no running server needed).
 
 ```bash
-dcs ingest datasets/mydata.yml
+tcb ingest datasets/mydata.yml
 ```
 
 This creates `catalog.db` with all entities and their artifacts.
@@ -118,45 +118,45 @@ uv run --with marimo --with matplotlib \
 
 ## Workflow Overview
 
-The `dcs` CLI subcommands form a pipeline:
+The `tcb` CLI subcommands form a pipeline:
 
 ```
-manifests   --->   dcs ingest   --->   tiled serve
+manifests   --->   tcb ingest   --->   tiled serve
                    (catalog.db)        (HTTP API)
                    [offline bulk]      [serve queries]
 
-                 dcs register
+                 tcb register
                    [online HTTP]  ---> (running server)
 ```
 
 | Subcommand | Purpose | Server needed? |
 |------------|---------|----------------|
-| `dcs ingest` | Bulk-load manifests into `catalog.db` (SQLAlchemy) | No |
-| `dcs register` | Register manifests into a running server (HTTP) | Yes |
+| `tcb ingest` | Bulk-load manifests into `catalog.db` (SQLAlchemy) | No |
+| `tcb register` | Register manifests into a running server (HTTP) | Yes |
 
 **When to use which registration method:**
 
 | Scenario | Use | Speed |
 |----------|-----|-------|
-| Initial load of 1K+ entities | `dcs ingest` | ~2,250 nodes/sec |
-| Incremental updates to a live server | `dcs register` | ~5 nodes/sec |
+| Initial load of 1K+ entities | `tcb ingest` | ~2,250 nodes/sec |
+| Incremental updates to a live server | `tcb register` | ~5 nodes/sec |
 
 ---
 
 ## HTTP Registration (Incremental)
 
-`dcs register` registers data into a **running** Tiled server. It is
+`tcb register` registers data into a **running** Tiled server. It is
 incremental: entities that already exist (by key) are skipped.
 
 ```bash
 # Register a dataset into the already-running server
-dcs register datasets/mydata.yml
+tcb register datasets/mydata.yml
 
 # Limit to 5 entities
-dcs register datasets/mydata.yml -n 5
+tcb register datasets/mydata.yml -n 5
 
 # Register multiple datasets at once
-dcs register datasets/vdp.yml datasets/edrixs.yml
+tcb register datasets/vdp.yml datasets/edrixs.yml
 ```
 
 ---
@@ -214,10 +214,10 @@ readable_storage:
 
 ```bash
 # Bulk ingest (offline)
-dcs ingest datasets/mydata.yml
+tcb ingest datasets/mydata.yml
 
 # Or HTTP register (live server)
-dcs register datasets/mydata.yml
+tcb register datasets/mydata.yml
 ```
 
 ---
@@ -254,13 +254,13 @@ uv run --with pytest pytest tests/ -v
 
 ```
 tiled-catalog-broker/
-├── pyproject.toml             # Package definition (data-catalog-service)
+├── pyproject.toml             # Package definition (tiled-catalog-broker)
 ├── config.yml                 # Tiled server configuration
 ├── README.md                  # This file
 │
 ├── src/
-│   └── data_catalog_service/  # Installable Python package
-│       ├── cli.py             # CLI: dcs {ingest,register}
+│   └── tiled_catalog_broker/  # Installable Python package
+│       ├── cli.py             # CLI: tcb {ingest,register}
 │       ├── config.py          # YAML config loading
 │       ├── catalog.py         # Catalog creation + dataset containers
 │       ├── register.py        # SQLAlchemy bulk registration
@@ -289,7 +289,7 @@ tiled-catalog-broker/
 ## Troubleshooting
 
 ### "Server not running" error
-Start the server first, then run `dcs register`.
+Start the server first, then run `tcb register`.
 
 ### Port already in use
 ```bash
@@ -301,15 +301,15 @@ The database may be corrupted. Stop the server, delete `catalog.db`, and
 restart (the server creates a fresh database on startup).
 
 ### Re-ingesting data
-`dcs ingest` is **additive** -- running it twice creates duplicates. To
-re-ingest, delete `catalog.db` first. `dcs register` is **incremental** and
+`tcb ingest` is **additive** -- running it twice creates duplicates. To
+re-ingest, delete `catalog.db` first. `tcb register` is **incremental** and
 safe to run multiple times.
 
 ---
 
 ## Performance Reference
 
-### Bulk Registration (`dcs ingest`)
+### Bulk Registration (`tcb ingest`)
 
 | Entities | Approx. Time | DB Size |
 |--------------|-------------|---------|
