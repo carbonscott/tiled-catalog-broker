@@ -88,6 +88,19 @@ def _find_manifests(config_path, label, name):
     return None, None
 
 
+# ── tcb inspect ───────────────────────────────────────────────
+
+def inspect_main():
+    """Scan an HDF5 data directory and generate a draft YAML contract.
+
+    The inspector auto-detects layout (per_entity, batched, grouped),
+    classifies datasets, checks consistency, and emits a YAML with
+    TODO markers for fields requiring human judgment.
+    """
+    from tiled_catalog_broker.inspect import main as _inspect_main
+    _inspect_main()
+
+
 # ── tcb ingest ────────────────────────────────────────────────
 
 def ingest_main():
@@ -266,6 +279,7 @@ def register_main():
 def main():
     """Main entry point: tcb <command> [args]."""
     commands = {
+        "inspect": inspect_main,
         "ingest": ingest_main,
         "register": register_main,
     }
@@ -273,6 +287,7 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("usage: tcb <command> [args]\n")
         print("commands:")
+        print("  inspect    Scan HDF5 data directory, generate draft YAML contract")
         print("  ingest     Bulk SQL registration from Parquet manifests")
         print("  register   HTTP registration against a running Tiled server")
         sys.exit(0)
