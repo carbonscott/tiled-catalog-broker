@@ -1,0 +1,63 @@
+# Sam Klein — EDRIXS SBI Round 0 (broad sigma range)
+# 10,000 entities (5 files x 2,000 batch size)
+# Source: exact-diagonalization RIXS spectra
+
+key: RIXS_SIM_BROAD_SIGMA
+label: "Broad Sigma"
+
+metadata:
+  method: ["RIXS"]
+  data_type: "simulation"
+  material: "NiPS3"
+  prior_distribution: "uniform"
+  producer: "lajer2025Hamiltonian"
+  project: "MAIQMag"
+  round: 0
+
+data:
+  directory: /sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper
+  file_pattern: "*/simulations.h5"
+  layout: batched
+  # batch_size: 2000
+
+parameters:
+  location: group
+  group: /params
+  # 12 parameters discovered:
+  #   F2_dd             float32  range [1.0035743713378906, 9.999252319335938]
+  #   F2_dp             float32  range [1.0025122165679932, 9.997352600097656]
+  #   F4_dd             float32  range [0.46038100123405457, 8.738924026489258]
+  #   G1_dp             float32  range [0.11198287457227707, 9.995024681091309]
+  #   G3_dp             float32  range [0.10448063164949417, 3.9987454414367676]
+  #   Gam_c             float32  range [0.25129935145378113, 0.9998980760574341]
+  #   sigma             float32  range [0.01005508378148079, 0.19993378221988678]
+  #   soc_c             float32  range [1.0032117366790771, 19.98860740661621]
+  #   soc_v_i           float32  range [0.01007482223212719, 0.9995564222335815]
+  #   soc_v_n           float32  range [0.006450633052736521, 10.491314888000488]
+  #   tenDq             float32  range [0.10105492919683456, 4.9969868659973145]
+  #   xoffset           float32  range [-9.986063003540039, 9.98879623413086]
+
+artifacts:
+  - type: rixs_spectrum
+    dataset: /spectra
+    # shape per entity: (151, 40), dtype: float64, range: [7.281339456203988e-94, 1.0]
+
+shared:
+  - type: eloss
+    dataset: /eloss
+    # shape: (151,), monotonic, range [0.5, 2.0], step=0.01
+  - type: omega_bounds
+    dataset: /omega_bounds
+    # shape: (2,), monotonic, range [0.0, 12.0], step=12
+
+extra_metadata:
+  - dataset: /log_probs
+    # shape per entity: (), dtype: float32
+    # range: [-inf, -15.332310676574707]
+
+provenance:
+  created_at: "2026-02-13"
+  code_version: "v1.0.0"
+  code_commit: "b6b05b7"
+
+# === Consistency check: PASSED (5 files checked) ===
