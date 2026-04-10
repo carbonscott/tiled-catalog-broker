@@ -1,5 +1,5 @@
 [project]
-name = "data-catalog-service"
+name = "tiled-catalog-broker"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -14,10 +14,10 @@ dependencies = [
 ]
 
 [project.scripts]
-dcs = "data_catalog_service.cli:main"
+tcb = "tiled_catalog_broker.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/data_catalog_service"]
+packages = ["src/tiled_catalog_broker"]
 
 [build-system]
 requires = ["hatchling"]

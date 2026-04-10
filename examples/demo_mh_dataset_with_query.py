@@ -69,7 +69,7 @@ def _():
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     # Use config module for configuration
-    from data_catalog_service.config import get_tiled_url, get_api_key
+    from tiled_catalog_broker.config import get_tiled_url, get_api_key
 
     TILED_URL = get_tiled_url()
     API_KEY = get_api_key()
@@ -213,7 +213,7 @@ def _(mo):
 
 @app.cell
 def _(AXIS, HMAX_T, mo, subset, time):
-    from data_catalog_service.query_manifest import query_manifest, load_from_manifest, build_mh_dataset
+    from tiled_catalog_broker.query_manifest import query_manifest, load_from_manifest, build_mh_dataset
 
     # Step 1: Query manifest from the filtered subset
     _t0 = time.perf_counter()

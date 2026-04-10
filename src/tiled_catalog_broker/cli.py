@@ -1,9 +1,9 @@
 """
-CLI entry points for data-catalog-service.
+CLI entry points for tiled-catalog-broker.
 
 Provides two commands:
-  - dcs ingest:         Bulk SQL registration from Parquet manifests
-  - dcs register:       HTTP registration against a running Tiled server
+  - tcb ingest:         Bulk SQL registration from Parquet manifests
+  - tcb register:       HTTP registration against a running Tiled server
 
 All paths (catalog.db, manifests/, storage/, datasets/) are resolved
 relative to the current working directory.
@@ -88,7 +88,7 @@ def _find_manifests(config_path, label, name):
     return None, None
 
 
-# ── dcs ingest ────────────────────────────────────────────────
+# ── tcb ingest ────────────────────────────────────────────────
 
 def ingest_main():
     """Bulk SQL registration (from ingest.py).
@@ -101,7 +101,7 @@ def ingest_main():
     args = parser.parse_args()
 
     import pandas as pd
-    from data_catalog_service.catalog import ensure_catalog, register_dataset
+    from tiled_catalog_broker.catalog import ensure_catalog, register_dataset
 
     print("=" * 50)
     print("Ingest")
@@ -140,7 +140,7 @@ def ingest_main():
         ent_path, art_path = _find_manifests(config_path, label, name)
         if ent_path is None or art_path is None:
             print(f"\nERROR: Parquet files not found for '{name}'.")
-            print(f"  Run `dcs generate` first.")
+            print(f"  Run `tcb generate` first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
@@ -157,14 +157,14 @@ def ingest_main():
                          config_hash=config_hash)
 
     # Verify
-    from data_catalog_service.register import verify_registration
+    from tiled_catalog_broker.register import verify_registration
     print()
     verify_registration(str(DB_PATH))
 
     print("\nDone!")
 
 
-# ── dcs register ──────────────────────────────────────────────
+# ── tcb register ──────────────────────────────────────────────
 
 def register_main():
     """HTTP registration against a running Tiled server (from register.py).
@@ -187,8 +187,8 @@ def register_main():
     args = parser.parse_args()
 
     import pandas as pd
-    from data_catalog_service.utils import check_server, get_artifact_shape
-    from data_catalog_service.http_register import register_dataset_http, verify_registration_http
+    from tiled_catalog_broker.utils import check_server, get_artifact_shape
+    from tiled_catalog_broker.http_register import register_dataset_http, verify_registration_http
 
     print("=" * 50)
     print("Register (HTTP)")
@@ -196,7 +196,7 @@ def register_main():
     print(f"Configs: {args.configs}")
 
     # Check server is running
-    from data_catalog_service.config import get_tiled_url, get_api_key
+    from tiled_catalog_broker.config import get_tiled_url, get_api_key
     tiled_url = get_tiled_url()
     api_key = get_api_key()
 
@@ -233,7 +233,7 @@ def register_main():
         ent_path, art_path = _find_manifests(config_path, label, name)
         if ent_path is None or art_path is None:
             print(f"\nERROR: Parquet files not found for '{name}'.")
-            print(f"  Run `dcs generate` first.")
+            print(f"  Run `tcb generate` first.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
@@ -261,17 +261,17 @@ def register_main():
     print("\nDone!")
 
 
-# ── dcs (main dispatcher) ────────────────────────────────────
+# ── tcb (main dispatcher) ────────────────────────────────────
 
 def main():
-    """Main entry point: dcs <command> [args]."""
+    """Main entry point: tcb <command> [args]."""
     commands = {
         "ingest": ingest_main,
         "register": register_main,
     }
 
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
-        print("usage: dcs <command> [args]\n")
+        print("usage: tcb <command> [args]\n")
         print("commands:")
         print("  ingest     Bulk SQL registration from Parquet manifests")
         print("  register   HTTP registration against a running Tiled server")
@@ -284,5 +284,5 @@ def main():
         sys.exit(1)
 
     # Remove the subcommand from argv so argparse in each handler sees the right args
-    sys.argv = [f"dcs {cmd}"] + sys.argv[2:]
+    sys.argv = [f"tcb {cmd}"] + sys.argv[2:]
     commands[cmd]()

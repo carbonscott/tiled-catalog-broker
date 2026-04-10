@@ -69,7 +69,7 @@ def _():
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     # Use config module for configuration
-    from data_catalog_service.config import get_tiled_url, get_api_key
+    from tiled_catalog_broker.config import get_tiled_url, get_api_key
 
     TILED_URL = get_tiled_url()
     API_KEY = get_api_key()
@@ -202,7 +202,7 @@ def _(mo):
 def _(INCIDENT_ENERGY_MEV, MAX_SPECTRA_DEMO, mo, np, subset, time):
     import h5py
     import os
-    from data_catalog_service.config import get_base_dir, get_dataset_paths
+    from tiled_catalog_broker.config import get_base_dir, get_dataset_paths
 
     def load_ins_mode_a(tiled_client, *, Ei_meV=12, max_spectra=None):
         """Load INS spectra using Mode A (direct HDF5)."""

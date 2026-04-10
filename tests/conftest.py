@@ -61,7 +61,7 @@ def small_manifest(tiled_client):
 
     Returns first 5 entities' manifest data.
     """
-    from data_catalog_service.query_manifest import query_manifest
+    from tiled_catalog_broker.query_manifest import query_manifest
 
     manifest = query_manifest(tiled_client, axis="powder", Hmax_T=30)
     return manifest.head(5)
