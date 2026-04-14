@@ -220,6 +220,12 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir):
                     "h5_path": h5_full_path,
                     "dataset_path": dataset_path,
                     "parameters": ds_params,
+                    "mimetype": (
+                        to_json_safe(art_row["mimetype"])
+                        if "mimetype" in art_df.columns
+                        and pd.notna(art_row.get("mimetype"))
+                        else "application/x-hdf5"
+                    ),
                 })
 
     print(f"  Prepared {len(ent_nodes)} entities, {len(art_nodes)} artifacts")
@@ -405,7 +411,7 @@ def bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
                 {
                     "node_id": node_id,
                     "structure_id": ds["structure_id"],
-                    "mimetype": "application/x-hdf5",
+                    "mimetype": ds["mimetype"],
                     "parameters": json.dumps(ds["parameters"]),
                     "properties": json.dumps({}),
                     "management": "external",
