@@ -1,0 +1,22 @@
+# use config that is inside the container.
+# they don't do deep merge, so you can't do something
+# like this in docker-compose.yml:
+# catalog: 
+#   readable_storage:
+#     - "/data"
+# you have to replace the whole catalog section
+
+authentication:
+  allow_anonymous_access: false
+
+catalog:
+  uri: "sqlite:////storage/catalog.db"
+  writable_storage:
+    - "/storage/data"
+    - "duckdb:///storage/data.db"
+  readable_storage:
+    - "/data"
+  init_if_not_exists: true
+
+streaming_cache:
+  uri: memory
