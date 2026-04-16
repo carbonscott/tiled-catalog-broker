@@ -1,0 +1,33 @@
+services:
+  tiled:
+    image: ghcr.io/bluesky/tiled:${TILED_VERSION:-0.2.9}
+    ports:
+      - "8005:8000"
+    environment:
+      - TILED_SINGLE_USER_API_KEY=${TILED_SINGLE_USER_API_KEY:-secret}
+    volumes:
+      - tiled-storage:/storage
+      - ${DATA_DIR:-./data}:/data:ro
+      - ./config.docker.yml:/deploy/config/config_for_containerfile.yml:ro
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -sf http://localhost:8000/api/v1/ > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        TILED_VERSION: ${TILED_VERSION:-0.2.9}
+    ports:
+      - "9005:80"
+    depends_on:
+      tiled:
+        condition: service_healthy
+
+volumes:
+  tiled-storage:
+
