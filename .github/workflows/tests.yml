@@ -18,8 +18,12 @@ jobs:
 
       - uses: astral-sh/setup-uv@v4
 
+      - name: Install package (editable)
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install -e .
+          uv pip install pytest 'tiled[server]' pandas pyarrow h5py 'ruamel.yaml' canonicaljson
+
       - name: Run unit tests
         run: |
-          uv run --python ${{ matrix.python-version }} \
-            --with pytest \
-            pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py -v
+          uv run --no-project pytest tests/ -v
