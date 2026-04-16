@@ -1,0 +1,32 @@
+# SUNNY NiPS3 10K (spin-wave theory on high-symmetry path)
+# 10,000 entities (1 file x 10,000 batch size)
+# Source: linear spin-wave theory S(Q,E) along high-symmetry path
+
+key: SUNNY_10K
+label: SUNNY NiPS3 10K
+
+metadata:
+  method: [INS]
+  data_type: simulation
+  material: NiPS3
+  producer: sunny_jl
+  project: MAIQMag
+
+data:
+  directory: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/data-tlinker/SUNNY/NIPS_10000
+  file_pattern: "NiPS_10000.h5"
+  layout: batched
+
+parameters:
+  location: group
+  group: /params
+
+artifacts:
+  - type: sqe_hisym
+    dataset: /data
+
+shared:
+  - type: E_axis
+    dataset: /E_axis
+  - type: Q_axis
+    dataset: /Q_axis

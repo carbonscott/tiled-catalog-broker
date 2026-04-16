@@ -69,7 +69,7 @@ def _():
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     # Use config module for configuration
-    from broker.config import get_tiled_url, get_api_key
+    from tiled_catalog_broker.config import get_tiled_url, get_api_key
 
     TILED_URL = get_tiled_url()
     API_KEY = get_api_key()
@@ -199,7 +199,7 @@ def _(mo):
     **Best for:** ML pipelines, bulk loading, maximum performance
 
     ```python
-    from broker.query_manifest import query_catalog, load_artifacts
+    from tiled_catalog_broker.query_manifest import query_catalog, load_artifacts
 
     # Query filtered subset -> get all metadata as DataFrame
     manifest = query_catalog(subset, artifact_type="mh_powder_30T")
@@ -222,7 +222,7 @@ def _(mo):
 
 @app.cell
 def _(AXIS, HMAX_T, mo, np, subset, time):
-    from broker.query_manifest import query_catalog, load_artifacts
+    from tiled_catalog_broker.query_manifest import query_catalog, load_artifacts
 
     # Step 1: Query catalog from the filtered subset — returns ALL metadata columns
     _t0 = time.perf_counter()

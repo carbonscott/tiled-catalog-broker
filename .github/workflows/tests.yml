@@ -19,15 +19,7 @@ jobs:
       - uses: astral-sh/setup-uv@v4
 
       - name: Run unit tests
-        working-directory: tiled_poc
         run: |
           uv run --python ${{ matrix.python-version }} \
             --with pytest \
-            --with 'tiled[server]' \
-            --with pandas \
-            --with pyarrow \
-            --with h5py \
-            --with numpy \
-            --with 'ruamel.yaml' \
-            --with canonicaljson \
             pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py -v

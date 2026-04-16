@@ -41,7 +41,7 @@ class TestLoadManifests:
 
     def test_load_entities_manifest(self):
         """Test that entities manifest can be loaded."""
-        from broker.config import get_latest_manifest
+        from tiled_catalog_broker.config import get_latest_manifest
 
         path = get_latest_manifest("entities")
         df = pd.read_parquet(path)
@@ -51,7 +51,7 @@ class TestLoadManifests:
 
     def test_load_artifacts_manifest(self):
         """Test that Artifacts manifest can be loaded."""
-        from broker.config import get_latest_manifest
+        from tiled_catalog_broker.config import get_latest_manifest
 
         path = get_latest_manifest("artifacts")
         df = pd.read_parquet(path)
@@ -62,7 +62,7 @@ class TestLoadManifests:
 
     def test_manifests_have_matching_uids(self):
         """Test that artifact uids match entity uids."""
-        from broker.config import get_latest_manifest
+        from tiled_catalog_broker.config import get_latest_manifest
 
         ent_df = pd.read_parquet(get_latest_manifest("entities"))
         art_df = pd.read_parquet(get_latest_manifest("artifacts"))
@@ -161,7 +161,7 @@ class TestBulkRegistration:
     def test_bulk_registration_creates_nodes(self, temp_catalog_db):
         """Test that bulk registration creates node entries."""
         from sqlalchemy import create_engine, text
-        from broker.config import get_latest_manifest
+        from tiled_catalog_broker.config import get_latest_manifest
 
         # Load small subset of manifests
         ent_df = pd.read_parquet(get_latest_manifest("entities")).head(3)

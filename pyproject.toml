@@ -1,5 +1,5 @@
 [project]
-name = "vdp-broker"
+name = "tiled-catalog-broker"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -14,11 +14,10 @@ dependencies = [
 ]
 
 [project.scripts]
-broker-ingest = "broker.cli:ingest_main"
-broker-register = "broker.cli:register_main"
+tcb = "tiled_catalog_broker.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["broker"]
+packages = ["src/tiled_catalog_broker"]
 
 [build-system]
 requires = ["hatchling"]
