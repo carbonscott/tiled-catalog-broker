@@ -35,26 +35,28 @@ import pandas as pd
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Synthetic test manifests ship with the repo. After the generic-registration
+# refactor (commit 30400b2) there is no single "latest manifest" -- each dataset
+# YAML names its own manifest parquets. These tests use the VDP testdata
+# manifests under tests/testdata/vdp as a stable fixture for manifest loading.
+TESTDATA_DIR = Path(__file__).parent / "testdata"
+VDP_ENTITIES_PARQUET = TESTDATA_DIR / "vdp" / "vdp_entities.parquet"
+VDP_ARTIFACTS_PARQUET = TESTDATA_DIR / "vdp" / "vdp_artifacts.parquet"
+
 
 class TestLoadManifests:
     """Tests for manifest loading (used by both registration methods)."""
 
     def test_load_entities_manifest(self):
         """Test that entities manifest can be loaded."""
-        from tiled_catalog_broker.config import get_latest_manifest
-
-        path = get_latest_manifest("entities")
-        df = pd.read_parquet(path)
+        df = pd.read_parquet(VDP_ENTITIES_PARQUET)
 
         assert len(df) > 0
         assert "uid" in df.columns
 
     def test_load_artifacts_manifest(self):
         """Test that Artifacts manifest can be loaded."""
-        from tiled_catalog_broker.config import get_latest_manifest
-
-        path = get_latest_manifest("artifacts")
-        df = pd.read_parquet(path)
+        df = pd.read_parquet(VDP_ARTIFACTS_PARQUET)
 
         assert len(df) > 0
         assert "type" in df.columns
@@ -62,10 +64,8 @@ class TestLoadManifests:
 
     def test_manifests_have_matching_uids(self):
         """Test that artifact uids match entity uids."""
-        from tiled_catalog_broker.config import get_latest_manifest
-
-        ent_df = pd.read_parquet(get_latest_manifest("entities"))
-        art_df = pd.read_parquet(get_latest_manifest("artifacts"))
+        ent_df = pd.read_parquet(VDP_ENTITIES_PARQUET)
+        art_df = pd.read_parquet(VDP_ARTIFACTS_PARQUET)
 
         ent_uids = set(ent_df["uid"])
         art_uids = set(art_df["uid"])
@@ -161,10 +161,9 @@ class TestBulkRegistration:
     def test_bulk_registration_creates_nodes(self, temp_catalog_db):
         """Test that bulk registration creates node entries."""
         from sqlalchemy import create_engine, text
-        from tiled_catalog_broker.config import get_latest_manifest
 
-        # Load small subset of manifests
-        ent_df = pd.read_parquet(get_latest_manifest("entities")).head(3)
+        # Load small subset of manifests from bundled testdata
+        ent_df = pd.read_parquet(VDP_ENTITIES_PARQUET).head(3)
 
         # Create simple test database
         engine = create_engine(f"sqlite:///{temp_catalog_db}")
