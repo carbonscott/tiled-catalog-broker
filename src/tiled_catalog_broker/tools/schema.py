@@ -137,10 +137,22 @@ def resolve_aliases(cfg, model):
     # Resolve material aliases
     mat_aliases = get_alias_map(model, "materials")
     mat = metadata.get("material")
-    if mat and mat in mat_aliases:
-        info = mat_aliases[mat]
-        metadata["material"] = info["canonical"]
-        messages.append(f"Resolved material alias '{mat}' → '{info['canonical']}'")
+    if mat:
+        if isinstance(mat, str):
+            if mat in mat_aliases:
+                info = mat_aliases[mat]
+                metadata["material"] = info["canonical"]
+                messages.append(f"Resolved material alias '{mat}' → '{info['canonical']}'")
+        elif isinstance(mat, list):
+            resolved = []
+            for m in mat:
+                if m in mat_aliases:
+                    info = mat_aliases[m]
+                    resolved.append(info["canonical"])
+                    messages.append(f"Resolved material alias '{m}' → '{info['canonical']}'")
+                else:
+                    resolved.append(m)
+            metadata["material"] = resolved
 
     return messages
 
@@ -274,7 +286,7 @@ def _validate_vocab(metadata, field, model_key, model, warnings, is_list=False):
     if not allowed:
         return
     all_accepted = set(allowed) | set(aliases.keys())
-    values = value if is_list and isinstance(value, list) else [value]
+    values = value if isinstance(value, list) else [value]
     for v in values:
         if v not in all_accepted:
             warnings.append(
