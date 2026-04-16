@@ -100,11 +100,11 @@ class TestGetTiledUrl:
         url = get_tiled_url()
         assert isinstance(url, str)
 
-    def test_default_is_slac_portal(self):
+    def test_default_is_localhost(self):
         from tiled_catalog_broker.config import get_tiled_url
         old_val = os.environ.pop("TILED_URL", None)
         url = get_tiled_url()
-        assert "slac.stanford.edu" in url
+        assert url == "http://localhost:8005"
         if old_val:
             os.environ["TILED_URL"] = old_val
 
