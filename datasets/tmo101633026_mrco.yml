@@ -1,0 +1,292 @@
+# TMO Experiment tmo101633026 — MSC Commissioning
+# 69 entities (one per run), runs 27-125
+# Source: preprocessed per-shot event data from 16-channel MRCO eTOF spectrometer
+# Processing: slac-lcls-tmo/tmo-preproc mrco_preproc_tab.py
+
+key: TMO101633026_MRCO
+label: "MSC Commissioning"
+
+metadata:
+  method: ["XPS", "Angular Streaking"]
+  PI: "James Cryan"
+  data_type: "experimental"
+  material: ["Ar", "N2", "GaAs"]
+  producer: "tmo-preproc"
+  project: "TMO"
+  facility: "LCLS"
+  instrument: ["MRCO", "MSC"]
+  experiment: "tmo101633026"
+  endstation: "TMO"
+  beamtime_start: "2026-03-14"
+  beamtime_end: "2026-03-27"
+
+data:
+  directory: /sdf/scratch/lcls/ds/tmo/tmo101633026/scratch/preproc/mrco
+  file_pattern: "run*_mrco.h5"
+  layout: per_entity
+  # Each file is one run with per-shot event data
+  # Shots per run range from 300 to 57,600
+  # Schema varies across runs (early runs include raw waveforms, later runs do not)
+
+parameters:
+  location: manifest
+  manifest: manifests/tmo101633026_mrco_manifest.csv
+  # Manifest columns (34 total):
+  #
+  # --- eLog-derived (not in HDF5) ---
+  #   sample              str     {Ar, N2, GaAs, alignment, unknown}
+  #   purpose             str     short description of run activity
+  #   phase               str     {gaas_qwp, ar_characterization, ar_xy_scan, ar_energy_scan,
+  #                                gaas_atm, n2_resonance, n2_pump_probe, n2_polarization, commissioning}
+  #   photon_energy_eV    float   nominal photon energy (from eLog or scan center)
+  #   notes               str     additional eLog context (ABORTED, retardation voltage, etc.)
+  #
+  # --- HDF5-derived ---
+  #   run_number          int     DAQ run number (27-125)
+  #   n_shots             int     number of shots in the run
+  #   scan_variable       str     motor being scanned (hf_w, lxt, user_mrco_qwp, etc.)
+  #   scan_min            float   minimum scan value
+  #   scan_max            float   maximum scan value
+  #   has_waveforms       bool    whether raw HSD waveforms are stored
+  #   has_roi             bool    whether hsd_roi integrated signals are stored
+  #   has_fzp             bool    whether FZP spectrometer data is stored
+  #   has_atm             bool    whether ATM timing data is stored
+  #   det_rollcall        str     comma-separated list of active detectors
+  #
+  # --- Parsed from cnfg byte string ---
+  #   cfg_data_version    str     processing version label
+  #   cfg_batch_size      int     event batch size (constant: 100)
+  #   cfg_record_fzp      str     whether FZP was recorded
+  #   cfg_record_hsd_waveforms str whether raw waveforms were saved
+  #   cfg_perform_tptc_calc str   two-pulse two-color correction flag
+  #   cfg_hsd_roi_min_us  float   ToF ROI lower bound in microseconds (constant: 0.367)
+  #   cfg_hsd_roi_max_us  float   ToF ROI upper bound in microseconds (constant: 0.567)
+  #   cfg_n_hsd_channels  int     number of HSD channels recorded (5 or 16)
+  #
+  # --- Parsed from gen_cnfg byte string ---
+  #   cfg_perform_ATM     str     ATM analysis flag
+  #   cfg_hitfind         str     hit-finding enabled flag
+  #   cfg_hf_height       float   scipy.find_peaks height threshold (constant: 50)
+  #   cfg_hf_prominence   float   scipy.find_peaks prominence threshold (constant: 20)
+  #   cfg_hf_distance     float   scipy.find_peaks min distance (constant: 10)
+  #   cfg_endstation      str     endstation identifier
+  #   cfg_read_raw        str     raw vs FEX waveform mode
+  #   cfg_live_mode       str     online vs offline processing
+  #   cfg_record_hf_diagnostics str  whether hit-finding diagnostics were saved
+  #   cfg_evrs_slct       str     event code selection list
+  #
+  # --- HDF5 data product provenance (per-entity, uniform for now) ---
+  #   h5_producer_repo    str     GitHub repo that produced the HDF5 files
+  #   h5_producer_script  str     processing script name
+  #   h5_producer_commit  str     git commit hash of the processing code
+  #   h5_producer_path    str     deployed path of the processing code
+
+artifacts:
+  # --- Per-shot scalar arrays (present in most runs) ---
+  - type: xgmd_energy
+    dataset: /xgmd_energy
+    # shape: (n_shots,), dtype: float64 — X-ray pulse energy (millijoules)
+
+  - type: gmd_energy
+    dataset: /gmd_energy
+    # shape: (n_shots,), dtype: float64 — gas monitor detector energy
+
+  - type: timestamp
+    dataset: /timestamp
+    # shape: (n_shots,), dtype: int64 — LCLS event timestamps
+
+  - type: dest
+    dataset: /dest
+    # shape: (n_shots,), dtype: int64 — beam destination code
+
+  # --- Event codes (present in most runs) ---
+  - type: evr_280
+    dataset: /evr_280
+    # shape: (n_shots,), dtype: int64
+
+  - type: evr_281
+    dataset: /evr_281
+    # shape: (n_shots,), dtype: int64
+
+  - type: evr_282
+    dataset: /evr_282
+    # shape: (n_shots,), dtype: int64
+
+  # --- HSD ROI integrated signals (16 angular channels, later runs) ---
+  - type: hsd_roi_0
+    dataset: /hsd_roi_0
+    # shape: (n_shots,), dtype: float64 — integrated ToF signal at 0 degrees
+
+  - type: hsd_roi_22
+    dataset: /hsd_roi_22
+
+  - type: hsd_roi_45
+    dataset: /hsd_roi_45
+
+  - type: hsd_roi_67
+    dataset: /hsd_roi_67
+
+  - type: hsd_roi_90
+    dataset: /hsd_roi_90
+
+  - type: hsd_roi_112
+    dataset: /hsd_roi_112
+
+  - type: hsd_roi_135
+    dataset: /hsd_roi_135
+
+  - type: hsd_roi_157
+    dataset: /hsd_roi_157
+
+  - type: hsd_roi_180
+    dataset: /hsd_roi_180
+
+  - type: hsd_roi_202
+    dataset: /hsd_roi_202
+
+  - type: hsd_roi_225
+    dataset: /hsd_roi_225
+
+  - type: hsd_roi_247
+    dataset: /hsd_roi_247
+
+  - type: hsd_roi_270
+    dataset: /hsd_roi_270
+
+  - type: hsd_roi_292
+    dataset: /hsd_roi_292
+
+  - type: hsd_roi_315
+    dataset: /hsd_roi_315
+
+  - type: hsd_roi_337
+    dataset: /hsd_roi_337
+
+  # --- Scan variable (present when scanning) ---
+  - type: scan_var_0
+    dataset: /scan_var_0
+    # shape: (n_shots,), dtype: float64 — per-shot scan motor readback
+
+  # --- Variable-length hit times (ragged arrays, 16 channels) ---
+  # Stored as flat concatenated arrays + per-shot length arrays
+  # To reconstruct: offsets = cumsum(lengths), hits[i] = times[offset[i]:offset[i]+len[i]]
+  - type: var_hsd_hf_times_0
+    dataset: /var_hsd_hf_times_0
+    # shape: (total_hits,), dtype: float64 — concatenated hit times at 0 degrees
+
+  - type: var_hsd_hf_times_0_len
+    dataset: /var_hsd_hf_times_0_len
+    # shape: (n_shots,), dtype: int64 — number of hits per shot
+
+  - type: var_hsd_hf_times_22
+    dataset: /var_hsd_hf_times_22
+
+  - type: var_hsd_hf_times_22_len
+    dataset: /var_hsd_hf_times_22_len
+
+  - type: var_hsd_hf_times_45
+    dataset: /var_hsd_hf_times_45
+
+  - type: var_hsd_hf_times_45_len
+    dataset: /var_hsd_hf_times_45_len
+
+  - type: var_hsd_hf_times_67
+    dataset: /var_hsd_hf_times_67
+
+  - type: var_hsd_hf_times_67_len
+    dataset: /var_hsd_hf_times_67_len
+
+  - type: var_hsd_hf_times_90
+    dataset: /var_hsd_hf_times_90
+
+  - type: var_hsd_hf_times_90_len
+    dataset: /var_hsd_hf_times_90_len
+
+  - type: var_hsd_hf_times_112
+    dataset: /var_hsd_hf_times_112
+
+  - type: var_hsd_hf_times_112_len
+    dataset: /var_hsd_hf_times_112_len
+
+  - type: var_hsd_hf_times_135
+    dataset: /var_hsd_hf_times_135
+
+  - type: var_hsd_hf_times_135_len
+    dataset: /var_hsd_hf_times_135_len
+
+  - type: var_hsd_hf_times_157
+    dataset: /var_hsd_hf_times_157
+
+  - type: var_hsd_hf_times_157_len
+    dataset: /var_hsd_hf_times_157_len
+
+  - type: var_hsd_hf_times_180
+    dataset: /var_hsd_hf_times_180
+
+  - type: var_hsd_hf_times_180_len
+    dataset: /var_hsd_hf_times_180_len
+
+  - type: var_hsd_hf_times_202
+    dataset: /var_hsd_hf_times_202
+
+  - type: var_hsd_hf_times_202_len
+    dataset: /var_hsd_hf_times_202_len
+
+  - type: var_hsd_hf_times_225
+    dataset: /var_hsd_hf_times_225
+
+  - type: var_hsd_hf_times_225_len
+    dataset: /var_hsd_hf_times_225_len
+
+  - type: var_hsd_hf_times_247
+    dataset: /var_hsd_hf_times_247
+
+  - type: var_hsd_hf_times_247_len
+    dataset: /var_hsd_hf_times_247_len
+
+  - type: var_hsd_hf_times_270
+    dataset: /var_hsd_hf_times_270
+
+  - type: var_hsd_hf_times_270_len
+    dataset: /var_hsd_hf_times_270_len
+
+  - type: var_hsd_hf_times_292
+    dataset: /var_hsd_hf_times_292
+
+  - type: var_hsd_hf_times_292_len
+    dataset: /var_hsd_hf_times_292_len
+
+  - type: var_hsd_hf_times_315
+    dataset: /var_hsd_hf_times_315
+
+  - type: var_hsd_hf_times_315_len
+    dataset: /var_hsd_hf_times_315_len
+
+  - type: var_hsd_hf_times_337
+    dataset: /var_hsd_hf_times_337
+
+  - type: var_hsd_hf_times_337_len
+    dataset: /var_hsd_hf_times_337_len
+
+  # --- Raw waveforms (early runs only, runs 27-93) ---
+  # shape: (n_shots, 11880), dtype: float64 — full HSD waveform per shot per channel
+  # Only present when cfg_record_hsd_waveforms = True
+  # 11 channels recorded in early runs (channels with _padded suffix)
+  # Omitted from artifact list due to large size and inconsistent availability
+  # Access via Mode A (h5py locator) recommended
+
+provenance:
+  created_at: "2026-03-27"
+  repo: "carbonscott/tiled-catalog-broker"
+  branch: "worktree-reorganize-dcs"
+  commit: "a98a623"
+
+# === Notes ===
+# - Run 104 HDF5 file is currently write-locked; config columns will be empty
+# - Run 54 has 0 shots (empty file)
+# - Early runs (27-93) have raw waveforms (hsd_padded_*) and hit heights (hsd_fex_max_*)
+#   not listed as artifacts above — access via Mode A
+# - Artifacts are optional per entity: not all runs have all datasets
+#   (e.g., has_fzp=True only for run 125, has_atm=True only for runs 105-116)
+# - Variable-length hit time arrays use ragged encoding:
+#   var_hsd_hf_times_{angle} is flat concatenation, var_hsd_hf_times_{angle}_len gives per-shot counts
