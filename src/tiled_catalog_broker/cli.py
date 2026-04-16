@@ -1,12 +1,11 @@
 """
 CLI entry points for tiled-catalog-broker.
 
-Provides two commands:
-  - tcb ingest:         Bulk SQL registration from Parquet manifests
+Provides four commands:
+  - tcb inspect:        Scan HDF5 data, generate draft YAML contract
+  - tcb generate:       Generate Parquet manifests from finalized YAML
+  - tcb ingest:         Bulk SQL registration (local testing, deprecated)
   - tcb register:       HTTP registration against a running Tiled server
-
-All paths (catalog.db, manifests/, storage/, datasets/) are resolved
-relative to the current working directory.
 """
 
 import sys
@@ -97,7 +96,7 @@ def inspect_main():
     classifies datasets, checks consistency, and emits a YAML with
     TODO markers for fields requiring human judgment.
     """
-    from tiled_catalog_broker.inspect import main as _inspect_main
+    from tiled_catalog_broker.tools.inspect import main as _inspect_main
     _inspect_main()
 
 
@@ -110,7 +109,7 @@ def generate_yaml_main():
     scans the HDF5 files, and produces entities.parquet + artifacts.parquet
     compatible with `tcb ingest`.
     """
-    from tiled_catalog_broker.generate import main as _generate_main
+    from tiled_catalog_broker.tools.generate import main as _generate_main
     _generate_main()
 
 
@@ -127,7 +126,9 @@ def ingest_main():
     args = parser.parse_args()
 
     import pandas as pd
-    from tiled_catalog_broker.catalog import ensure_catalog, register_dataset
+    from sqlalchemy import create_engine
+    from tiled_catalog_broker.bulk_register import prepare_node_data, bulk_register, verify_registration
+    from tiled_catalog_broker.utils import get_artifact_info
 
     print("=" * 50)
     print("Ingest")
@@ -154,7 +155,19 @@ def ingest_main():
 
     # Ensure catalog exists
     STORAGE_DIR.mkdir(exist_ok=True)
-    engine = ensure_catalog(DB_PATH, readable_storage, STORAGE_DIR)
+    uri = f"sqlite:///{DB_PATH}"
+    if not DB_PATH.exists():
+        from tiled.catalog import from_uri as catalog_from_uri
+        print(f"  Creating new catalog: {DB_PATH}")
+        catalog_from_uri(
+            uri,
+            writable_storage=str(STORAGE_DIR),
+            readable_storage=readable_storage,
+            init_if_not_exists=True,
+        )
+    else:
+        print(f"  Using existing catalog: {DB_PATH}")
+    engine = create_engine(uri)
 
     # Register each dataset
     for config_path, (name, config) in zip(args.configs, configs):
@@ -162,6 +175,9 @@ def ingest_main():
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
+
+        # Clear shape cache between datasets
+        get_artifact_info.__defaults__[-1].clear()
 
         ent_path, art_path = _find_manifests(config_path, label, name)
         if ent_path is None or art_path is None:
@@ -173,17 +189,21 @@ def ingest_main():
         art_df = pd.read_parquet(art_path)
         print(f"  Loaded manifests from: {ent_path.parent}")
 
+        n = len(ent_df)
+        print(f"\n--- Registering {label} ({n} entities) ---")
+
         dataset_key = config["key"]
         dataset_metadata = _build_dataset_metadata(config, label)
         config_hash = _compute_config_hash(config_path)
 
-        register_dataset(engine, ent_df, art_df, base_dir, label,
-                         dataset_key=dataset_key,
-                         dataset_metadata=dataset_metadata,
-                         config_hash=config_hash)
+        ent_nodes, art_nodes, art_data_sources = prepare_node_data(
+            ent_df, art_df, max_entities=n, base_dir=base_dir,
+        )
+        bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
+                      dataset_key=dataset_key, dataset_metadata=dataset_metadata,
+                      config_hash=config_hash)
 
     # Verify
-    from tiled_catalog_broker.register import verify_registration
     print()
     verify_registration(str(DB_PATH))
 
@@ -213,7 +233,7 @@ def register_main():
     args = parser.parse_args()
 
     import pandas as pd
-    from tiled_catalog_broker.utils import check_server, get_artifact_shape
+    from tiled_catalog_broker.utils import check_server, get_artifact_info
     from tiled_catalog_broker.http_register import register_dataset_http, verify_registration_http
 
     print("=" * 50)
@@ -270,7 +290,7 @@ def register_main():
             ent_df = ent_df.head(args.max_entities)
 
         # Clear shape cache between datasets
-        get_artifact_shape.__defaults__[-1].clear()
+        get_artifact_info.__defaults__[-1].clear()
 
         dataset_key = config["key"]
         dataset_metadata = _build_dataset_metadata(config, label)

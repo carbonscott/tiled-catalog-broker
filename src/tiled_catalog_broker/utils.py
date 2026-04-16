@@ -56,17 +56,6 @@ def get_artifact_info(base_dir, file_path, dataset_path, index=None, _cache={}):
     return list(full_shape), dtype_str, kind, itemsize
 
 
-def clear_artifact_cache():
-    """Clear the HDF5 artifact info cache (call between datasets to avoid cross-dataset collisions)."""
-    get_artifact_info.__defaults__[-1].clear()
-
-
-def get_artifact_shape(base_dir, file_path, dataset_path, index=None):
-    """Read artifact shape from HDF5. Deprecated: use get_artifact_info instead."""
-    shape, _, _, _ = get_artifact_info(base_dir, file_path, dataset_path, index)
-    return shape
-
-
 def check_server():
     """Check if Tiled server is running.
 

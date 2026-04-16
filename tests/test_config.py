@@ -63,35 +63,6 @@ class TestLoadConfig:
         assert "default_shapes" not in cfg
 
 
-class TestGetMaxEntities:
-    """Tests for get_max_entities()."""
-
-    def test_returns_integer(self):
-        from tiled_catalog_broker.config import get_max_entities
-        result = get_max_entities()
-        assert isinstance(result, int)
-
-    def test_default_is_positive(self):
-        from tiled_catalog_broker.config import get_max_entities
-        result = get_max_entities()
-        assert result > 0
-
-    def test_respects_env_variable(self):
-        """Test that MAX_ENTITIES environment variable is respected."""
-        import tiled_catalog_broker.config as config
-
-        os.environ["MAX_ENTITIES"] = "42"
-        config._config = None
-        importlib.reload(config)
-
-        result = config.get_max_entities()
-        assert result == 42
-
-        del os.environ["MAX_ENTITIES"]
-        config._config = None
-        importlib.reload(config)
-
-
 class TestGetTiledUrl:
     """Tests for get_tiled_url()."""
 

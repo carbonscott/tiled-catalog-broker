@@ -1,9 +1,11 @@
 import argparse
-from tiled_catalog_broker.tiled_cache import TiledCatalogDataset
+from tiled_catalog_broker.clients.tiled_cache import TiledCatalogDataset
 from tiled.client import from_uri
 from pathlib import Path
 import shutil
 import time
+
+import pytest
 
 TILED_URL = "http://localhost:8005"
 API_KEY = "secret"
@@ -15,13 +17,17 @@ N_ENTITIES = 200   # number of entities to test with
 N_EPOCHS = 4     # number of epochs to run
 
 
+@pytest.mark.integration
 def test_tiled_cache(n_entities=N_ENTITIES, n_epochs=N_EPOCHS):
     """Test disk-backed cache: epoch 1 should miss, all subsequent epochs should hit 100%."""
     cache_path = Path(CACHE_DIR)
     if cache_path.exists():
         shutil.rmtree(cache_path)
 
-    client = from_uri(TILED_URL, api_key=API_KEY)
+    try:
+        client = from_uri(TILED_URL, api_key=API_KEY)
+    except Exception as e:
+        pytest.skip(f"Tiled server not available at {TILED_URL}: {e}")
     dataset_client = client[DATASET_KEY]
 
     ds = TiledCatalogDataset(

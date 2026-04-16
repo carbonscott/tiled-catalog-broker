@@ -35,8 +35,8 @@ from ruamel.yaml import YAML
 # Add project root to path for package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tiled_catalog_broker.generate import generate_manifests, load_yaml
-from tiled_catalog_broker.schema import ValidationError
+from tiled_catalog_broker.tools.generate import generate_manifests, load_yaml
+from tiled_catalog_broker.tools.schema import ValidationError
 
 
 # ---------------------------------------------------------------------------

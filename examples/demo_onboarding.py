@@ -132,7 +132,7 @@ def _():
     DATA_DIR = "/sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper"
 
     # Import the inspection engine
-    from tiled_catalog_broker.inspect import inspect_directory, emit_draft_yaml
+    from tiled_catalog_broker.tools.inspect import inspect_directory, emit_draft_yaml
 
     result = inspect_directory(DATA_DIR)
     print(f"\nLayout:     {result.layout}")
@@ -228,7 +228,7 @@ def _(mo):
 @app.cell
 def _(mo):
     # Load and display the semantic model
-    from tiled_catalog_broker.schema import load_catalog_model, get_allowed_values
+    from tiled_catalog_broker.tools.schema import load_catalog_model, get_allowed_values
 
     catalog_model = load_catalog_model()
 
@@ -304,7 +304,7 @@ def _(catalog_model, mo):
 @app.cell
 def _(mo):
     # Demonstrate validation on a bad YAML
-    from tiled_catalog_broker.schema import validate, ValidationError
+    from tiled_catalog_broker.tools.schema import validate, ValidationError
 
     bad_cfg = {
         "key": "",

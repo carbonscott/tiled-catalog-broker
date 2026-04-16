@@ -70,7 +70,7 @@ class TestModeAQueryCatalog:
 
     def test_query_catalog_returns_dataframe(self, mh_dataset_client):
         """Test that query_catalog returns a non-empty DataFrame."""
-        from tiled_catalog_broker.query_manifest import query_catalog
+        from tiled_catalog_broker.clients.query_manifest import query_catalog
 
         manifest = query_catalog(mh_dataset_client, artifact_type="mh_powder_30T", limit=5)
 
@@ -79,7 +79,7 @@ class TestModeAQueryCatalog:
 
     def test_query_catalog_has_uid_and_ent_key(self, mh_dataset_client):
         """Test that manifest has standard required columns."""
-        from tiled_catalog_broker.query_manifest import query_catalog
+        from tiled_catalog_broker.clients.query_manifest import query_catalog
 
         manifest = query_catalog(mh_dataset_client, artifact_type="mh_powder_30T", limit=5)
 
@@ -90,7 +90,7 @@ class TestModeAQueryCatalog:
 
     def test_query_catalog_returns_all_metadata_columns(self, mh_dataset_client):
         """Test that manifest includes all entity metadata columns, not a hardcoded subset."""
-        from tiled_catalog_broker.query_manifest import query_catalog
+        from tiled_catalog_broker.clients.query_manifest import query_catalog
 
         manifest = query_catalog(mh_dataset_client, artifact_type="mh_powder_30T", limit=5)
 
@@ -104,7 +104,7 @@ class TestModeAQueryCatalog:
         which query_catalog can iterate directly.
         """
         from tiled.queries import Key
-        from tiled_catalog_broker.query_manifest import query_catalog
+        from tiled_catalog_broker.clients.query_manifest import query_catalog
 
         filtered = mh_dataset_client.search(Key("Ja_meV") >= 0)
         manifest = query_catalog(filtered, artifact_type="mh_powder_30T", limit=5)
@@ -114,7 +114,7 @@ class TestModeAQueryCatalog:
 
     def test_load_artifacts_returns_arrays(self, small_manifest, base_dirs):
         """Test that load_artifacts returns a list of numpy arrays."""
-        from tiled_catalog_broker.query_manifest import load_artifacts
+        from tiled_catalog_broker.clients.query_manifest import load_artifacts
 
         # Find the base_dir for the MH dataset
         mh_base_dir = base_dirs.get("GenericSpin_Sunny_MH")
@@ -131,7 +131,7 @@ class TestModeAQueryCatalog:
 
     def test_load_artifacts_correct_shape(self, small_manifest, base_dirs):
         """Test that loaded M(H) arrays have expected shape."""
-        from tiled_catalog_broker.query_manifest import load_artifacts
+        from tiled_catalog_broker.clients.query_manifest import load_artifacts
 
         mh_base_dir = base_dirs.get("GenericSpin_Sunny_MH")
         if mh_base_dir is None:

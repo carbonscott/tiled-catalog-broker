@@ -71,7 +71,7 @@ def demo_mode_a_expert(client):
     - Users who want to handle file I/O themselves
     - Maximum performance (direct HDF5, no HTTP overhead)
     """
-    from tiled_catalog_broker.query_manifest import query_catalog, load_artifacts
+    from tiled_catalog_broker.clients.query_manifest import query_catalog, load_artifacts
 
     print("=" * 60)
     print("MODE A: Expert Path-Based Access")

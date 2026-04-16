@@ -28,7 +28,7 @@ import pytest
 # Add project root to path for package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tiled_catalog_broker.inspect import (
+from tiled_catalog_broker.tools.inspect import (
     check_consistency,
     classify_datasets,
     detect_layout,
