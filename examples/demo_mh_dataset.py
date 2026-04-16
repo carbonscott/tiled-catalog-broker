@@ -173,7 +173,7 @@ def _(mo):
     **Best for:** ML pipelines, bulk loading, maximum performance
 
     ```python
-    from tiled_catalog_broker.query_manifest import query_catalog, load_artifacts
+    from tiled_catalog_broker.clients.query_manifest import query_catalog, load_artifacts
 
     # Query Tiled -> get all metadata as DataFrame
     manifest = query_catalog(client, artifact_type="mh_powder_30T")
@@ -196,7 +196,7 @@ def _(mo):
 
 @app.cell
 def _(client, mo, np, time):
-    from tiled_catalog_broker.query_manifest import query_catalog, load_artifacts
+    from tiled_catalog_broker.clients.query_manifest import query_catalog, load_artifacts
 
     # Navigate to dataset-level container: root -> dataset containers -> entities
     _artifact_type = "mh_powder_30T"

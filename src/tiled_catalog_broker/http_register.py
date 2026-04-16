@@ -26,7 +26,7 @@ import pandas as pd
 from .utils import (
     make_artifact_key,
     to_json_safe,
-    get_artifact_shape,
+    get_artifact_info,
     ARTIFACT_STANDARD_COLS,
 )
 
@@ -60,8 +60,8 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
     if "index" in art_row.index and pd.notna(art_row.get("index")):
         index = int(art_row["index"])
 
-    # Get shape from HDF5 (cached by dataset path)
-    data_shape = get_artifact_shape(base_dir, h5_rel_path, dataset_path, index)
+    # Get shape and dtype from HDF5 (cached by dataset path)
+    data_shape, _, _, _ = get_artifact_info(base_dir, h5_rel_path, dataset_path, index)
     data_dtype = np.float64
 
     # Create asset pointing to HDF5 file

@@ -69,11 +69,6 @@ def get_service_dir():
     return get_config()["service_dir"]
 
 
-def get_catalog_db_path():
-    """Get full path to catalog.db."""
-    return os.path.join(get_service_dir(), "catalog.db")
-
-
 def get_tiled_url():
     """Get Tiled server URL (from env or default).
 
@@ -94,7 +89,3 @@ def get_api_key():
     return os.environ.get("TILED_API_KEY", os.environ.get("TILED_KEY", ""))
 
 
-def get_max_entities():
-    """Get max entities to register (from env or config)."""
-    default = get_config().get("max_entities", 10)
-    return int(os.environ.get("MAX_ENTITIES", default))

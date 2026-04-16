@@ -24,7 +24,7 @@ import pytest
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tiled_catalog_broker.utils import make_artifact_key, to_json_safe, clear_artifact_cache
+from tiled_catalog_broker.utils import make_artifact_key, to_json_safe
 
 
 class TestMakeArtifactKey:
@@ -114,14 +114,3 @@ class TestToJsonSafe:
         assert to_json_safe(None) is None
 
 
-class TestClearArtifactCache:
-    """Tests for clear_artifact_cache()."""
-
-    def test_runs_without_error(self):
-        """clear_artifact_cache() should not raise."""
-        clear_artifact_cache()
-
-    def test_idempotent(self):
-        """Calling twice is safe."""
-        clear_artifact_cache()
-        clear_artifact_cache()

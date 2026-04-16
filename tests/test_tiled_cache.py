@@ -1,5 +1,5 @@
 import argparse
-from tiled_catalog_broker.tiled_cache import TiledCatalogDataset
+from tiled_catalog_broker.clients.tiled_cache import TiledCatalogDataset
 from tiled.client import from_uri
 from pathlib import Path
 import shutil

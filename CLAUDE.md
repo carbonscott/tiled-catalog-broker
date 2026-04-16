@@ -40,13 +40,19 @@ tiled-catalog-broker/
 ├── config.yml                 # Tiled server configuration
 ├── src/
 │   └── tiled_catalog_broker/  # Installable Python package
-│       ├── cli.py             # CLI: tcb {ingest,register}
-│       ├── config.py          # YAML config loading
-│       ├── catalog.py         # Catalog creation + dataset containers
-│       ├── register.py        # SQLAlchemy bulk registration
+│       ├── cli.py             # CLI: tcb {inspect,generate,ingest,register}
+│       ├── config.py          # Environment/config loading
+│       ├── bulk_register.py   # Bulk SQL registration (deprecated, local testing only)
 │       ├── http_register.py   # HTTP registration via Tiled client
-│       ├── query_manifest.py  # Mode A discovery API
-│       └── utils.py           # Shared helpers
+│       ├── utils.py           # Shared helpers
+│       ├── adapters/          # Tiled array adapters
+│       ├── tools/             # Data-prep tools
+│       │   ├── inspect.py     # Auto-generate draft YAML from HDF5
+│       │   ├── generate.py    # Generate Parquet manifests from YAML
+│       │   └── schema.py      # YAML contract validation
+│       └── clients/           # Client-side utilities
+│           ├── tiled_cache.py # Disk-backed cache + PyTorch Dataset
+│           └── query_manifest.py  # Mode A discovery API
 ├── examples/                  # Standalone examples and marimo demos
 ├── tests/                     # Test suite
 └── docs/                      # Design docs, handoffs, lessons learned

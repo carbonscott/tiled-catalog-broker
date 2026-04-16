@@ -9,7 +9,7 @@ Cache layout:
 
 Usage (library):
     from tiled.client import from_uri
-    from tiled_catalog_broker.tiled_cache import TiledCatalogDataset
+    from tiled_catalog_broker.clients.tiled_cache import TiledCatalogDataset
 
     client = from_uri("http://localhost:8005", api_key="secret")
     ds = TiledCatalogDataset(
@@ -192,7 +192,7 @@ class TiledCatalogDataset:
     Example::
 
         from tiled.client import from_uri
-        from tiled_catalog_broker.tiled_cache import TiledCatalogDataset
+        from tiled_catalog_broker.clients.tiled_cache import TiledCatalogDataset
 
         client = from_uri("http://localhost:8005", api_key="secret")
         ds = TiledCatalogDataset(
@@ -349,7 +349,7 @@ def main():
     args = _build_parser().parse_args()
 
     # Resolve server config
-    from .config import get_tiled_url, get_api_key
+    from ..config import get_tiled_url, get_api_key
     tiled_url = args.tiled_url or get_tiled_url()
     api_key = args.api_key or get_api_key()
 

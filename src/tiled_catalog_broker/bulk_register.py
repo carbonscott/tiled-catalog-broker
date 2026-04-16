@@ -1,26 +1,13 @@
 """
-Generic Bulk Registration with SQLAlchemy.
+Bulk SQL Registration (local SQLite testing only).
 
-Bypasses Tiled HTTP layer for maximum bulk insert performance.
-Uses direct SQLAlchemy with trigger disable/rebuild pattern.
+DEPRECATED: This module bypasses the Tiled HTTP layer for faster bulk inserts
+into a local SQLite catalog. It will be removed once HTTP registration
+(http_register.py) performance is sufficient for all use cases. New workflows
+should prefer ``tcb register`` (HTTP path) over ``tcb ingest`` (this path).
 
 Dataset-agnostic: reads all metadata columns dynamically from manifests.
 The manifest is the contract -- no hardcoded parameter names or artifact types.
-
-Key optimizations:
-- Single database transaction for all inserts
-- Disables closure table trigger during bulk load
-- Rebuilds closure table with set-based SQL
-- Re-enables trigger for future incremental updates
-
-When to use:
-- Initial bulk load of 1K+ entities
-- Fresh database registration
-- Maximum speed needed
-
-When NOT to use:
-- Incremental updates (use register_catalog.py instead)
-- Server is running and serving queries
 """
 
 import os
