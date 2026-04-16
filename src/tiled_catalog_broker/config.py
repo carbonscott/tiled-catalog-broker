@@ -77,12 +77,11 @@ def get_catalog_db_path():
 def get_tiled_url():
     """Get Tiled server URL (from env or default).
 
-    Set TILED_URL to override. Default is the remote containerized server.
-    For local dev, use: export TILED_URL=http://localhost:8005
+    Set TILED_URL to override. Defaults to http://localhost:8005.
     """
     return os.environ.get(
         "TILED_URL",
-        "https://lcls-data-portal.slac.stanford.edu/tiled-dev",
+        "http://localhost:8005",
     )
 
 

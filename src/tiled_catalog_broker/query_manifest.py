@@ -7,7 +7,7 @@ use the Tiled adapter pattern instead (client["entity"]["artifact"][:]).
 Usage:
     from tiled.client import from_uri
     from tiled.queries import Key
-    from broker.query_manifest import query_catalog, load_artifacts
+    from tiled_catalog_broker.query_manifest import query_catalog, load_artifacts
 
     client = from_uri("http://localhost:8005", api_key="secret")
 

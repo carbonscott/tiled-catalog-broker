@@ -9,7 +9,7 @@ Cache layout:
 
 Usage (library):
     from tiled.client import from_uri
-    from broker.tiled_dataset import TiledCatalogDataset
+    from tiled_catalog_broker.tiled_cache import TiledCatalogDataset
 
     client = from_uri("http://localhost:8005", api_key="secret")
     ds = TiledCatalogDataset(
@@ -21,13 +21,13 @@ Usage (library):
     sample = ds[0]  # {"Ax": np.ndarray, "J1a": np.ndarray, "metadata": {...}}
 
 Usage (CLI):
-    python -m broker.tiled_dataset \\
+    python -m tiled_catalog_broker.tiled_cache \\
         --dataset VDP \\
         --artifacts mh_powder_30T ins_12meV \\
         --epochs 3 \\
         --cache-dir ./tiled_cache
 
-    python -m broker.tiled_dataset --clear-cache --cache-dir ./tiled_cache
+    python -m tiled_catalog_broker.tiled_cache --clear-cache --cache-dir ./tiled_cache
 """
 
 import argparse
@@ -192,7 +192,7 @@ class TiledCatalogDataset:
     Example::
 
         from tiled.client import from_uri
-        from broker.tiled_dataset import TiledCatalogDataset
+        from tiled_catalog_broker.tiled_cache import TiledCatalogDataset
 
         client = from_uri("http://localhost:8005", api_key="secret")
         ds = TiledCatalogDataset(

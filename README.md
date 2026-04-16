@@ -56,7 +56,7 @@ This creates `catalog.db` with all entities and their artifacts.
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
 
-### Step 5: Retrieve Data
+### Step 4: Retrieve Data
 
 Open a new terminal (keep the server running) and start Python:
 
