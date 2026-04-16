@@ -129,6 +129,7 @@ def ingest_main():
     import pandas as pd
     from sqlalchemy import create_engine
     from tiled_catalog_broker.bulk_register import prepare_node_data, bulk_register, verify_registration
+    from tiled_catalog_broker.utils import get_artifact_info
 
     print("=" * 50)
     print("Ingest")
@@ -175,6 +176,9 @@ def ingest_main():
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
+
+        # Clear shape cache between datasets
+        get_artifact_info.__defaults__[-1].clear()
 
         ent_path, art_path = _find_manifests(config_path, label, name)
         if ent_path is None or art_path is None:

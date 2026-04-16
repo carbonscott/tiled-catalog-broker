@@ -56,7 +56,6 @@ def get_artifact_info(base_dir, file_path, dataset_path, index=None, _cache={}):
     return list(full_shape), dtype_str, kind, itemsize
 
 
-
 def check_server():
     """Check if Tiled server is running.
 
