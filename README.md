@@ -17,11 +17,7 @@ parameter names, artifact types, or file layouts are hardcoded.
 - Python >= 3.10
 - [`uv`](https://docs.astral.sh/uv/)
 
-Set the cache directory so `uv` doesn't re-download packages every run:
-
-```bash
-export UV_CACHE_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/.UV_CACHE
-```
+Optionally set `UV_CACHE_DIR` to avoid re-downloading packages every run.
 
 Install the package in development mode:
 
@@ -33,22 +29,21 @@ uv pip install -e .
 
 ## Quickstart
 
-### Step 1: Prepare Manifests
+### Step 1: Inspect HDF5 Data
 
-Each dataset needs a YAML contract (`datasets/mydata.yml`) and Parquet manifests
-(entity + artifact DataFrames). See [Adding Your Own Dataset](#adding-your-own-dataset)
-for the manifest format.
-
-### Step 2: Ingest into Catalog
-
-`tcb ingest` bulk-loads manifests into a SQLite catalog database using direct
-SQLAlchemy (no running server needed).
+Scan an HDF5 data directory to auto-generate a draft YAML contract:
 
 ```bash
-tcb ingest datasets/mydata.yml
+tcb inspect /path/to/hdf5/data/
 ```
 
-This creates `catalog.db` with all entities and their artifacts.
+### Step 2: Generate Manifests
+
+Finalize the YAML (fill in TODOs), then generate Parquet manifests:
+
+```bash
+tcb generate datasets/mydata.yml
+```
 
 ### Step 3: Start the Tiled Server
 
@@ -56,7 +51,15 @@ This creates `catalog.db` with all entities and their artifacts.
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
 
-### Step 4: Retrieve Data
+### Step 4: Register into Tiled
+
+In a new terminal, register manifests into the running server via HTTP:
+
+```bash
+tcb register datasets/mydata.yml
+```
+
+### Step 5: Retrieve Data
 
 Open a new terminal (keep the server running) and start Python:
 
@@ -121,25 +124,16 @@ uv run --with marimo --with matplotlib \
 The `tcb` CLI subcommands form a pipeline:
 
 ```
-manifests   --->   tcb ingest   --->   tiled serve
-                   (catalog.db)        (HTTP API)
-                   [offline bulk]      [serve queries]
-
-                 tcb register
-                   [online HTTP]  ---> (running server)
+HDF5 data  --->  tcb inspect  --->  tcb generate  --->  tcb register  --->  tiled serve
+                 (draft YAML)       (manifests)         (HTTP)              (queries)
 ```
 
 | Subcommand | Purpose | Server needed? |
 |------------|---------|----------------|
-| `tcb ingest` | Bulk-load manifests into `catalog.db` (SQLAlchemy) | No |
+| `tcb inspect` | Scan HDF5 data, generate draft YAML contract | No |
+| `tcb generate` | Generate Parquet manifests from finalized YAML | No |
 | `tcb register` | Register manifests into a running server (HTTP) | Yes |
-
-**When to use which registration method:**
-
-| Scenario | Use | Speed |
-|----------|-----|-------|
-| Initial load of 1K+ entities | `tcb ingest` | ~2,250 nodes/sec |
-| Incremental updates to a live server | `tcb register` | ~5 nodes/sec |
+| `tcb ingest` | Bulk-load into local SQLite (testing only, deprecated) | No |
 
 ---
 
@@ -227,7 +221,7 @@ tcb register datasets/mydata.yml
 ### Unit Tests (no server required)
 
 ```bash
-uv run --with pytest pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py -v
+uv run --with pytest pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py tests/test_inspect.py tests/test_generate.py tests/test_schema.py -v
 ```
 
 ### Integration Tests (require running server with data)
@@ -242,11 +236,15 @@ uv run --with pytest pytest tests/ -v
 
 | Test File | Type | What It Covers |
 |-----------|------|----------------|
-| `test_config.py` | Unit | Configuration loading, path resolution |
+| `test_config.py` | Unit | Configuration loading |
 | `test_utils.py` | Unit | Artifact key generation, shared helpers |
+| `test_inspect.py` | Unit | HDF5 inspection, layout detection |
+| `test_generate.py` | Unit | Parquet manifest generation |
+| `test_schema.py` | Unit | YAML contract validation |
 | `test_generic_registration.py` | Unit | Node preparation for VDP + NiPS3 datasets |
 | `test_registration.py` | Integration | HTTP and bulk registration |
 | `test_data_retrieval.py` | Integration | Mode A/B data access |
+| `test_tiled_cache.py` | Integration | Disk-backed cache hit/miss behavior |
 
 ---
 
@@ -256,31 +254,23 @@ uv run --with pytest pytest tests/ -v
 tiled-catalog-broker/
 ├── pyproject.toml             # Package definition (tiled-catalog-broker)
 ├── config.yml                 # Tiled server configuration
-├── README.md                  # This file
-│
 ├── src/
 │   └── tiled_catalog_broker/  # Installable Python package
-│       ├── cli.py             # CLI: tcb {ingest,register}
-│       ├── config.py          # YAML config loading
-│       ├── catalog.py         # Catalog creation + dataset containers
-│       ├── register.py        # SQLAlchemy bulk registration
+│       ├── cli.py             # CLI: tcb {inspect,generate,ingest,register}
+│       ├── config.py          # Environment/config loading
+│       ├── bulk_register.py   # Bulk SQL registration (deprecated, local testing only)
 │       ├── http_register.py   # HTTP registration via Tiled client
-│       ├── query_manifest.py  # Mode A discovery API
-│       └── utils.py           # Shared helpers
-│
-├── notebooks/                 # Marimo notebooks (demos, exploration)
-│
-├── examples/                  # Standalone example scripts
-│
+│       ├── utils.py           # Shared helpers
+│       ├── adapters/          # Tiled array adapters
+│       ├── tools/             # Data-prep tools
+│       │   ├── inspect.py     # Auto-generate draft YAML from HDF5
+│       │   ├── generate.py    # Generate Parquet manifests from YAML
+│       │   └── schema.py      # YAML contract validation
+│       └── clients/           # Client-side utilities
+│           ├── tiled_cache.py # Disk-backed cache + PyTorch Dataset
+│           └── query_manifest.py  # Mode A discovery API
+├── examples/                  # Standalone examples and marimo demos
 ├── tests/                     # Test suite
-│   ├── conftest.py
-│   ├── test_config.py
-│   ├── test_utils.py
-│   ├── test_generic_registration.py
-│   ├── test_registration.py
-│   ├── test_data_retrieval.py
-│   └── testdata/              # Synthetic test data
-│
 └── docs/                      # Design docs, handoffs, lessons learned
 ```
 
