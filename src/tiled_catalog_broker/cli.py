@@ -1,12 +1,11 @@
 """
 CLI entry points for tiled-catalog-broker.
 
-Provides two commands:
-  - tcb ingest:         Bulk SQL registration from Parquet manifests
+Provides four commands:
+  - tcb inspect:        Scan HDF5 data, generate draft YAML contract
+  - tcb generate:       Generate Parquet manifests from finalized YAML
+  - tcb ingest:         Bulk SQL registration (local testing, deprecated)
   - tcb register:       HTTP registration against a running Tiled server
-
-All paths (catalog.db, manifests/, storage/, datasets/) are resolved
-relative to the current working directory.
 """
 
 import sys
