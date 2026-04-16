@@ -83,7 +83,12 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
 
     # Create data source
     data_source = DataSource(
-        mimetype="application/x-hdf5",
+        mimetype=(
+            to_json_safe(art_row["mimetype"])
+            if "mimetype" in art_row.index
+            and pd.notna(art_row.get("mimetype"))
+            else "application/x-hdf5"
+        ),
         assets=[asset],
         structure_family=StructureFamily.array,
         structure=structure,
