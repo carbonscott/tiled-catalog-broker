@@ -146,6 +146,7 @@ HDF5 data  -->  tcb inspect  -->  tcb generate  -->  tcb stamp-key  -->  tcb reg
 | `tcb generate` | Generate Parquet manifests from finalized YAML | No |
 | `tcb stamp-key` | Write the derived catalog key into the YAML | No |
 | `tcb register` | Register manifests into a running server (HTTP) | Yes |
+| `tcb delete` | Remove registered data from a running server (catalog only; HDF5 files untouched) | Yes |
 | `tcb ingest` | Bulk-load into local SQLite (testing only, deprecated) | No |
 
 ---
@@ -186,6 +187,28 @@ TILED_API_KEY=...
 set -a; source .env.test; set +a   # export every var in the file
 tcb register datasets/mydata.yml
 ```
+
+---
+
+## Deleting Registered Data
+
+`tcb delete` removes catalog pointers from the server. External HDF5 files
+on disk are never touched. Granularity is inferred from the number of
+positional arguments:
+
+```bash
+tcb delete <DATASET>                       # dataset + everything under it
+tcb delete <DATASET> <ENTITY>              # one entity and its artifacts
+tcb delete <DATASET> <ENTITY> <ARTIFACT>   # one artifact array
+tcb delete all                             # every top-level container
+```
+
+Granular forms prompt for `y`/`yes` (bypass with `--yes`). The `all` form
+requires retyping `TILED_URL` to confirm; case and trailing-slash
+differences are normalized so `https://Tiled.example.com/` matches
+`https://tiled.example.com`. Bypass non-interactively with `--confirm <URL>`.
+
+`--dry-run` previews without deleting.
 
 ---
 
