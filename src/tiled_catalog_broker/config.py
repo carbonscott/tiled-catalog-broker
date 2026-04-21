@@ -89,3 +89,17 @@ def get_api_key():
     return os.environ.get("TILED_API_KEY", os.environ.get("TILED_KEY", ""))
 
 
+def get_test_tiled_url():
+    """Get the test Tiled server URL from TILED_TEST_URL."""
+    return os.environ.get("TILED_TEST_URL", "")
+
+
+def get_test_basic_auth():
+    """Get (username, password) for the test server from env, or None."""
+    user = os.environ.get("TILED_TEST_USERNAME", "")
+    pwd = os.environ.get("TILED_TEST_PASSWORD", "")
+    if user and pwd:
+        return (user, pwd)
+    return None
+
+

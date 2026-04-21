@@ -460,9 +460,9 @@ def emit_draft_yaml(result, output_path=None):
     w()
 
     # Identity (TODO)
-    w("# === REQUIRED: Fill in these identity fields ===")
-    w("# Key convention: {METHOD}_{SIM|EXP|BENCH|OPT}_{DISTINGUISHING_FEATURE}")
-    w('key: ""              # TODO: e.g., RIXS_SIM_BROAD_SIGMA')
+    w("# === REQUIRED: Fill in the label ===")
+    w("# The machine-readable `key` is auto-filled at registration as")
+    w("# slug(label) — e.g., 'Broad Sigma' -> 'BROAD_SIGMA'. Don't author it.")
     w('label: ""            # TODO: human-readable name (e.g., Broad Sigma)')
     w()
 
@@ -507,7 +507,7 @@ def emit_draft_yaml(result, output_path=None):
     else:
         w('  # project: ""       # optional')
 
-    w('  # facility: ""      # optional (experimental data)')
+    w('  # facility: ""      # optional (institution where data was produced)')
     w('  # description: ""   # optional')
     w()
 

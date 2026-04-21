@@ -25,6 +25,7 @@ import pandas as pd
 
 from .utils import (
     make_artifact_key,
+    make_entity_key,
     to_json_safe,
     get_artifact_info,
     ARTIFACT_STANDARD_COLS,
@@ -129,12 +130,6 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     art_count = 0
     skip_count = 0
 
-    if "key" not in ent_df.columns:
-        raise ValueError(
-            "Entity manifest missing required 'key' column. "
-            "The manifest generator must provide a 'key' for each entity."
-        )
-
     # Create or reuse dataset container
     if dataset_key in client:
         parent_client = client[dataset_key]
@@ -155,7 +150,7 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
 
     for i, (_, ent_row) in enumerate(ent_df.iterrows()):
         uid = str(ent_row["uid"])
-        ent_key = str(ent_row["key"])
+        ent_key = make_entity_key(ent_row, dataset_key)
 
         # Skip if container already exists
         if ent_key in parent_client:

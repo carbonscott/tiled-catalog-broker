@@ -221,7 +221,9 @@ class TestGenerateBatched:
         assert "alpha" in ent_df.columns
         assert "beta" in ent_df.columns
         assert "uid" in ent_df.columns
-        assert "key" in ent_df.columns
+        # `key` column removed — entity keys are derived at registration from
+        # (dataset_key, uid). The manifest holds the uid only.
+        assert "key" not in ent_df.columns
 
         # Check artifact columns
         assert "uid" in art_df.columns

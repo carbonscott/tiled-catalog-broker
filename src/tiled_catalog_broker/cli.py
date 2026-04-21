@@ -26,6 +26,69 @@ def _load_config(config_path):
         return yaml.load(f)
 
 
+def _resolve_and_persist_key(config, config_path):
+    """Compute the catalog key from `label` and persist it in the YAML.
+
+    Rules:
+      - key is slugify_key(label) — the reviewer never authors it.
+      - If the YAML already has a matching key, it's reused (idempotent).
+      - If the YAML has a DIFFERENT key than slug(label) would produce,
+        we error: label drift would silently rename the container.
+      - If the YAML has no key (or blank), we compute it and patch the
+        YAML with a targeted text insertion (preserving every other line
+        verbatim — ruamel round-trip reflows paths and list indentation).
+    """
+    import datetime
+    import re
+
+    from .utils import slugify_key
+
+    label = config.get("label")
+    if not label:
+        raise ValueError(
+            f"{config_path}: 'label' is required; 'key' is derived from it."
+        )
+    expected = slugify_key(label)
+
+    current = config.get("key")
+    if current and str(current).strip():
+        if current != expected:
+            raise ValueError(
+                f"{config_path}: stored key '{current}' does not match "
+                f"slug(label) '{expected}'. Either restore the label that "
+                f"produced '{current}', or remove the 'key:' line to "
+                f"re-derive it."
+            )
+        config["key"] = current
+        return current
+
+    config["key"] = expected
+
+    stamp = datetime.date.today().isoformat()
+    new_line = f"key: {expected}  # auto-filled on {stamp} from slug(label)\n"
+
+    with open(config_path) as f:
+        content = f.read()
+
+    placeholder = re.compile(
+        r"^#\s*key is auto-filled.*\n", re.MULTILINE
+    )
+    if placeholder.search(content):
+        content = placeholder.sub(new_line, content, count=1)
+    else:
+        label_re = re.compile(r"^(label\s*:)", re.MULTILINE)
+        if label_re.search(content):
+            content = label_re.sub(new_line + r"\1", content, count=1)
+        else:
+            content = new_line + content
+
+    with open(config_path, "w") as f:
+        f.write(content)
+
+    print(f"  Assigned key '{expected}' (slug of label '{label}') -> {config_path}")
+    return expected
+
+
 def _compute_config_hash(config_path):
     """Compute SHA256 hash of a YAML config file."""
     import hashlib
@@ -171,7 +234,8 @@ def ingest_main():
 
     # Register each dataset
     for config_path, (name, config) in zip(args.configs, configs):
-        label = config.get("label", config.get("key", name))
+        label = config.get("label", name)
+        dataset_key = _resolve_and_persist_key(config, config_path)
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
@@ -192,12 +256,12 @@ def ingest_main():
         n = len(ent_df)
         print(f"\n--- Registering {label} ({n} entities) ---")
 
-        dataset_key = config["key"]
         dataset_metadata = _build_dataset_metadata(config, label)
         config_hash = _compute_config_hash(config_path)
 
         ent_nodes, art_nodes, art_data_sources = prepare_node_data(
             ent_df, art_df, max_entities=n, base_dir=base_dir,
+            dataset_key=dataset_key,
         )
         bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
                       dataset_key=dataset_key, dataset_metadata=dataset_metadata,
@@ -230,6 +294,14 @@ def register_main():
         metavar="NUM",
         help="Limit number of entities per dataset (default: all)",
     )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help=(
+            "Use the test server (TILED_TEST_URL + basic auth from "
+            "TILED_TEST_USERNAME/PASSWORD) instead of TILED_URL + TILED_API_KEY."
+        ),
+    )
     args = parser.parse_args()
 
     import pandas as pd
@@ -241,15 +313,33 @@ def register_main():
     print("=" * 50)
     print(f"Configs: {args.configs}")
 
-    # Check server is running
-    from tiled_catalog_broker.config import get_tiled_url, get_api_key
-    tiled_url = get_tiled_url()
-    api_key = get_api_key()
+    # Pick server + auth
+    from tiled_catalog_broker.config import (
+        get_tiled_url, get_api_key,
+        get_test_tiled_url, get_test_basic_auth,
+    )
+    if args.test:
+        tiled_url = get_test_tiled_url()
+        basic_auth = get_test_basic_auth()
+        api_key = None
+        if not tiled_url:
+            print("ERROR: --test requested but TILED_TEST_URL is not set")
+            sys.exit(1)
+        if basic_auth is None:
+            print(
+                "ERROR: --test requested but TILED_TEST_USERNAME/"
+                "TILED_TEST_PASSWORD are not both set"
+            )
+            sys.exit(1)
+    else:
+        tiled_url = get_tiled_url()
+        api_key = get_api_key()
+        basic_auth = None
 
     print(f"\nChecking Tiled server at {tiled_url} ...")
-    if not check_server():
+    if not check_server(url=tiled_url, api_key=api_key, basic_auth=basic_auth):
         print(f"ERROR: Cannot reach Tiled server at {tiled_url}")
-        if not api_key:
+        if not args.test and not api_key:
             print("\n  No API key set. Export TILED_API_KEY:")
             print("    export TILED_API_KEY=your-key-here")
         print(f"\n  To use a different server, export TILED_URL:")
@@ -260,7 +350,15 @@ def register_main():
     # Connect to Tiled
     from tiled.client import from_uri
 
-    client = from_uri(tiled_url, api_key=api_key)
+    if basic_auth is not None:
+        import httpx
+        client = from_uri(
+            tiled_url,
+            auth=httpx.BasicAuth(*basic_auth),
+            verify=False,
+        )
+    else:
+        client = from_uri(tiled_url, api_key=api_key, verify=False)
     print(f"Connected to {tiled_url} ({len(client)} existing containers)")
 
     # Load and register each dataset
@@ -271,7 +369,8 @@ def register_main():
 
         config = _load_config(config_path)
         name = Path(config_path).stem
-        label = config.get("label", config.get("key", name))
+        label = config.get("label", name)
+        dataset_key = _resolve_and_persist_key(config, config_path)
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
@@ -292,7 +391,6 @@ def register_main():
         # Clear shape cache between datasets
         get_artifact_info.__defaults__[-1].clear()
 
-        dataset_key = config["key"]
         dataset_metadata = _build_dataset_metadata(config, label)
         config_hash = _compute_config_hash(config_path)
 

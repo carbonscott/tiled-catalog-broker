@@ -24,7 +24,25 @@ import pytest
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tiled_catalog_broker.utils import make_artifact_key, to_json_safe
+from tiled_catalog_broker.utils import make_artifact_key, make_entity_key, to_json_safe
+
+
+class TestMakeEntityKey:
+    """Tests for make_entity_key()."""
+
+    def test_full_uuid(self):
+        row = {"uid": "636ce3e4-1ea0-5f0f-a515-a4378fa5c842"}
+        assert make_entity_key(row, "VDP_SIM") == "VDP_SIM_636ce3e4-1ea0"
+
+    def test_short_uid_padded(self):
+        """Short uids are used verbatim (no padding needed)."""
+        row = {"uid": "abc12345"}
+        assert make_entity_key(row, "TEST") == "TEST_abc12345"
+
+    def test_accepts_any_dataset_key(self):
+        row = {"uid": "636ce3e4-1ea0-5f0f-a515-a4378fa5c842"}
+        assert make_entity_key(row, "SAM_KLEIN") == "SAM_KLEIN_636ce3e4-1ea0"
+        assert make_entity_key(row, "NIPS3_MULTIMODAL") == "NIPS3_MULTIMODAL_636ce3e4-1ea0"
 
 
 class TestMakeArtifactKey:

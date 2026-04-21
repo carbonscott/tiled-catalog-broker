@@ -16,6 +16,12 @@ methods:
   - id: INS
     label: Inelastic Neutron Scattering
     description: S(Q,E) spectra from neutron scattering (powder or single-crystal)
+    aliases:
+      - id: INS_powder
+        canonicals: [INS, powder, INS_powder]
+  - id: powder
+    label: Powder Sample Form
+    description: Powder-averaged measurement geometry (loses directional Q info)
   - id: RIXS
     label: Resonant Inelastic X-ray Scattering
     description: RIXS spectra (energy loss vs. scattering angle)
@@ -73,7 +79,7 @@ projects:
     description: Machine-learning AI for Quantum Magnetism
 
 # --- Facilities ---
-# Only relevant for experimental data.
+# Institution where data was collected or simulations were run.
 facilities:
   - id: LCLS
     label: LCLS
@@ -170,25 +176,23 @@ provenance_fields:
     description: Hostname where data was generated
 
 # --- Key convention ---
-# Dataset keys follow the formula: {METHOD}_{DATA_TYPE_SHORT}_{DISTINGUISHING_FEATURE}
-# This makes keys predictable — if you know the method, type, and what's
-# unique about the dataset, you can construct the key without searching.
+# The `key` (machine-readable identifier for the dataset container in Tiled)
+# is derived from the human-authored `label` by slugification. The reviewer
+# authors only the label; `tcb register` computes the key and writes it back
+# into the YAML on first registration, after which it is constant.
 #
-# DATA_TYPE_SHORT abbreviations:
-#   simulation   → SIM
-#   experimental → EXP
-#   benchmark    → BENCH
-#   optimization → OPT
+# Slug rule: uppercase, runs of non-alphanumeric chars → single underscore,
+#            strip leading/trailing underscores.
 #
 # Examples:
-#   RIXS_SIM_BROAD_SIGMA     — simulated RIXS with broad sigma parameter range
-#   RIXS_EXP_NIPS3_2024      — experimental RIXS on NiPS3 from 2024
-#   INS_SIM_10K              — simulated INS with 10K entities
-#   VDP_SIM_HEISENBERG       — VDP simulation for Heisenberg model
+#   "Broad Sigma"              → BROAD_SIGMA
+#   "SUNNY NiPS3 10K"          → SUNNY_NIPS3_10K
+#   "NiPS3 Multimodal"         → NIPS3_MULTIMODAL
+#
+# Method, material, and data_type live in `metadata` where they are
+# queryable. Encoding them in the key is discouraged because multi-method
+# or multi-material datasets produce unwieldy, less predictable keys.
 key_convention:
-  formula: "{METHOD}_{DATA_TYPE_SHORT}_{DISTINGUISHING_FEATURE}"
-  data_type_abbreviations:
-    simulation: SIM
-    experimental: EXP
-    benchmark: BENCH
-    optimization: OPT
+  rule: "key = slug(label)"
+  authored_by: registration  # not by the reviewer
+  immutable_after_registration: true

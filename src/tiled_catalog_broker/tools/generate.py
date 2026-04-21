@@ -87,8 +87,12 @@ def generate_manifests(yaml_path, output_dir=None, append=False):
     cfg = load_yaml(yaml_path)
     config_hash = compute_config_hash(yaml_path)
 
+    from ..utils import slugify_key
+
     label = cfg["label"]
-    key_prefix = cfg.get("key", cfg.get("key_prefix", label))
+    # UIDs must be stable whether or not `key` has been stamped into the YAML
+    # yet by `tcb register`; always derive from slug(label).
+    key_prefix = cfg.get("key") or cfg.get("key_prefix") or slugify_key(label)
     data = cfg["data"]
     directory = data["directory"]
     file_pattern = data.get("file_pattern", "**/*.h5")
@@ -219,25 +223,14 @@ def _generate_per_entity(h5_files, root, key_prefix, artifacts_cfg,
     for i, h5_path in enumerate(h5_files):
         rel_path = str(h5_path.relative_to(root))
         file_stem = h5_path.stem
-        uid = _make_uid(f"{key_prefix}_{file_stem}")
 
-        if uid in existing_uids:
-            continue
-
-        # Cache fingerprint per file
-        if rel_path not in _fingerprint_cache:
-            _fingerprint_cache[rel_path] = _file_fingerprint(h5_path)
-
-        entity_key = f"H_{uid[:8]}"
-
-        entity_row = OrderedDict()
-        entity_row["uid"] = uid
-        entity_row["key"] = entity_key
-
+        # Read the entity's physical parameters first — the UID is a
+        # content-addressed hash of these, not of file position.
+        entity_params = {}
+        extra_meta = {}
         loc = params_cfg.get("location", "root_scalars")
 
         if loc == "manifest" and param_manifest is not None:
-            # Match by file stem in first column, or by index
             first_col = param_manifest.columns[0]
             match = param_manifest[
                 param_manifest[first_col].astype(str) == file_stem
@@ -248,35 +241,51 @@ def _generate_per_entity(h5_files, root, key_prefix, artifacts_cfg,
                     if col not in _PARAM_MANIFEST_SKIP_COLS:
                         val = row[col]
                         if pd.notna(val):
-                            entity_row[col] = _to_python(val)
+                            entity_params[col] = _to_python(val)
         else:
             with h5py.File(h5_path, "r") as f:
                 if loc == "root_scalars":
                     for ds_name in sorted(f.keys()):
                         ds = f[ds_name]
                         if isinstance(ds, h5py.Dataset) and ds.ndim == 0:
-                            entity_row[ds_name] = _to_python(ds[()])
+                            entity_params[ds_name] = _to_python(ds[()])
                 elif loc == "root_attributes":
                     for attr_name in sorted(f.attrs.keys()):
-                        entity_row[attr_name] = _to_python(f.attrs[attr_name])
+                        entity_params[attr_name] = _to_python(f.attrs[attr_name])
                 elif loc == "group":
                     group_name = params_cfg["group"].lstrip("/")
                     if group_name in f:
                         for pname in sorted(f[group_name].keys()):
                             ds = f[group_name][pname]
                             if isinstance(ds, h5py.Dataset):
-                                entity_row[pname] = _to_python(ds[()])
+                                entity_params[pname] = _to_python(ds[()])
 
-                # Extra metadata datasets
+                # Extra metadata (stored per-entity but not part of the UID hash)
                 for extra in extra_meta_cfg:
                     ds_path = extra["dataset"].lstrip("/")
                     if ds_path in f:
                         ds = f[ds_path]
                         if isinstance(ds, h5py.Dataset):
                             if ds.ndim == 0:
-                                entity_row[ds_path] = _to_python(ds[()])
+                                extra_meta[ds_path] = _to_python(ds[()])
                             elif ds.ndim == 1 and ds.size <= 10:
-                                entity_row[ds_path] = ds[:].tolist()
+                                extra_meta[ds_path] = ds[:].tolist()
+
+        if entity_params:
+            uid = _make_uid(entity_params, namespace=key_prefix)
+        else:
+            uid = _make_uid(f"{key_prefix}_{file_stem}")
+
+        if uid in existing_uids:
+            continue
+
+        if rel_path not in _fingerprint_cache:
+            _fingerprint_cache[rel_path] = _file_fingerprint(h5_path)
+
+        entity_row = OrderedDict()
+        entity_row["uid"] = uid
+        entity_row.update(entity_params)
+        entity_row.update(extra_meta)
 
         ent_rows.append(entity_row)
 
@@ -362,18 +371,9 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
                         extra_arrays[ds_path] = ds[:]
 
             for i in range(batch_size):
-                uid = _make_uid(f"{key_prefix}_{global_idx:06d}")
-
-                if uid in existing_uids:
-                    global_idx += 1
-                    continue
-
-                entity_key = f"H_{uid[:8]}"
-
-                entity_row = OrderedDict()
-                entity_row["uid"] = uid
-                entity_row["key"] = entity_key
-
+                # Collect the entity's physical parameters FIRST; the UID is
+                # a content-addressed hash of these, not of the global index.
+                entity_params = {}
                 if loc == "manifest" and param_manifest is not None:
                     pm_idx = global_idx
                     if pm_idx < len(param_manifest):
@@ -382,14 +382,27 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
                             if col not in _PARAM_MANIFEST_SKIP_COLS:
                                 val = row[col]
                                 if pd.notna(val):
-                                    entity_row[col] = _to_python(val)
+                                    entity_params[col] = _to_python(val)
                 elif loc == "root_attributes":
-                    entity_row.update(root_attr_params)
+                    entity_params = dict(root_attr_params)
                 else:
                     for pname, arr in param_arrays.items():
-                        entity_row[pname] = _to_python(arr[i])
+                        entity_params[pname] = _to_python(arr[i])
 
-                # Extra metadata
+                if entity_params:
+                    uid = _make_uid(entity_params, namespace=key_prefix)
+                else:
+                    uid = _make_uid(f"{key_prefix}_{global_idx:06d}")
+
+                if uid in existing_uids:
+                    global_idx += 1
+                    continue
+
+                entity_row = OrderedDict()
+                entity_row["uid"] = uid
+                entity_row.update(entity_params)
+
+                # Extra metadata (stored per-entity, not part of the UID)
                 for ds_path, arr in extra_arrays.items():
                     col_name = ds_path.rsplit("/", 1)[-1]
                     if arr.ndim == 1:
@@ -450,20 +463,9 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
                 full_group = f"{base_group}/{gkey}" if base_group else gkey
                 g = f[full_group]
 
-                uid = _make_uid(f"{key_prefix}_{global_idx:06d}")
-
-                if uid in existing_uids:
-                    global_idx += 1
-                    continue
-
-                entity_key = f"H_{uid[:8]}"
-
-                entity_row = OrderedDict()
-                entity_row["uid"] = uid
-                entity_row["key"] = entity_key
-                entity_row["source_group"] = full_group
-
-                # Read parameters from within the group
+                # Read parameters first — UID is a content-addressed hash
+                # of the params, not of the group's position in the file.
+                entity_params = {}
                 loc = params_cfg.get("location", "group_scalars")
                 if loc == "manifest" and param_manifest is not None:
                     pm_idx = global_idx
@@ -473,7 +475,7 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
                             if col not in _PARAM_MANIFEST_SKIP_COLS:
                                 val = row[col]
                                 if pd.notna(val):
-                                    entity_row[col] = _to_python(val)
+                                    entity_params[col] = _to_python(val)
                 elif loc == "group_scalars":
                     param_group = params_cfg.get("group", "params")
                     param_path = param_group.lstrip("/")
@@ -481,15 +483,29 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
                         for pname in sorted(g[param_path].keys()):
                             ds = g[param_path][pname]
                             if isinstance(ds, h5py.Dataset):
-                                entity_row[pname] = _to_python(ds[()])
+                                entity_params[pname] = _to_python(ds[()])
                     else:
                         for ds_name in sorted(g.keys()):
                             ds = g[ds_name]
                             if isinstance(ds, h5py.Dataset) and ds.ndim == 0:
-                                entity_row[ds_name] = _to_python(ds[()])
+                                entity_params[ds_name] = _to_python(ds[()])
                 elif loc == "root_attributes":
                     for attr_name in sorted(f.attrs.keys()):
-                        entity_row[attr_name] = _to_python(f.attrs[attr_name])
+                        entity_params[attr_name] = _to_python(f.attrs[attr_name])
+
+                if entity_params:
+                    uid = _make_uid(entity_params, namespace=key_prefix)
+                else:
+                    uid = _make_uid(f"{key_prefix}_{global_idx:06d}")
+
+                if uid in existing_uids:
+                    global_idx += 1
+                    continue
+
+                entity_row = OrderedDict()
+                entity_row["uid"] = uid
+                entity_row["source_group"] = full_group
+                entity_row.update(entity_params)
 
                 ent_rows.append(entity_row)
 
@@ -520,9 +536,31 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_uid(key_str):
-    """Generate a deterministic UID from a key string."""
-    return hashlib.sha256(key_str.encode()).hexdigest()[:16]
+def _make_uid(params_or_str, namespace=""):
+    """Generate a deterministic UID.
+
+    Content-addressed form (preferred): pass a params dict. The UID is a
+    hash of the canonical JSON of the (namespace, params) pair, so the
+    same parameter set produces the same UID regardless of position in
+    the file, file order, or regeneration. Floats are rounded to 12
+    decimal places before hashing to tolerate minor float-format drift.
+
+    Positional fallback: pass a string. Used when no per-entity
+    parameters are discoverable in the data (e.g. per-entity layout
+    with parameters only in filenames).
+    """
+    import json
+    if isinstance(params_or_str, dict):
+        canonical = {
+            k: round(v, 12) if isinstance(v, float) else v
+            for k, v in sorted(params_or_str.items())
+        }
+        payload = json.dumps(
+            {"ns": namespace, "params": canonical}, sort_keys=True
+        )
+    else:
+        payload = params_or_str
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 def _to_python(val):

@@ -22,6 +22,7 @@ from sqlalchemy import create_engine, text
 
 from .utils import (
     make_artifact_key,
+    make_entity_key,
     to_json_safe,
     get_artifact_info,
     ARTIFACT_STANDARD_COLS,
@@ -83,7 +84,7 @@ def init_database(db_path, readable_storage):
     return engine
 
 
-def prepare_node_data(ent_df, art_df, max_entities, base_dir):
+def prepare_node_data(ent_df, art_df, max_entities, base_dir, dataset_key):
     """Prepare all node data for bulk insert.
 
     Reads all metadata columns dynamically from manifests -- no hardcoded
@@ -94,18 +95,14 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir):
         art_df: Artifact manifest DataFrame.
         max_entities: Maximum number of entities to process.
         base_dir: Base directory for resolving relative file paths.
+        dataset_key: Dataset container key (slug of label); entity keys
+            are derived as ``f"{dataset_key}_{uid[:12]}"``.
 
     Returns:
         ent_nodes: List of entity node dicts
         art_nodes: List of artifact node dicts (with placeholder parent)
         art_data_sources: List of data source info for artifacts
     """
-    if "key" not in ent_df.columns:
-        raise ValueError(
-            "Entity manifest missing required 'key' column. "
-            "The manifest generator must provide a 'key' for each entity."
-        )
-
     ent_subset = ent_df.head(max_entities)
     art_grouped = art_df.groupby("uid")
 
@@ -117,7 +114,7 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir):
 
     for _, ent_row in ent_subset.iterrows():
         uid = str(ent_row["uid"])
-        ent_key = str(ent_row["key"])
+        ent_key = make_entity_key(ent_row, dataset_key)
 
         # Build entity metadata dynamically from ALL manifest columns
         metadata = {}

@@ -4,18 +4,18 @@
 # Spin-dynamics simulation with INS + magnetization observables
 
 # === Identity ===
-key: ""              # TODO: e.g., INS_MAG_SIM_NIPS3
+# key is auto-filled at registration as slug(label); don't author it.
 label: "Concatenated Multimodal"
 
 # === Dataset container metadata ===
 metadata:
-  method: [INS, Magnetization, INS_powder]  # TODO: INS_powder may need adding to semantic model
+  method: [INS, Magnetization, INS_powder]
   data_type: simulation
   material: NiPS3
   producer: sunny_jl
   project: MAIQMag
-  # facility: "ORNL"
-  # description: "Multimodal data for ARW"
+  facility: "ORNL"
+  description: "Multimodal data for ARW"
 
 # === Data layout ===
 data:

@@ -2,7 +2,7 @@
 # 7,616 entities (one per file)
 # Source: spin-dynamics simulation with INS + magnetization observables
 
-key: NiPS3_Multimodal
+# key is auto-filled at registration as slug(label); don't author it.
 label: NiPS3 Multimodal Synthetic
 
 metadata:
