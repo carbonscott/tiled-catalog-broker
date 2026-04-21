@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-VALID_LAYOUTS = {"per_entity", "batched", "grouped"}
+VALID_LAYOUTS = {"per_entity", "batched", "grouped", "manifest"}
 VALID_PARAM_LOCATIONS = {"root_scalars", "root_attributes", "group", "group_scalars", "manifest"}
 
 
@@ -174,7 +174,7 @@ def validate(cfg, model_path=None):
         if not cfg.get("key_prefix"):
             errors.append("'key' is required (dataset container key in Tiled)")
 
-    # --- Data section ---
+    # --- Data section (required) ---
     data = cfg.get("data")
     if not data:
         errors.append("'data' section is required")
@@ -186,11 +186,16 @@ def validate(cfg, model_path=None):
 
         layout = data.get("layout")
         if not layout:
-            errors.append("'data.layout' is required (per_entity | batched | grouped)")
+            errors.append(
+                "'data.layout' is required "
+                "(per_entity | batched | grouped | manifest)"
+            )
         elif layout not in VALID_LAYOUTS:
-            errors.append(f"'data.layout' must be one of {VALID_LAYOUTS}, got '{layout}'")
+            errors.append(
+                f"'data.layout' must be one of {VALID_LAYOUTS}, got '{layout}'"
+            )
 
-        if not data.get("file_pattern"):
+        if layout != "manifest" and not data.get("file_pattern"):
             warnings.append("'data.file_pattern' not set — will default to '**/*.h5'")
 
         sbd = data.get("server_base_dir")
@@ -199,36 +204,103 @@ def validate(cfg, model_path=None):
                 f"'data.server_base_dir' must be a string if set, got {type(sbd).__name__}"
             )
 
-    # --- Artifacts ---
-    artifacts = cfg.get("artifacts", [])
-    if not artifacts:
-        errors.append("'artifacts' list is required (at least one artifact)")
-    else:
-        for i, art in enumerate(artifacts):
-            if not art.get("type"):
-                errors.append(f"artifacts[{i}].type is required")
-            if not art.get("dataset"):
-                errors.append(f"artifacts[{i}].dataset is required")
+        if layout == "manifest":
+            # Layout-specific required fields
+            for field in (
+                "entity_manifest",
+                "artifact_manifest",
+                "entity_uid_column",
+                "artifact_uid_column",
+                "file_column",
+            ):
+                if not data.get(field):
+                    errors.append(
+                        f"'data.{field}' is required when layout is 'manifest'"
+                    )
 
-    # --- Parameters (optional but validated if present) ---
-    params = cfg.get("parameters")
-    if params:
-        loc = params.get("location")
-        if loc and loc not in VALID_PARAM_LOCATIONS:
-            errors.append(
-                f"'parameters.location' must be one of {VALID_PARAM_LOCATIONS}, got '{loc}'"
-            )
-        if loc == "group" and not params.get("group"):
-            errors.append("'parameters.group' is required when location is 'group'")
-        if loc == "manifest" and not params.get("manifest"):
-            errors.append("'parameters.manifest' is required when location is 'manifest'")
+            # Manifest files must exist (resolved against directory if relative)
+            directory = data.get("directory") or ""
+            for field in ("entity_manifest", "artifact_manifest"):
+                path = data.get(field)
+                if path:
+                    abs_path = (
+                        path if os.path.isabs(path)
+                        else os.path.join(directory, path)
+                    )
+                    if not os.path.exists(abs_path):
+                        errors.append(f"'data.{field}' does not exist: {abs_path}")
 
-    # --- Shared axes (optional, validated if present) ---
-    for i, ax in enumerate(cfg.get("shared", [])):
-        if not ax.get("type"):
-            errors.append(f"shared[{i}].type is required")
-        if not ax.get("dataset"):
-            errors.append(f"shared[{i}].dataset is required")
+            # Fan-out mapping lives at the top level
+            adats = cfg.get("artifact_datasets")
+            if not adats:
+                errors.append(
+                    "'artifact_datasets' is required when layout is 'manifest' "
+                    "(maps producer `type` values to HDF5 array paths)"
+                )
+            elif not isinstance(adats, dict):
+                errors.append(
+                    "'artifact_datasets' must be a mapping of type -> list of "
+                    f"HDF5 paths, got {type(adats).__name__}"
+                )
+            else:
+                for t, paths in adats.items():
+                    if not isinstance(paths, list) or not paths:
+                        errors.append(
+                            f"'artifact_datasets.{t}' must be a non-empty "
+                            "list of HDF5 paths"
+                        )
+                        continue
+                    for i, p in enumerate(paths):
+                        if not isinstance(p, str) or not p.startswith("/"):
+                            errors.append(
+                                f"'artifact_datasets.{t}[{i}]' must be an "
+                                f"absolute HDF5 path starting with '/', got {p!r}"
+                            )
+
+            # Blocks that don't apply under manifest layout; warn if present
+            for unused in ("artifacts", "parameters", "shared"):
+                if cfg.get(unused):
+                    warnings.append(
+                        f"'{unused}' is ignored when layout is 'manifest' "
+                        "(fan-out comes from artifact_datasets; entity params "
+                        "come from entity_manifest)"
+                    )
+        else:
+            # --- Artifacts (required for per_entity | batched | grouped) ---
+            artifacts = cfg.get("artifacts", [])
+            if not artifacts:
+                errors.append("'artifacts' list is required (at least one artifact)")
+            else:
+                for i, art in enumerate(artifacts):
+                    if not art.get("type"):
+                        errors.append(f"artifacts[{i}].type is required")
+                    if not art.get("dataset"):
+                        errors.append(f"artifacts[{i}].dataset is required")
+
+            # --- Parameters (optional but validated if present) ---
+            params = cfg.get("parameters")
+            if params:
+                loc = params.get("location")
+                if loc and loc not in VALID_PARAM_LOCATIONS:
+                    errors.append(
+                        f"'parameters.location' must be one of "
+                        f"{VALID_PARAM_LOCATIONS}, got '{loc}'"
+                    )
+                if loc == "group" and not params.get("group"):
+                    errors.append(
+                        "'parameters.group' is required when location is 'group'"
+                    )
+                if loc == "manifest" and not params.get("manifest"):
+                    errors.append(
+                        "'parameters.manifest' is required when location is 'manifest'"
+                    )
+
+            # --- Shared axes (optional, validated if present) ---
+            for i, ax in enumerate(cfg.get("shared", [])):
+                if not ax.get("type"):
+                    errors.append(f"shared[{i}].type is required")
+                if not ax.get("dataset"):
+                    errors.append(f"shared[{i}].dataset is required")
 
     # --- Provenance (optional, no special validation) ---
 
