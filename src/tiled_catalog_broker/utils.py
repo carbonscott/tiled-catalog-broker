@@ -32,7 +32,10 @@ def slugify_key(label):
 
 # Standard columns in the artifact manifest that are NOT stored as metadata.
 # Everything else becomes artifact-level metadata dynamically.
-ARTIFACT_STANDARD_COLS = {"uid", "type", "file", "dataset", "index"}
+# Standard columns in the artifact manifest that are NOT copied to metadata.
+# `array_name` is added by the layout: manifest fan-out step; it's already
+# encoded in the Tiled node key, so copying it to metadata would duplicate.
+ARTIFACT_STANDARD_COLS = {"uid", "type", "file", "dataset", "index", "array_name"}
 
 
 def to_json_safe(value):
@@ -126,15 +129,20 @@ def make_entity_key(ent_row, dataset_key):
 
 
 def make_artifact_key(art_row, prefix=""):
-    """Generate key for artifact from its type.
+    """Generate key for an artifact node.
 
-    In the generic manifest standard, the ``type`` column already contains
-    the unique artifact key (e.g., ``mh_powder_30T``, ``rixs``).  The
-    manifest generator is responsible for producing unique type values
-    per entity.
+    Two schemes, selected by the columns present on the row:
+
+    - Fan-out rows (``layout: manifest``) carry both ``array_name`` and
+      ``auid``; the key is ``f"{array_name}_{auid[:8]}"``. The short auid
+      suffix disambiguates sibling arrays fanned out from sibling files
+      that share an internal HDF5 structure.
+    - Non-fan-out rows use the ``type`` column verbatim — the manifest
+      generator is responsible for producing unique type values per
+      entity in those layouts.
 
     Args:
-        art_row: DataFrame row or dict with at least a ``type`` field.
+        art_row: DataFrame row or dict.
         prefix: Optional prefix (e.g., ``"path_"`` for metadata keys).
 
     Returns:
@@ -143,8 +151,44 @@ def make_artifact_key(art_row, prefix=""):
     Examples:
         >>> make_artifact_key({"type": "mh_powder_30T"})
         'mh_powder_30T'
-        >>> make_artifact_key({"type": "rixs"}, prefix="path_")
-        'path_rixs'
+        >>> make_artifact_key(
+        ...     {"array_name": "H_T", "auid": "cfbc55c6-741b-5aa5-8f2b"}
+        ... )
+        'H_T_cfbc55c6'
     """
-    key = art_row["type"]
+    array_name = art_row.get("array_name") if hasattr(art_row, "get") \
+        else (art_row["array_name"] if "array_name" in art_row else None)
+    if array_name:
+        auid = str(art_row["auid"])
+        key = f"{array_name}_{auid[:8]}"
+    else:
+        key = art_row["type"]
     return f"{prefix}{key}" if prefix else key
+
+
+def split_constant_cols(df):
+    """Partition DataFrame columns into constants vs. varying.
+
+    Constant columns (a single non-null unique value across all rows) are
+    candidates for promotion to dataset-level metadata. Varying columns
+    (or all-null columns) stay per-row.
+
+    Args:
+        df: Input DataFrame.
+
+    Returns:
+        (constants, varying): dict of column-name -> single value,
+        and list of column names that vary across rows.
+    """
+    constants = {}
+    varying = []
+    for col in df.columns:
+        vals = df[col].dropna().unique()
+        if len(vals) == 1:
+            constants[col] = to_json_safe(vals[0])
+        elif len(vals) == 0:
+            # all-null column: skip (neither constant nor useful per-row)
+            continue
+        else:
+            varying.append(col)
+    return constants, varying

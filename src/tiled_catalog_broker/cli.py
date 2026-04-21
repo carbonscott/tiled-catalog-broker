@@ -272,6 +272,13 @@ def ingest_main():
         # Clear shape cache between datasets
         get_artifact_info.__defaults__[-1].clear()
 
+        if config.get("data", {}).get("layout") == "manifest":
+            print(
+                f"\nERROR: 'layout: manifest' is not supported by `tcb ingest` "
+                f"(bulk SQL path). Use `tcb register` for '{config_path}' instead."
+            )
+            sys.exit(1)
+
         ent_path, art_path = _find_manifests(config_path, label, name)
         if ent_path is None or art_path is None:
             print(f"\nERROR: Parquet files not found for '{name}'.")
@@ -326,7 +333,11 @@ def register_main():
 
     import pandas as pd
     from tiled_catalog_broker.utils import check_server, get_artifact_info
-    from tiled_catalog_broker.http_register import register_dataset_http, verify_registration_http
+    from tiled_catalog_broker.http_register import (
+        register_dataset_http,
+        register_dataset_manifest_layout,
+        verify_registration_http,
+    )
     from tiled_catalog_broker.config import get_tiled_url, get_api_key
 
     print("=" * 50)
@@ -366,11 +377,23 @@ def register_main():
             base_dir = config["data"].get("directory")
         server_base_dir = config.get("data", {}).get("server_base_dir") or None
 
-        ent_path, art_path = _find_manifests(config_path, label, name)
-        if ent_path is None or art_path is None:
-            print(f"\nERROR: Parquet files not found for '{name}'.")
-            print(f"  Run `tcb generate` first.")
-            sys.exit(1)
+        layout = config.get("data", {}).get("layout")
+
+        if layout == "manifest":
+            # Read producer parquets directly; no generate step.
+            data_section = config["data"]
+            ent_path = data_section["entity_manifest"]
+            art_path = data_section["artifact_manifest"]
+            if not os.path.isabs(ent_path):
+                ent_path = os.path.join(base_dir, ent_path)
+            if not os.path.isabs(art_path):
+                art_path = os.path.join(base_dir, art_path)
+        else:
+            ent_path, art_path = _find_manifests(config_path, label, name)
+            if ent_path is None or art_path is None:
+                print(f"\nERROR: Parquet files not found for '{name}'.")
+                print(f"  Run `tcb generate` first.")
+                sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
         art_df = pd.read_parquet(art_path)
@@ -384,10 +407,20 @@ def register_main():
 
         dataset_metadata = _build_dataset_metadata(config, label)
 
-        register_dataset_http(client, ent_df, art_df, base_dir, label,
-                              dataset_key=dataset_key,
-                              dataset_metadata=dataset_metadata,
-                              server_base_dir=server_base_dir)
+        if layout == "manifest":
+            register_dataset_manifest_layout(
+                client, config, ent_df, art_df, base_dir, label,
+                dataset_key=dataset_key,
+                dataset_metadata=dataset_metadata,
+                server_base_dir=server_base_dir,
+            )
+        else:
+            register_dataset_http(
+                client, ent_df, art_df, base_dir, label,
+                dataset_key=dataset_key,
+                dataset_metadata=dataset_metadata,
+                server_base_dir=server_base_dir,
+            )
 
     # Verify
     verify_registration_http(client)
