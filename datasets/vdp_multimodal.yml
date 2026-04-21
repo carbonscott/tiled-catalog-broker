@@ -1,0 +1,51 @@
+# VDP Multimodal (Sunny.jl) — 10,000 Hamiltonians × 11 artifacts each
+# Source: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/vdp/data/schema_v1
+#
+# Each entity (huid) = one Hamiltonian parameterization, and fans out to 11
+# HDF5 files: 1 gs_state + 8 mh_curve (2 Hmax_T × 4 axis) + 2 ins_powder.
+# Discriminator columns (axis, Hmax_T, Ei_meV, ...) live in the producer's
+# artifact manifest and flow onto each artifact node as queryable metadata.
+#
+# key is auto-filled at registration as slug(label); don't author it.
+label: "VDP Multimodal"
+
+metadata:
+  method: [SWT, Magnetization, INS_powder]
+  data_type: simulation
+  material: NiPS3
+  producer: sunny_jl
+  project: MAIQMag
+  facility: SNS
+  description: "Sunny.jl forward-model database: ground state + M(H) curves + INS powder spectra"
+
+data:
+  directory: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/vdp/data/schema_v1
+  layout: manifest
+  entity_manifest:   manifest_hamiltonians_20251205-130253.parquet
+  artifact_manifest: manifest_artifacts_20251205-130253.parquet
+  entity_uid_column:   huid
+  artifact_uid_column: auid
+  file_column:         path_rel
+
+# Producer `type` value → HDF5 array paths to register (fan-out).
+# Scalars inside each group (e.g. /curve/axis, /ins/Ei_meV) are intentionally
+# omitted here; they're already columns in the producer's artifact manifest
+# and will attach as metadata on each node.
+artifact_datasets:
+  gs_state:
+    - /gs/moment_muB
+    - /gs/spin_dir
+  mh_curve:
+    - /curve/H_T
+    - /curve/M_norm
+    - /curve/M_parallel
+  ins_powder:
+    - /ins/broadened
+    - /ins/masked
+    - /ins/sharp
+    - /ins/q_Ainv
+    - /ins/hw_meV
+
+provenance:
+  code_version: ""     # TODO: Sunny.jl version used to generate this snapshot
+  code_commit:  ""     # TODO: git commit hash
