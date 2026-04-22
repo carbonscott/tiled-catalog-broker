@@ -264,6 +264,7 @@ def ingest_main():
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
+        server_base_dir = config.get("data", {}).get("server_base_dir") or None
 
         # Clear shape cache between datasets
         get_artifact_info.__defaults__[-1].clear()
@@ -286,6 +287,7 @@ def ingest_main():
         ent_nodes, art_nodes, art_data_sources = prepare_node_data(
             ent_df, art_df, max_entities=n, base_dir=base_dir,
             dataset_key=dataset_key,
+            server_base_dir=server_base_dir,
         )
         bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
                       dataset_key=dataset_key, dataset_metadata=dataset_metadata)
@@ -353,6 +355,7 @@ def register_main():
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
+        server_base_dir = config.get("data", {}).get("server_base_dir") or None
 
         ent_path, art_path = _find_manifests(config_path, label, name)
         if ent_path is None or art_path is None:
@@ -374,7 +377,8 @@ def register_main():
 
         register_dataset_http(client, ent_df, art_df, base_dir, label,
                               dataset_key=dataset_key,
-                              dataset_metadata=dataset_metadata)
+                              dataset_metadata=dataset_metadata,
+                              server_base_dir=server_base_dir)
 
     # Verify
     verify_registration_http(client)

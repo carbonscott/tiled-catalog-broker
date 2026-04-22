@@ -42,18 +42,22 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
 
     Args:
         art_row: DataFrame row with artifact manifest columns.
-        base_dir: Base directory for resolving relative file paths (local).
-        server_base_dir: If provided, used for the asset data_uri instead of
-            base_dir.  Needed when the server sees the filesystem at a
-            different mount point (e.g. K8s pod).
+        base_dir: Base directory for resolving relative file paths on the
+            authoring host (used by `tcb generate` and Mode A reads).
+        server_base_dir: Optional server-side mount path. If set, becomes
+            the asset `data_uri` base — needed when the Tiled server sees
+            the filesystem at a different mount than the authoring host
+            (K8s pod, reverse proxy). Pre-computed by `tcb inspect` from
+            `TILED_HOST_DATA_ROOT` / `TILED_SERVER_DATA_ROOT` env vars
+            and persisted in the YAML's `data.server_base_dir:` field.
 
     Returns:
         Tuple of (DataSource, data_shape, data_dtype).
     """
     h5_rel_path = art_row["file"]
-    uri_base = server_base_dir if server_base_dir is not None else base_dir
-    h5_full_path = os.path.join(uri_base, h5_rel_path)
     dataset_path = art_row["dataset"]
+    uri_base = server_base_dir if server_base_dir else base_dir
+    h5_full_path = os.path.join(uri_base, h5_rel_path)
 
     # Determine index for batched files
     index = None
