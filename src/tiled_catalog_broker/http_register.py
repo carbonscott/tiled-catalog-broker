@@ -300,6 +300,11 @@ def register_dataset_manifest_layout(
         art_rename[art_uid_col] = "auid"
     art_trimmed = art_df[art_keep].rename(columns=art_rename)
 
+    # If ent_df was already limited by the caller (-n flag), narrow art_df
+    # to matching uids so fan-out doesn't process orphan producer rows.
+    ent_uid_set = set(ent_broker["uid"])
+    art_trimmed = art_trimmed[art_trimmed["uid"].isin(ent_uid_set)]
+
     fanout_rows = []
     unknown_types = set()
     for _, row in art_trimmed.iterrows():
