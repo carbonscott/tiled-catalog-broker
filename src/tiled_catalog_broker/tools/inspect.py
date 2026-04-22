@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 import h5py
 import numpy as np
 
+from ..config import get_host_data_root, get_server_data_root
 from .schema import load_catalog_model, get_allowed_values
 
 
@@ -519,6 +520,23 @@ def emit_draft_yaml(result, output_path=None):
     w(f"  layout: {result.layout}")
     if result.layout == "batched":
         w(f"  # batch_size: {result.batch_size}")
+
+    # server_base_dir: server-side mount path. Auto-derived when both env
+    # vars are set and the source directory sits under TILED_HOST_DATA_ROOT;
+    # otherwise emitted as an empty TODO for the user to fill in.
+    host_root = get_host_data_root()
+    server_root = get_server_data_root()
+    server_base_dir = ""
+    if host_root and server_root:
+        host_norm = host_root.rstrip("/") + "/"
+        dir_norm = result.source_dir.rstrip("/") + "/"
+        if dir_norm.startswith(host_norm):
+            rel = dir_norm[len(host_norm):]
+            server_base_dir = (server_root.rstrip("/") + "/" + rel).rstrip("/")
+    if server_base_dir:
+        w(f"  server_base_dir: {server_base_dir}")
+    else:
+        w('  server_base_dir: ""  # TODO: server-side mount path; leave empty if Tiled sees the same paths as the host')
     w()
 
     # Parameters

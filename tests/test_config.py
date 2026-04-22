@@ -105,3 +105,27 @@ class TestGetApiKey:
             os.environ["TILED_API_KEY"] = old_val
         if old_key:
             os.environ["TILED_KEY"] = old_key
+
+
+class TestDataRootEnv:
+    """Authoring-time env vars used by `tcb inspect` to derive server_base_dir."""
+
+    def test_unset_returns_empty(self, monkeypatch):
+        monkeypatch.delenv("TILED_HOST_DATA_ROOT", raising=False)
+        monkeypatch.delenv("TILED_SERVER_DATA_ROOT", raising=False)
+        from tiled_catalog_broker.config import (
+            get_host_data_root,
+            get_server_data_root,
+        )
+        assert get_host_data_root() == ""
+        assert get_server_data_root() == ""
+
+    def test_set_returns_value(self, monkeypatch):
+        monkeypatch.setenv("TILED_HOST_DATA_ROOT", "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/")
+        monkeypatch.setenv("TILED_SERVER_DATA_ROOT", "/prjmaiqmag01/")
+        from tiled_catalog_broker.config import (
+            get_host_data_root,
+            get_server_data_root,
+        )
+        assert get_host_data_root() == "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/"
+        assert get_server_data_root() == "/prjmaiqmag01/"
