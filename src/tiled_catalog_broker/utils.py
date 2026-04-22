@@ -73,34 +73,27 @@ def get_artifact_info(base_dir, file_path, dataset_path, index=None, _cache={}):
     return list(full_shape), dtype_str, kind, itemsize
 
 
-def check_server(url=None, api_key=None, basic_auth=None):
+def check_server(url=None, api_key=None):
     """Check if a Tiled server is running.
 
     Args:
         url: Server URL. Defaults to get_tiled_url().
-        api_key: Apikey auth. Defaults to get_api_key().
-        basic_auth: (username, password) tuple for basic auth. If set,
-            used instead of api_key.
+        api_key: Apikey. Defaults to get_api_key().
 
     Returns:
         bool: True if server responds, False otherwise.
     """
-    import base64
     import ssl
     import urllib.request
     import urllib.error
 
     if url is None:
         url = get_tiled_url()
-    if api_key is None and basic_auth is None:
+    if api_key is None:
         api_key = get_api_key()
 
     headers = {}
-    if basic_auth is not None:
-        user, pwd = basic_auth
-        token = base64.b64encode(f"{user}:{pwd}".encode()).decode()
-        headers["Authorization"] = f"Basic {token}"
-    elif api_key:
+    if api_key:
         headers["Authorization"] = f"Apikey {api_key}"
 
     try:

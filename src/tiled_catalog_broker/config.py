@@ -94,12 +94,13 @@ def get_test_tiled_url():
     return os.environ.get("TILED_TEST_URL", "")
 
 
-def get_test_basic_auth():
-    """Get (username, password) for the test server from env, or None."""
-    user = os.environ.get("TILED_TEST_USERNAME", "")
-    pwd = os.environ.get("TILED_TEST_PASSWORD", "")
-    if user and pwd:
-        return (user, pwd)
-    return None
+def get_test_api_key():
+    """Get the test server apikey from TILED_TEST_API_KEY.
+
+    Mint one with `tiled key create` against the test server, or POST
+    username+password to /api/v1/auth/provider/<id>/token and then to
+    /api/v1/auth/apikey with the returned Bearer token.
+    """
+    return os.environ.get("TILED_TEST_API_KEY", "")
 
 

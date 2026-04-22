@@ -4,7 +4,7 @@
 # Spin-dynamics simulation with INS + magnetization observables
 
 # === Identity ===
-# key is auto-filled at registration as slug(label); don't author it.
+key: CONCATENATED_MULTIMODAL  # auto-filled on 2026-04-21 from slug(label)
 label: "Concatenated Multimodal"
 
 # === Dataset container metadata ===

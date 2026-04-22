@@ -100,9 +100,12 @@ def _build_dataset_metadata(config, label):
     """Build the full dataset container metadata dict from a config."""
     dataset_metadata = config.get("metadata", {"label": label})
 
-    # Merge provenance into dataset container metadata
-    if "provenance" in config:
-        dataset_metadata.update(config["provenance"])
+    # Merge provenance into dataset container metadata (the block can be
+    # present but empty — all fields commented out — which ruamel parses
+    # as None rather than {}).
+    provenance = config.get("provenance")
+    if provenance:
+        dataset_metadata.update(provenance)
 
     # Attach shared axis locators to dataset container metadata
     for ax in config.get("shared", []):
@@ -298,8 +301,8 @@ def register_main():
         "--test",
         action="store_true",
         help=(
-            "Use the test server (TILED_TEST_URL + basic auth from "
-            "TILED_TEST_USERNAME/PASSWORD) instead of TILED_URL + TILED_API_KEY."
+            "Use the test server (TILED_TEST_URL + TILED_TEST_API_KEY) "
+            "instead of TILED_URL + TILED_API_KEY."
         ),
     )
     args = parser.parse_args()
@@ -316,49 +319,36 @@ def register_main():
     # Pick server + auth
     from tiled_catalog_broker.config import (
         get_tiled_url, get_api_key,
-        get_test_tiled_url, get_test_basic_auth,
+        get_test_tiled_url, get_test_api_key,
     )
     if args.test:
         tiled_url = get_test_tiled_url()
-        basic_auth = get_test_basic_auth()
-        api_key = None
+        api_key = get_test_api_key()
+        env_key, env_url = "TILED_TEST_API_KEY", "TILED_TEST_URL"
         if not tiled_url:
-            print("ERROR: --test requested but TILED_TEST_URL is not set")
+            print(f"ERROR: --test requested but {env_url} is not set")
             sys.exit(1)
-        if basic_auth is None:
-            print(
-                "ERROR: --test requested but TILED_TEST_USERNAME/"
-                "TILED_TEST_PASSWORD are not both set"
-            )
+        if not api_key:
+            print(f"ERROR: --test requested but {env_key} is not set")
             sys.exit(1)
     else:
         tiled_url = get_tiled_url()
         api_key = get_api_key()
-        basic_auth = None
+        env_key, env_url = "TILED_API_KEY", "TILED_URL"
 
     print(f"\nChecking Tiled server at {tiled_url} ...")
-    if not check_server(url=tiled_url, api_key=api_key, basic_auth=basic_auth):
+    if not check_server(url=tiled_url, api_key=api_key):
         print(f"ERROR: Cannot reach Tiled server at {tiled_url}")
-        if not args.test and not api_key:
-            print("\n  No API key set. Export TILED_API_KEY:")
-            print("    export TILED_API_KEY=your-key-here")
-        print(f"\n  To use a different server, export TILED_URL:")
-        print(f"    export TILED_URL=http://localhost:8005")
+        if not api_key:
+            print(f"\n  No API key set. Export {env_key}:")
+            print(f"    export {env_key}=your-key-here")
+        print(f"\n  To use a different server, export {env_url}:")
         sys.exit(1)
     print("Server is running.")
 
     # Connect to Tiled
     from tiled.client import from_uri
-
-    if basic_auth is not None:
-        import httpx
-        client = from_uri(
-            tiled_url,
-            auth=httpx.BasicAuth(*basic_auth),
-            verify=False,
-        )
-    else:
-        client = from_uri(tiled_url, api_key=api_key, verify=False)
+    client = from_uri(tiled_url, api_key=api_key, verify=False)
     print(f"Connected to {tiled_url} ({len(client)} existing containers)")
 
     # Load and register each dataset
@@ -392,12 +382,10 @@ def register_main():
         get_artifact_info.__defaults__[-1].clear()
 
         dataset_metadata = _build_dataset_metadata(config, label)
-        config_hash = _compute_config_hash(config_path)
 
         register_dataset_http(client, ent_df, art_df, base_dir, label,
                               dataset_key=dataset_key,
-                              dataset_metadata=dataset_metadata,
-                              config_hash=config_hash)
+                              dataset_metadata=dataset_metadata)
 
     # Verify
     verify_registration_http(client)
