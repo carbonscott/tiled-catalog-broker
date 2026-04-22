@@ -9,17 +9,18 @@ Usage:
     dcs inspect /path/to/data/ [--output datasets/draft.yml]
 """
 
+import argparse
+import datetime
 import os
 import sys
-import datetime
-from pathlib import Path
 from collections import Counter
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import h5py
 import numpy as np
 
-from .schema import load_catalog_model, get_allowed_values
+from .schema import get_allowed_values, load_catalog_model
 
 
 # ---------------------------------------------------------------------------
@@ -799,8 +800,6 @@ def inspect_directory(directory):
 # ---------------------------------------------------------------------------
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Inspect HDF5 data directory and generate a draft YAML contract."
     )

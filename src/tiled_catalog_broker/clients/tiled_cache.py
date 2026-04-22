@@ -36,6 +36,9 @@ import time
 from pathlib import Path
 
 import numpy as np
+from tiled.client import from_uri
+
+from ..config import get_api_key, get_tiled_url
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +352,6 @@ def main():
     args = _build_parser().parse_args()
 
     # Resolve server config
-    from ..config import get_tiled_url, get_api_key
     tiled_url = args.tiled_url or get_tiled_url()
     api_key = args.api_key or get_api_key()
 
@@ -363,7 +365,6 @@ def main():
             print(f"Cache directory does not exist, nothing to clear: {cache_path}")
 
     # Connect to Tiled
-    from tiled.client import from_uri
     print(f"\nConnecting to {tiled_url} ...")
     client = from_uri(tiled_url, api_key=api_key)
     dataset_client = client[args.dataset]

@@ -10,22 +10,24 @@ Dataset-agnostic: reads all metadata columns dynamically from manifests.
 The manifest is the contract -- no hardcoded parameter names or artifact types.
 """
 
+import datetime
+import hashlib
+import json
 import os
 import time
-import json
-import hashlib
 from pathlib import Path
 
-import pandas as pd
 import canonicaljson
+import pandas as pd
 from sqlalchemy import create_engine, text
+from tiled.catalog import from_uri as catalog_from_uri
 
 from .utils import (
+    ARTIFACT_STANDARD_COLS,
+    get_artifact_info,
     make_artifact_key,
     make_entity_key,
     to_json_safe,
-    get_artifact_info,
-    ARTIFACT_STANDARD_COLS,
 )
 
 
@@ -60,8 +62,6 @@ def init_database(db_path, readable_storage):
         db_path: Path to the SQLite database file.
         readable_storage: List of directories Tiled is allowed to read from.
     """
-    from tiled.catalog import from_uri as catalog_from_uri
-
     # Remove existing database for fresh start
     if os.path.exists(db_path):
         print(f"  Removing existing database: {db_path}")
@@ -230,13 +230,11 @@ def bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
         config_hash: SHA256 hash of the YAML config. If the stored
             _config_hash differs, metadata is updated in place.
     """
-    import datetime as _dt
-
     start_time = time.time()
 
     # Add tracking fields to metadata
     tracking = {
-        "_last_registered": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "_last_registered": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "_manifest_entity_count": len(ent_nodes),
     }
     if config_hash:
