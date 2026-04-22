@@ -84,7 +84,8 @@ def init_database(db_path, readable_storage):
     return engine
 
 
-def prepare_node_data(ent_df, art_df, max_entities, base_dir, dataset_key):
+def prepare_node_data(ent_df, art_df, max_entities, base_dir, dataset_key,
+                      server_base_dir=None):
     """Prepare all node data for bulk insert.
 
     Reads all metadata columns dynamically from manifests -- no hardcoded
@@ -94,9 +95,12 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir, dataset_key):
         ent_df: Entity manifest DataFrame.
         art_df: Artifact manifest DataFrame.
         max_entities: Maximum number of entities to process.
-        base_dir: Base directory for resolving relative file paths.
+        base_dir: Authoring-host directory for resolving relative file paths.
         dataset_key: Dataset container key (slug of label); entity keys
             are derived as ``f"{dataset_key}_{uid[:12]}"``.
+        server_base_dir: Optional server-side mount path. If set, becomes
+            the asset `data_uri` base. Pre-computed by `tcb inspect` and
+            persisted in the YAML's `data.server_base_dir:`.
 
     Returns:
         ent_nodes: List of entity node dicts
@@ -146,7 +150,8 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir, dataset_key):
             for _, art_row in artifacts.iterrows():
                 art_key = make_artifact_key(art_row)
                 h5_rel_path = art_row["file"]
-                h5_full_path = os.path.realpath(os.path.join(base_dir, h5_rel_path))
+                uri_base = server_base_dir if server_base_dir else base_dir
+                h5_full_path = os.path.join(uri_base, h5_rel_path)
                 dataset_path = art_row["dataset"]
                 index = None
                 if "index" in art_df.columns and pd.notna(art_row.get("index")):
