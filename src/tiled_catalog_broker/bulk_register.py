@@ -22,6 +22,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from tiled.catalog import from_uri as catalog_from_uri
 
+from .config import translate_host_to_server
 from .utils import (
     ARTIFACT_STANDARD_COLS,
     get_artifact_info,
@@ -146,7 +147,9 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir, dataset_key):
             for _, art_row in artifacts.iterrows():
                 art_key = make_artifact_key(art_row)
                 h5_rel_path = art_row["file"]
-                h5_full_path = os.path.realpath(os.path.join(base_dir, h5_rel_path))
+                h5_full_path = translate_host_to_server(
+                    os.path.realpath(os.path.join(base_dir, h5_rel_path))
+                )
                 dataset_path = art_row["dataset"]
                 index = None
                 if "index" in art_df.columns and pd.notna(art_row.get("index")):

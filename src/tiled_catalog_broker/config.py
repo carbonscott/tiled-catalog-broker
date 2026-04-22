@@ -89,3 +89,40 @@ def get_api_key():
     return os.environ.get("TILED_API_KEY", os.environ.get("TILED_KEY", ""))
 
 
+def get_server_path_map():
+    """Parse TILED_SERVER_PATH_MAP into {host_prefix: server_prefix}.
+
+    Format is semicolon-separated `host=server` pairs, e.g.:
+        TILED_SERVER_PATH_MAP=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/=/prjmaiqmag01/
+
+    Used to rewrite asset `data_uri` values at registration time when the
+    Tiled server sees the filesystem at a different mount than the client
+    that's registering (K8s pod, reverse proxy, etc.). Empty env means no
+    translation.
+    """
+    raw = os.environ.get("TILED_SERVER_PATH_MAP", "")
+    out = {}
+    for item in raw.split(";"):
+        item = item.strip()
+        if "=" in item:
+            host, server = item.split("=", 1)
+            out[host.strip()] = server.strip()
+    return out
+
+
+def translate_host_to_server(path, path_map=None):
+    """Apply the server path map to a local filesystem path.
+
+    Matches the first host_prefix that the path starts with; leaves the
+    path unchanged if no prefix matches. ``path_map`` defaults to
+    ``get_server_path_map()`` for ergonomics; pass an explicit dict in
+    tight loops to avoid re-parsing the env var on every call.
+    """
+    if path_map is None:
+        path_map = get_server_path_map()
+    for host, server in path_map.items():
+        if path.startswith(host):
+            return server + path[len(host):]
+    return path
+
+
