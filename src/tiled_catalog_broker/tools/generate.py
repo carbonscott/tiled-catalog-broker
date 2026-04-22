@@ -25,12 +25,14 @@ Usage:
     dcs generate datasets/edrixs_sbi.yml --append
 """
 
+import argparse
+import datetime
+import hashlib
+import json
 import os
 import sys
-import hashlib
-import datetime
-from pathlib import Path
 from collections import OrderedDict
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -39,7 +41,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from ruamel.yaml import YAML
 
-from .schema import validate, ValidationError
+from ..utils import slugify_key
+from .schema import ValidationError, validate
 
 
 # Columns in external parameter manifests that are not physics parameters.
@@ -86,8 +89,6 @@ def generate_manifests(yaml_path, output_dir=None, append=False):
     """
     cfg = load_yaml(yaml_path)
     config_hash = compute_config_hash(yaml_path)
-
-    from ..utils import slugify_key
 
     label = cfg["label"]
     # UIDs must be stable whether or not `key` has been stamped into the YAML
@@ -570,7 +571,6 @@ def _make_uid(params_or_str, namespace=""):
     parameters are discoverable in the data (e.g. per-entity layout
     with parameters only in filenames).
     """
-    import json
     if isinstance(params_or_str, dict):
         canonical = {
             k: round(v, 12) if isinstance(v, float) else v
@@ -602,8 +602,6 @@ def _to_python(val):
 # ---------------------------------------------------------------------------
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Generate Parquet manifests from a dataset YAML contract."
     )

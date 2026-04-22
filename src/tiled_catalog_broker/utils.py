@@ -6,12 +6,15 @@ Common functions used across registration scripts.
 
 import os
 import re
+import ssl
+import urllib.error
+import urllib.request
 
 import h5py
 import numpy as np
 import pandas as pd
 
-from .config import get_tiled_url, get_api_key
+from .config import get_api_key, get_tiled_url
 
 
 def slugify_key(label):
@@ -83,10 +86,6 @@ def check_server(url=None, api_key=None):
     Returns:
         bool: True if server responds, False otherwise.
     """
-    import ssl
-    import urllib.request
-    import urllib.error
-
     if url is None:
         url = get_tiled_url()
     if api_key is None:

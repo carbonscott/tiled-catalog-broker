@@ -9,9 +9,22 @@ Provides five commands:
   - tcb register:       HTTP registration against a running Tiled server
 """
 
-import sys
 import argparse
+import sys
 from pathlib import Path
+
+import pandas as pd
+from ruamel.yaml import YAML
+from sqlalchemy import create_engine
+from tiled.catalog import from_uri as catalog_from_uri
+from tiled.client import from_uri as tiled_client_from_uri
+
+from .bulk_register import bulk_register, prepare_node_data, verify_registration
+from .config import get_api_key, get_tiled_url
+from .http_register import register_dataset_http, verify_registration_http
+from .tools.generate import main as _generate_main
+from .tools.inspect import main as _inspect_main
+from .utils import check_server, get_artifact_info, slugify_key
 
 DB_PATH = Path("catalog.db")
 MANIFESTS_DIR = Path("manifests")
@@ -20,8 +33,6 @@ STORAGE_DIR = Path("storage")
 
 def _load_config(config_path):
     """Load a dataset config YAML file."""
-    from ruamel.yaml import YAML
-
     yaml = YAML()
     with open(config_path) as f:
         return yaml.load(f)
@@ -33,8 +44,6 @@ def _require_key(config, config_path):
     register/ingest are read-only with respect to the YAML; if the key is
     missing, the user runs `tcb stamp-key` to fill it in.
     """
-    from .utils import slugify_key
-
     label = config.get("label")
     if not label:
         print(f"\nERROR: {config_path}: 'label' is required.", file=sys.stderr)
@@ -125,7 +134,6 @@ def inspect_main():
     classifies datasets, checks consistency, and emits a YAML with
     TODO markers for fields requiring human judgment.
     """
-    from tiled_catalog_broker.tools.inspect import main as _inspect_main
     _inspect_main()
 
 
@@ -138,7 +146,6 @@ def generate_yaml_main():
     scans the HDF5 files, and produces entities.parquet + artifacts.parquet
     compatible with `tcb ingest`.
     """
-    from tiled_catalog_broker.tools.generate import main as _generate_main
     _generate_main()
 
 
@@ -212,11 +219,6 @@ def ingest_main():
     parser.add_argument("configs", nargs="+", help="Dataset config YAML files")
     args = parser.parse_args()
 
-    import pandas as pd
-    from sqlalchemy import create_engine
-    from tiled_catalog_broker.bulk_register import prepare_node_data, bulk_register, verify_registration
-    from tiled_catalog_broker.utils import get_artifact_info
-
     print("=" * 50)
     print("Ingest")
     print("=" * 50)
@@ -244,7 +246,6 @@ def ingest_main():
     STORAGE_DIR.mkdir(exist_ok=True)
     uri = f"sqlite:///{DB_PATH}"
     if not DB_PATH.exists():
-        from tiled.catalog import from_uri as catalog_from_uri
         print(f"  Creating new catalog: {DB_PATH}")
         catalog_from_uri(
             uri,
@@ -318,11 +319,6 @@ def register_main():
     )
     args = parser.parse_args()
 
-    import pandas as pd
-    from tiled_catalog_broker.utils import check_server, get_artifact_info
-    from tiled_catalog_broker.http_register import register_dataset_http, verify_registration_http
-    from tiled_catalog_broker.config import get_tiled_url, get_api_key
-
     print("=" * 50)
     print("Register (HTTP)")
     print("=" * 50)
@@ -341,8 +337,7 @@ def register_main():
         sys.exit(1)
     print("Server is running.")
 
-    from tiled.client import from_uri
-    client = from_uri(tiled_url, api_key=api_key)
+    client = tiled_client_from_uri(tiled_url, api_key=api_key)
     print(f"Connected to {tiled_url} ({len(client)} existing containers)")
 
     # Load and register each dataset
