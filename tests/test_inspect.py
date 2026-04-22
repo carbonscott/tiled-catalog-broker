@@ -176,6 +176,36 @@ class TestEmitDraftYaml:
         assert "tcb stamp-key" in yaml_str
         assert "BROAD_SIGMA" in yaml_str  # example shown in the comment
 
+    def test_server_base_dir_placeholder_when_env_unset(self, batched_dir, monkeypatch):
+        """No env vars -> empty `server_base_dir:` placeholder with TODO."""
+        monkeypatch.delenv("TILED_HOST_DATA_ROOT", raising=False)
+        monkeypatch.delenv("TILED_SERVER_DATA_ROOT", raising=False)
+        result = inspect_directory(batched_dir)
+        yaml_str = emit_draft_yaml(result)
+        assert 'server_base_dir: ""' in yaml_str
+        assert "TODO" in yaml_str.split('server_base_dir: ""')[1].splitlines()[0]
+
+    def test_server_base_dir_filled_when_env_matches(self, batched_dir, monkeypatch):
+        """Env vars set + directory under host root -> auto-derived server_base_dir."""
+        host_root = str(batched_dir.parent) + "/"
+        monkeypatch.setenv("TILED_HOST_DATA_ROOT", host_root)
+        monkeypatch.setenv("TILED_SERVER_DATA_ROOT", "/srv/")
+        result = inspect_directory(batched_dir)
+        yaml_str = emit_draft_yaml(result)
+        # The dataset's host path is {parent}/{batched_dir.name}; under /srv/
+        # that should be /srv/{batched_dir.name}.
+        assert f"server_base_dir: /srv/{batched_dir.name}" in yaml_str
+
+    def test_server_base_dir_placeholder_when_directory_outside_root(
+        self, batched_dir, monkeypatch
+    ):
+        """Env set but directory outside host root -> empty placeholder."""
+        monkeypatch.setenv("TILED_HOST_DATA_ROOT", "/somewhere/else/")
+        monkeypatch.setenv("TILED_SERVER_DATA_ROOT", "/srv/")
+        result = inspect_directory(batched_dir)
+        yaml_str = emit_draft_yaml(result)
+        assert 'server_base_dir: ""' in yaml_str
+
     def test_emit_draft_yaml_no_round_in_provenance(self, batched_dir):
         """Provenance section doesn't mention 'round:' or 'prior_distribution:'."""
         result = inspect_directory(batched_dir)

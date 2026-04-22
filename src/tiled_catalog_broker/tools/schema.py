@@ -193,6 +193,12 @@ def validate(cfg, model_path=None):
         if not data.get("file_pattern"):
             warnings.append("'data.file_pattern' not set — will default to '**/*.h5'")
 
+        sbd = data.get("server_base_dir")
+        if sbd is not None and sbd != "" and not isinstance(sbd, str):
+            errors.append(
+                f"'data.server_base_dir' must be a string if set, got {type(sbd).__name__}"
+            )
+
     # --- Artifacts ---
     artifacts = cfg.get("artifacts", [])
     if not artifacts:

@@ -89,3 +89,25 @@ def get_api_key():
     return os.environ.get("TILED_API_KEY", os.environ.get("TILED_KEY", ""))
 
 
+def get_host_data_root():
+    """Authoring-host filesystem root from `TILED_HOST_DATA_ROOT`.
+
+    The shared parent under which all dataset `directory:` paths sit on
+    the host running `tcb inspect`. `tcb inspect` uses this to derive a
+    `server_base_dir:` for the draft YAML when the Tiled server sees the
+    same data at a different mount.
+    """
+    return os.environ.get("TILED_HOST_DATA_ROOT", "")
+
+
+def get_server_data_root():
+    """Server-side mount root from `TILED_SERVER_DATA_ROOT`.
+
+    The same shared parent as `TILED_HOST_DATA_ROOT`, but as the Tiled
+    server sees it (K8s pod, reverse-proxy, etc.). `tcb inspect` swaps
+    this prefix into the YAML's `server_base_dir:` so registration is
+    purely read-only of the YAML.
+    """
+    return os.environ.get("TILED_SERVER_DATA_ROOT", "")
+
+
