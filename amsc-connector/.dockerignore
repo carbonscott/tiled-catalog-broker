@@ -1,0 +1,15 @@
+# Exclude local virtual environment — it's platform-specific and must be
+# rebuilt inside the image from scratch.
+.venv
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Development/editor artifacts
+.git
+.env
+*.egg-info/
+dist/
+build/

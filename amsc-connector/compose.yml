@@ -1,0 +1,15 @@
+---
+services:
+  amsc-connector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: samwelborn/tiled-amsc-connector:latest
+    restart: unless-stopped
+    networks:
+      - backend
+
+networks:
+  backend:
+    name: amsc-connector_backend
+    external: true
