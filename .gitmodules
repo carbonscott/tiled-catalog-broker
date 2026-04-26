@@ -1,0 +1,4 @@
+[submodule "amsc-connector/thirdparty/tiled"]
+	path = amsc-connector/thirdparty/tiled
+        url = https://github.com/bluesky/tiled
+
