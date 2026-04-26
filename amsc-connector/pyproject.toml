@@ -1,0 +1,27 @@
+[project]
+name = "amsc-connector"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Sam Welborn", email = "swelborn@slac.stanford.edu" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.13.3",
+    "pydantic-settings>=2.11.0",
+    "tiled>=0.2.9",
+]
+
+[project.scripts]
+amsc-connector = "amsc_connector:main"
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
