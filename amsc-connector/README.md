@@ -1,8 +1,8 @@
 # AmSC Automatic Catalog Ingestion
 
-## Setup compose
-
 ```sh
 cd amsc-connector
-make docker-up
+make tiled-up
+make connector-up
+uv run --project .. --env-file .env ./scripts/register_test_data.py
 ```
