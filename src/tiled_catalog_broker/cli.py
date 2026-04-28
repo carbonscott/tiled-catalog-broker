@@ -1,11 +1,12 @@
 """
 CLI entry points for tiled-catalog-broker.
 
-Provides four commands:
+Provides five commands:
   - tcb inspect:        Scan HDF5 data, generate draft YAML contract
   - tcb generate:       Generate Parquet manifests from finalized YAML
   - tcb ingest:         Bulk SQL registration (local testing, deprecated)
   - tcb register:       HTTP registration against a running Tiled server
+  - tcb delete:         Delete registered data from a Tiled server
 """
 
 import sys
@@ -307,6 +308,166 @@ def register_main():
     print("\nDone!")
 
 
+# ── tcb delete ────────────────────────────────────────────────
+
+def delete_main():
+    """Delete registered data from a running Tiled server.
+
+    Granularity is inferred from the number of positional arguments:
+
+        tcb delete <DATASET>                       # dataset + everything under it
+        tcb delete <DATASET> <ENTITY>              # one entity and its artifacts
+        tcb delete <DATASET> <ENTITY> <ARTIFACT>   # one artifact array
+        tcb delete all                             # every top-level container
+
+    Confirmation:
+      Granular forms prompt for 'y' or 'yes' (bypass with --yes).
+      The 'all' form requires retyping the TILED_URL (bypass with
+      --confirm <URL>, which must match exactly).
+
+    External HDF5 files are never removed -- only catalog pointers.
+    """
+    parser = argparse.ArgumentParser(
+        prog="tcb delete",
+        description="Delete registered data from a running Tiled server.",
+    )
+    parser.add_argument(
+        "targets",
+        nargs="+",
+        metavar="TARGET",
+        help="DATASET [ENTITY [ARTIFACT]], or the sentinel 'all'",
+    )
+    parser.add_argument(
+        "-y", "--yes",
+        action="store_true",
+        help="Skip the interactive y/yes confirmation (granular forms only)",
+    )
+    parser.add_argument(
+        "--confirm",
+        metavar="URL",
+        help="Bypass the URL-retype prompt for 'all' (must match TILED_URL exactly)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the preview block and exit without deleting",
+    )
+    args = parser.parse_args()
+
+    from tiled_catalog_broker.utils import check_server
+    from tiled_catalog_broker.config import get_tiled_url, get_api_key
+    from tiled_catalog_broker.delete import (
+        resolve_target, preview_counts, delete_target, delete_all,
+    )
+
+    targets = args.targets
+    is_all = targets[0] == "all"
+    if is_all and len(targets) > 1:
+        print("ERROR: 'all' takes no further arguments.")
+        sys.exit(2)
+    if not is_all and len(targets) > 3:
+        print("ERROR: expected DATASET [ENTITY [ARTIFACT]] (got too many arguments).")
+        sys.exit(2)
+
+    print("=" * 50)
+    print("Delete")
+    print("=" * 50)
+
+    tiled_url = get_tiled_url()
+    api_key = get_api_key()
+
+    print(f"\nChecking Tiled server at {tiled_url} ...")
+    if not check_server():
+        print(f"ERROR: Cannot reach Tiled server at {tiled_url}")
+        if not api_key:
+            print("\n  No API key set. Export TILED_API_KEY:")
+            print("    export TILED_API_KEY=your-key-here")
+        print(f"\n  To use a different server, export TILED_URL:")
+        print(f"    export TILED_URL={tiled_url}")
+        sys.exit(1)
+    print("Server is running.")
+
+    from tiled.client import from_uri
+    client = from_uri(tiled_url, api_key=api_key)
+
+    # Resolve target and build preview
+    if is_all:
+        granularity = "all"
+        path = "(every top-level container)"
+        counts = preview_counts(client, granularity)
+    else:
+        try:
+            node, path, granularity = resolve_target(client, *targets)
+        except KeyError as e:
+            print(f"\nERROR: {e}")
+            sys.exit(1)
+        counts = preview_counts(node, granularity)
+
+    print(f"\nTarget:      {tiled_url}/{path}")
+    print(f"Granularity: {granularity}")
+    if granularity == "all":
+        print(f"Counts:      {counts['n_children']} top-level container(s)")
+        if counts["sample_keys"]:
+            sample = ", ".join(counts["sample_keys"])
+            more = "" if counts["n_children"] <= 10 else f", ... (+{counts['n_children'] - 10} more)"
+            print(f"Sample:      {sample}{more}")
+    elif granularity == "artifact":
+        print(f"Counts:      1 array")
+    else:
+        print(f"Counts:      {counts['n_children']} child nodes")
+    print("Note:        External HDF5 files are NOT removed; only catalog entries.")
+
+    if args.dry_run:
+        print("\n[--dry-run] No changes made.")
+        sys.exit(0)
+
+    # Confirm
+    if is_all:
+        if args.confirm is not None:
+            if args.confirm != tiled_url:
+                print(f"\nERROR: --confirm does not match TILED_URL ({tiled_url!r}).")
+                sys.exit(1)
+        else:
+            if not sys.stdin.isatty():
+                print("\nERROR: Non-interactive shell. Use --confirm <URL> to proceed.")
+                sys.exit(2)
+            typed = input(f"\nType the server URL to confirm: ")
+            if typed.strip() != tiled_url:
+                print("Aborted: URL did not match.")
+                sys.exit(1)
+    else:
+        if not args.yes:
+            if not sys.stdin.isatty():
+                print("\nERROR: Non-interactive shell. Use --yes to proceed.")
+                sys.exit(2)
+            typed = input(f"\nType 'y' or 'yes' to confirm: ").strip().lower()
+            if typed not in ("y", "yes"):
+                print("Aborted.")
+                sys.exit(1)
+
+    # Execute
+    from tiled.client.utils import ClientError
+
+    print()
+    if is_all:
+        successes, failures = delete_all(client)
+        for k in successes:
+            print(f"  deleted: {k}")
+        for k, err in failures:
+            print(f"  FAILED:  {k}  ({err})")
+        print(f"\n{len(successes)} deleted, {len(failures)} failed.")
+        sys.exit(1 if failures else 0)
+    else:
+        try:
+            delete_target(node)
+        except ClientError as e:
+            print(f"  FAILED:  {path}")
+            print(f"\nERROR: {e}")
+            sys.exit(1)
+        print(f"  deleted: {path}")
+        print("\nDone.")
+
+
 # ── tcb (main dispatcher) ────────────────────────────────────
 
 def main():
@@ -316,6 +477,7 @@ def main():
         "generate": generate_yaml_main,
         "ingest": ingest_main,
         "register": register_main,
+        "delete": delete_main,
     }
 
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
@@ -325,6 +487,7 @@ def main():
         print("  generate   Generate Parquet manifests from a finalized YAML contract")
         print("  ingest     Bulk SQL registration from Parquet manifests")
         print("  register   HTTP registration against a running Tiled server")
+        print("  delete     Delete registered data from a running Tiled server")
         sys.exit(0)
 
     cmd = sys.argv[1]
