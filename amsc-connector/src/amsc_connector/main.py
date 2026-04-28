@@ -7,7 +7,10 @@ from fastapi import FastAPI
 from tiled.server.schemas import WebhookRegistrationRequest, WebhookResponse
 
 from amsc_connector.api import api_router
+from amsc_connector.core.broker import get_stream_router
 from amsc_connector.core.config import Settings, get_settings
+
+stream_router = get_stream_router()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -81,3 +84,4 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="amsc-connector", lifespan=lifespan)
 app.include_router(api_router)
+app.include_router(stream_router)
