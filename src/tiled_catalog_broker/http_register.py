@@ -18,7 +18,9 @@ When NOT to use:
 """
 
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -113,7 +115,7 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
 
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
                           dataset_key, dataset_metadata,
-                          server_base_dir=None):
+                          server_base_dir=None, concurrency=1):
     """Register one dataset via HTTP through a running Tiled server.
 
     Creates a dataset container, then entity containers with locator
@@ -130,14 +132,18 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         server_base_dir: If provided, used for asset data_uri instead of
             base_dir.  Needed when the server sees the filesystem at a
             different mount point.
+        concurrency: Number of entities to register in parallel via a
+            thread pool. Each task creates one entity container plus its
+            artifact children sequentially (parent-before-child ordering
+            preserved within a task; only across-entity work parallelizes).
+            Default 1 (serial).
 
     Returns:
         bool: True if any entities were registered.
     """
     start_time = time.time()
-    ent_count = 0
-    art_count = 0
-    skip_count = 0
+    counts = {"ent": 0, "art": 0, "skip": 0, "done": 0}
+    counts_lock = threading.Lock()
 
     # Create or reuse dataset container
     if dataset_key in client:
@@ -153,28 +159,32 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     # Pre-group artifacts by uid for O(1) lookup
     print("Pre-grouping artifacts by uid...")
     art_grouped = art_df.groupby("uid")
+    art_columns = list(art_df.columns)
 
     n = len(ent_df)
-    print(f"\n--- Registering {label} ({n} entities via HTTP) ---")
+    print(f"\n--- Registering {label} "
+          f"({n} entities via HTTP, concurrency={concurrency}) ---")
 
-    for i, (_, ent_row) in enumerate(ent_df.iterrows()):
+    def process_entity(ent_row):
+        """Register one entity container + its artifacts. Thread-safe."""
         uid = str(ent_row["uid"])
         ent_key = make_entity_key(ent_row, dataset_key)
 
         # Skip if container already exists
         if ent_key in parent_client:
-            skip_count += 1
-            continue
+            with counts_lock:
+                counts["skip"] += 1
+                counts["done"] += 1
+            return
 
-        # Build metadata dynamically from ALL manifest columns
-        metadata = {}
-        for col in ent_df.columns:
-            metadata[col] = to_json_safe(ent_row[col])
+        # Build entity metadata dynamically from ALL manifest columns
+        metadata = {col: to_json_safe(ent_row[col]) for col in ent_df.columns}
 
-        # Attach artifact locators to metadata (for Mode A access)
-        artifacts = None
-        if uid in art_grouped.groups:
-            artifacts = art_grouped.get_group(uid)
+        # Attach artifact locators (for Mode A access)
+        artifacts = (
+            art_grouped.get_group(uid) if uid in art_grouped.groups else None
+        )
+        if artifacts is not None:
             for _, art_row in artifacts.iterrows():
                 art_key = make_artifact_key(art_row)
                 metadata[f"path_{art_key}"] = art_row["file"]
@@ -182,64 +192,74 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
                 if "index" in art_row.index and pd.notna(art_row.get("index")):
                     metadata[f"index_{art_key}"] = int(art_row["index"])
 
-        # Create container with all metadata under dataset
-        ent_container = parent_client.create_container(key=ent_key, metadata=metadata)
-        ent_count += 1
+        # Create container; parent must exist before its array children
+        ent_container = parent_client.create_container(
+            key=ent_key, metadata=metadata
+        )
+        local_arts = 0
 
-        # Register arrays as children (Mode B)
+        # Register arrays as children (Mode B). Sequential within this entity
+        # so the container always exists before its arrays.
         if artifacts is not None:
             for _, art_row in artifacts.iterrows():
+                art_key = None
                 try:
                     art_key = make_artifact_key(art_row)
-
-                    # Create data source pointing to external HDF5
                     data_source, data_shape, data_dtype = create_data_source(
                         art_row, base_dir=base_dir,
                         server_base_dir=server_base_dir,
                     )
-
-                    # Build artifact metadata dynamically from non-standard columns
                     art_metadata = {
                         "type": art_row["type"],
                         "shape": list(data_shape),
                         "dtype": str(data_dtype),
                     }
-                    for col in art_df.columns:
+                    for col in art_columns:
                         if col not in ARTIFACT_STANDARD_COLS:
                             art_metadata[col] = to_json_safe(art_row[col])
-
-                    # Register artifact as child of container
                     ent_container.new(
                         structure_family=StructureFamily.array,
                         data_sources=[data_source],
                         key=art_key,
                         metadata=art_metadata,
                     )
-                    art_count += 1
-
+                    local_arts += 1
                 except Exception as e:
-                    print(f"  ERROR registering artifact {art_key}: {e}")
+                    print(f"  ERROR registering artifact {art_key} "
+                          f"under {ent_key}: {e}")
 
-        # Progress update
-        if (i + 1) % 5 == 0 or (i + 1) == n:
+        with counts_lock:
+            counts["ent"] += 1
+            counts["art"] += local_arts
+            counts["done"] += 1
+            done = counts["done"]
+        if done % 5 == 0 or done == n:
             elapsed = time.time() - start_time
-            rate = (i + 1) / elapsed if elapsed > 0 else 0
-            print(f"  Progress: {i+1}/{n} entities ({rate:.1f}/sec)")
+            rate = done / elapsed if elapsed > 0 else 0
+            print(f"  Progress: {done}/{n} entities ({rate:.1f}/sec)")
+
+    rows = [row for _, row in ent_df.iterrows()]
+    if concurrency <= 1:
+        for row in rows:
+            process_entity(row)
+    else:
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            list(pool.map(process_entity, rows))
 
     elapsed_total = time.time() - start_time
     print(f"\nRegistration complete:")
-    print(f"  Entities:     {ent_count}")
-    print(f"  Artifacts:    {art_count}")
-    print(f"  Skipped:      {skip_count}")
+    print(f"  Entities:     {counts['ent']}")
+    print(f"  Artifacts:    {counts['art']}")
+    print(f"  Skipped:      {counts['skip']}")
     print(f"  Time:         {elapsed_total:.1f} seconds")
 
-    return ent_count > 0
+    return counts["ent"] > 0
 
 
 def register_dataset_manifest_layout(
     client, cfg, ent_df, art_df, base_dir, label,
     dataset_key, dataset_metadata,
-    server_base_dir=None,
+    server_base_dir=None, concurrency=1,
 ):
     """Register a dataset whose YAML declares ``layout: manifest``.
 
@@ -345,6 +365,7 @@ def register_dataset_manifest_layout(
         dataset_key=dataset_key,
         dataset_metadata=merged_metadata,
         server_base_dir=server_base_dir,
+        concurrency=concurrency,
     )
 
 

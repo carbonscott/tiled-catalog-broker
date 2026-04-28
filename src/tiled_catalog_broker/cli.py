@@ -322,6 +322,16 @@ def register_main():
             "instead of TILED_URL + TILED_API_KEY."
         ),
     )
+    parser.add_argument(
+        "-j", "--concurrency",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "Register N entities in parallel via a thread pool. "
+            "Default 1 (serial). Try 4-8 against a multi-worker server."
+        ),
+    )
     args = parser.parse_args()
 
     print("=" * 50)
@@ -408,12 +418,14 @@ def register_main():
                 client, config, ent_df, art_df, base_dir, label,
                 dataset_key=dataset_key,
                 dataset_metadata=dataset_metadata,
+                concurrency=args.concurrency,
             )
         else:
             register_dataset_http(
                 client, ent_df, art_df, base_dir, label,
                 dataset_key=dataset_key,
                 dataset_metadata=dataset_metadata,
+                concurrency=args.concurrency,
             )
 
     # Verify
