@@ -1,23 +1,35 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header
-from amsc_connector.api.deps import _event_adapter, check_signature
+from fastapi import APIRouter, Header
+from pydantic import BaseModel
+from tiled.server.schemas import WebhookEvent
+
+from amsc_connector.api.deps import BrokerDep, CheckSignature
+from amsc_connector.core.constants import (
+    EVENT_TYPE_TO_STREAM,
+    HEADER_EVENT_ID,
+    STREAM_DLQ,
+)
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
 
-@router.post("/webhook/event")
+class WebhookResponse(BaseModel):
+    status: str = "ok"
+
+
+# dumb pipe
+@router.post("/webhook/event", dependencies=[CheckSignature])
 async def receive_webhook_event(
-    x_tiled_event_id: Annotated[str | None, Header()] = None,
-    body: Annotated[bytes, Depends(check_signature)] = b"",
-) -> dict:
-    """Receive and validate a webhook event posted by tiled."""
-    event = _event_adapter.validate_json(body)
-
-    logger.info(f"Received webhook event_id={x_tiled_event_id} event={event}")
-
-    # TODO: implement event handling
-    return {"status": "ok"}
+    event: WebhookEvent,
+    broker: BrokerDep,
+    x_tiled_event_id: Annotated[str, Header()],
+) -> WebhookResponse:
+    """Receive a webhook event from tiled and publish it to a Redis stream."""
+    stream = EVENT_TYPE_TO_STREAM.get(event.type, STREAM_DLQ)
+    await broker.publish(
+        event, stream=stream, headers={HEADER_EVENT_ID: x_tiled_event_id}
+    )
+    return WebhookResponse()
