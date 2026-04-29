@@ -24,7 +24,14 @@ import pytest
 # Add tiled_poc directory to path for broker package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tiled_catalog_broker.utils import make_artifact_key, make_entity_key, to_json_safe
+import pandas as pd
+
+from tiled_catalog_broker.utils import (
+    make_artifact_key,
+    make_entity_key,
+    split_constant_cols,
+    to_json_safe,
+)
 
 
 class TestMakeEntityKey:
@@ -88,9 +95,77 @@ class TestMakeArtifactKey:
         assert make_artifact_key(row) == "custom_artifact_v2"
 
     def test_extra_columns_ignored(self):
-        """Only the type column matters for key generation."""
+        """Only the type column matters for key generation when no fan-out."""
         row = {"type": "rixs", "axis": "powder", "Hmax_T": 30}
         assert make_artifact_key(row) == "rixs"
+
+    def test_fanout_row_uses_array_name_and_auid(self):
+        """Fan-out rows (array_name + auid present) use short-auid suffix."""
+        row = {
+            "type": "mh_curve",
+            "array_name": "H_T",
+            "auid": "cfbc55c6-741b-5aa5-8f2b-b680f1f8f627",
+        }
+        assert make_artifact_key(row) == "H_T_cfbc55c6"
+
+    def test_fanout_row_with_prefix(self):
+        row = {
+            "type": "ins_powder",
+            "array_name": "broadened",
+            "auid": "07fff5c0-0030-52bc-a21c-34df6efba3dc",
+        }
+        assert make_artifact_key(row, prefix="path_") == "path_broadened_07fff5c0"
+
+    def test_pandas_series_fanout(self):
+        """Works with pandas Series rows too."""
+        row = pd.Series({
+            "type": "gs_state",
+            "array_name": "moment_muB",
+            "auid": "9e95715f-d0d2-5290-a7f4-b66721bdd308",
+        })
+        assert make_artifact_key(row) == "moment_muB_9e95715f"
+
+
+class TestSplitConstantCols:
+    """Tests for split_constant_cols()."""
+
+    def test_all_constant(self):
+        df = pd.DataFrame({"a": [1, 1, 1], "b": ["x", "x", "x"]})
+        constants, varying = split_constant_cols(df)
+        assert constants == {"a": 1, "b": "x"}
+        assert varying == []
+
+    def test_all_varying(self):
+        df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+        constants, varying = split_constant_cols(df)
+        assert constants == {}
+        assert set(varying) == {"a", "b"}
+
+    def test_mixed(self):
+        df = pd.DataFrame({
+            "schema_version": ["1.0", "1.0", "1.0"],
+            "uid": ["a", "b", "c"],
+            "run_id": ["r1", "r1", "r1"],
+        })
+        constants, varying = split_constant_cols(df)
+        assert constants == {"schema_version": "1.0", "run_id": "r1"}
+        assert varying == ["uid"]
+
+    def test_nans_ignored_for_constancy(self):
+        """NaN entries don't count as a distinct value."""
+        import numpy as np
+        df = pd.DataFrame({"method": ["foo", np.nan, "foo"]})
+        constants, varying = split_constant_cols(df)
+        assert constants == {"method": "foo"}
+        assert varying == []
+
+    def test_all_null_column_dropped(self):
+        import numpy as np
+        df = pd.DataFrame({"empty": [np.nan, np.nan], "uid": ["a", "b"]})
+        constants, varying = split_constant_cols(df)
+        assert "empty" not in constants
+        assert "empty" not in varying
+        assert varying == ["uid"]
 
 
 class TestToJsonSafe:

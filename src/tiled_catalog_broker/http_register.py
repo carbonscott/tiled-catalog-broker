@@ -32,6 +32,7 @@ from .utils import (
     get_artifact_info,
     make_artifact_key,
     make_entity_key,
+    split_constant_cols,
     to_json_safe,
 )
 
@@ -233,6 +234,118 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     print(f"  Time:         {elapsed_total:.1f} seconds")
 
     return ent_count > 0
+
+
+def register_dataset_manifest_layout(
+    client, cfg, ent_df, art_df, base_dir, label,
+    dataset_key, dataset_metadata,
+    server_base_dir=None,
+):
+    """Register a dataset whose YAML declares ``layout: manifest``.
+
+    Interprets the producer's two parquets in place:
+      - Provenance tiering: columns with a single unique value in either
+        manifest are promoted to dataset-container metadata.
+      - Column renames: ``entity_uid_column`` -> ``uid`` in both frames,
+        ``artifact_uid_column`` -> ``auid``, ``file_column`` -> ``file``.
+      - Fan-out: each producer artifact row expands to one broker row per
+        HDF5 array path in ``cfg['artifact_datasets'][row.type]``, each
+        carrying ``dataset`` and ``array_name`` so make_artifact_key can
+        synthesize ``{array_name}_{auid[:8]}``.
+
+    Then delegates the actual registration to ``register_dataset_http``.
+    """
+    data = cfg["data"]
+    ent_uid_col = data["entity_uid_column"]
+    art_uid_col = data["artifact_uid_column"]
+    file_col = data["file_column"]
+    artifact_datasets = cfg["artifact_datasets"]
+
+    # Guard against rename collisions
+    for col in ("uid", "file"):
+        if col in ent_df.columns and col != ent_uid_col:
+            raise ValueError(
+                f"entity_manifest already has a '{col}' column; rename "
+                "conflicts with broker-standard column names"
+            )
+        if col in art_df.columns and col not in (ent_uid_col, art_uid_col, file_col):
+            raise ValueError(
+                f"artifact_manifest already has a '{col}' column; rename "
+                "conflicts with broker-standard column names"
+            )
+
+    # Provenance tiering: single-unique-value columns promote to dataset metadata
+    ent_constants, _ = split_constant_cols(ent_df)
+    art_constants, _ = split_constant_cols(art_df)
+
+    # Identifier/locator columns are never promoted (keep per-row even if single-valued)
+    for col in (ent_uid_col, art_uid_col, file_col, "type"):
+        ent_constants.pop(col, None)
+        art_constants.pop(col, None)
+
+    # YAML-authored metadata wins over auto-promoted constants on conflict
+    merged_metadata = {**ent_constants, **art_constants, **dataset_metadata}
+
+    promoted = sorted(set(ent_constants) | set(art_constants))
+    if promoted:
+        print(f"Promoted {len(promoted)} constant column(s) to dataset metadata: {promoted}")
+
+    # --- Build broker-shape entity DataFrame ---
+    ent_keep = [c for c in ent_df.columns if c not in ent_constants]
+    ent_broker = ent_df[ent_keep].rename(columns={ent_uid_col: "uid"})
+
+    # --- Build broker-shape artifact DataFrame (fan-out) ---
+    art_keep = [c for c in art_df.columns if c not in art_constants]
+    art_rename = {ent_uid_col: "uid", file_col: "file"}
+    if art_uid_col != "auid":
+        art_rename[art_uid_col] = "auid"
+    art_trimmed = art_df[art_keep].rename(columns=art_rename)
+
+    # If ent_df was already limited by the caller (-n flag), narrow art_df
+    # to matching uids so fan-out doesn't process orphan producer rows.
+    ent_uid_set = set(ent_broker["uid"])
+    art_trimmed = art_trimmed[art_trimmed["uid"].isin(ent_uid_set)]
+
+    fanout_rows = []
+    unknown_types = set()
+    for _, row in art_trimmed.iterrows():
+        atype = row["type"]
+        paths = artifact_datasets.get(atype)
+        if not paths:
+            unknown_types.add(atype)
+            continue
+        row_dict = row.to_dict()
+        for ds_path in paths:
+            new_row = dict(row_dict)
+            new_row["dataset"] = ds_path
+            new_row["array_name"] = ds_path.rsplit("/", 1)[-1]
+            new_row["index"] = None
+            fanout_rows.append(new_row)
+
+    if unknown_types:
+        print(
+            f"WARNING: {len(unknown_types)} artifact type(s) in manifest have "
+            f"no entry in artifact_datasets - skipping: {sorted(unknown_types)}"
+        )
+
+    if not fanout_rows:
+        print(f"ERROR: no artifact rows after fan-out for '{label}'; "
+              "check artifact_datasets covers all types in the manifest")
+        return False
+
+    art_broker = pd.DataFrame(fanout_rows)
+
+    print(
+        f"Manifest layout: {len(ent_broker)} entities x "
+        f"{len(art_broker) / max(len(ent_broker), 1):.1f} artifacts/entity (fan-out)"
+    )
+
+    return register_dataset_http(
+        client, ent_broker, art_broker, base_dir, label,
+        dataset_key=dataset_key,
+        dataset_metadata=merged_metadata,
+        server_base_dir=server_base_dir,
+    )
 
 
 def verify_registration_http(client):
