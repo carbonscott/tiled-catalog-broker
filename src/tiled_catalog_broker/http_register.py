@@ -22,13 +22,16 @@ import time
 
 import numpy as np
 import pandas as pd
+from tiled.structures.array import ArrayStructure
+from tiled.structures.core import StructureFamily
+from tiled.structures.data_source import Asset, DataSource, Management
 
 from .utils import (
+    ARTIFACT_STANDARD_COLS,
+    get_artifact_info,
     make_artifact_key,
     make_entity_key,
     to_json_safe,
-    get_artifact_info,
-    ARTIFACT_STANDARD_COLS,
 )
 
 
@@ -47,10 +50,6 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
     Returns:
         Tuple of (DataSource, data_shape, data_dtype).
     """
-    from tiled.structures.core import StructureFamily
-    from tiled.structures.array import ArrayStructure
-    from tiled.structures.data_source import Asset, DataSource, Management
-
     h5_rel_path = art_row["file"]
     uri_base = server_base_dir if server_base_dir is not None else base_dir
     h5_full_path = os.path.join(uri_base, h5_rel_path)
@@ -126,8 +125,6 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     Returns:
         bool: True if any entities were registered.
     """
-    from tiled.structures.core import StructureFamily
-
     start_time = time.time()
     ent_count = 0
     art_count = 0
