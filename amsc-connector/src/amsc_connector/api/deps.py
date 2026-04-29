@@ -3,25 +3,30 @@ import hmac
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
-from pydantic import TypeAdapter
-from tiled.server.schemas import WebhookEvent
+from faststream.redis import RedisBroker
 
+from amsc_connector.core.broker import get_stream_router
 from amsc_connector.core.config import Settings, get_settings
 
-_event_adapter: TypeAdapter[WebhookEvent] = TypeAdapter(WebhookEvent)
+
+def _get_broker() -> RedisBroker:
+    return get_stream_router().broker
 
 
-def verify_signature(body: bytes, secret: str, signature: str) -> bool:
+BrokerDep = Annotated[RedisBroker, Depends(_get_broker)]
+
+
+def _verify_signature(body: bytes, secret: str, signature: str) -> bool:
     expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
 
 
-async def check_signature(
+async def _check_signature(
     request: Request,
     x_tiled_signature: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
-) -> bytes:
-    """Dependency: validate HMAC signature and return the raw request body."""
+) -> None:
+    """Dependency: validate HMAC signature on the raw request body."""
     body = await request.body()
 
     if settings.webhook_secret is not None:
@@ -29,7 +34,8 @@ async def check_signature(
             raise HTTPException(
                 status_code=401, detail="Missing X-Tiled-Signature header"
             )
-        if not verify_signature(body, settings.webhook_secret, x_tiled_signature):
+        if not _verify_signature(body, settings.webhook_secret, x_tiled_signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
 
-    return body
+
+CheckSignature = Depends(_check_signature)
