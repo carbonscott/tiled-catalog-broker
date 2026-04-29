@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # AMSC API base URL (without /api/current suffix)
     amsc_api_base_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
-    amsc_api_token: str = ""
+    amsc_api_token: str
 
     # Tiled client retry settings (used by stamina)
     tiled_retry_attempts: int = 5
