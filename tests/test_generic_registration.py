@@ -76,34 +76,25 @@ class TestVDPRegistration:
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, art_nodes, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=5, base_dir=base_dir
+            ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         assert len(ent_nodes) == 5
         assert len(art_nodes) == 15  # 3 artifacts per entity
         assert len(art_ds) == 15
 
-    def test_entity_key_from_manifest(self, vdp_manifests):
-        """Keys are read from the manifest's 'key' column, not computed."""
+    def test_entity_key_derived_from_uid(self, vdp_manifests):
+        """Entity keys are derived from dataset_key + uid at registration time."""
         from tiled_catalog_broker.bulk_register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=5, base_dir=base_dir
+            ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         for i, node in enumerate(ent_nodes):
-            expected_key = ent_df.iloc[i]["key"]
-            assert node["key"] == expected_key
-
-    def test_missing_key_column_raises(self, vdp_manifests):
-        """Registration fails early if manifest lacks 'key' column."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
-
-        ent_no_key = ent_df.drop(columns=["key"])
-        with pytest.raises(ValueError, match="missing required 'key' column"):
-            prepare_node_data(ent_no_key, art_df, max_entities=1, base_dir=base_dir)
+            uid = str(ent_df.iloc[i]["uid"])
+            assert node["key"] == f"TEST_KEY_{uid[:13]}"
 
     def test_entity_metadata_has_vdp_params(self, vdp_manifests):
         """VDP metadata should have Ja_meV, Jb_meV, etc. (read dynamically)."""
@@ -111,7 +102,7 @@ class TestVDPRegistration:
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         meta = ent_nodes[0]["metadata"]
@@ -129,7 +120,7 @@ class TestVDPRegistration:
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         meta = ent_nodes[0]["metadata"]
@@ -153,7 +144,7 @@ class TestVDPRegistration:
         ent_df, art_df, base_dir = vdp_manifests
 
         _, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         keys = {node["key"] for node in art_nodes}
@@ -165,7 +156,7 @@ class TestVDPRegistration:
         ent_df, art_df, base_dir = vdp_manifests
 
         _, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         shapes = {node["key"]: node["metadata"]["shape"] for node in art_nodes}
@@ -179,7 +170,7 @@ class TestVDPRegistration:
         ent_df, art_df, base_dir = vdp_manifests
 
         _, _, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         ds_by_key = {ds["art_key"]: ds for ds in art_ds}
@@ -192,7 +183,7 @@ class TestVDPRegistration:
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=2, base_dir=base_dir
+            ent_df, art_df, max_entities=2, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         assert len(ent_nodes) == 2
@@ -210,7 +201,7 @@ class TestNiPS3Registration:
         ent_df, art_df, base_dir = nips3_manifests
 
         ent_nodes, art_nodes, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=5, base_dir=base_dir
+            ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         assert len(ent_nodes) == 5
@@ -223,7 +214,7 @@ class TestNiPS3Registration:
         ent_df, art_df, base_dir = nips3_manifests
 
         ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         meta = ent_nodes[0]["metadata"]
@@ -244,7 +235,7 @@ class TestNiPS3Registration:
         ent_df, art_df, base_dir = nips3_manifests
 
         ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         meta = ent_nodes[0]["metadata"]
@@ -265,7 +256,7 @@ class TestNiPS3Registration:
         ent_df, art_df, base_dir = nips3_manifests
 
         _, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         keys = {node["key"] for node in art_nodes}
@@ -277,7 +268,7 @@ class TestNiPS3Registration:
         ent_df, art_df, base_dir = nips3_manifests
 
         _, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         shapes = {node["key"]: node["metadata"]["shape"] for node in art_nodes}
@@ -290,7 +281,7 @@ class TestNiPS3Registration:
         ent_df, art_df, base_dir = nips3_manifests
 
         _, _, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=2, base_dir=base_dir
+            ent_df, art_df, max_entities=2, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         for ds in art_ds:
@@ -312,7 +303,7 @@ class TestNiPS3Registration:
         ent_df, art_df, base_dir = nips3_manifests
 
         _, _, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=5, base_dir=base_dir
+            ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         # All RIXS artifacts point to the same file
@@ -333,14 +324,14 @@ class TestGenericBehavior:
         # VDP
         ent_df, art_df, base_dir = vdp_manifests
         vdp_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
         vdp_meta = vdp_nodes[0]["metadata"]
 
         # NiPS3
         ent_df, art_df, base_dir = nips3_manifests
         nips3_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
         nips3_meta = nips3_nodes[0]["metadata"]
 
@@ -352,16 +343,17 @@ class TestGenericBehavior:
         vdp_params = {k for k in vdp_meta if not k.startswith(("path_", "dataset_", "index_"))}
         nips3_params = {k for k in nips3_meta if not k.startswith(("path_", "dataset_", "index_"))}
 
-        # Only "uid" and "key" are shared (standard columns)
+        # Only "uid" is shared (the one standard column kept in metadata;
+        # the entity key is derived from (dataset_key, uid), not stored).
         shared = vdp_params & nips3_params
-        assert shared == {"uid", "key"}
+        assert shared == {"uid"}
 
     def test_structure_family_correct(self, vdp_manifests):
         from tiled_catalog_broker.bulk_register import prepare_node_data
         ent_df, art_df, base_dir = vdp_manifests
 
         ent_nodes, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir
+            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
         )
 
         for node in ent_nodes:
@@ -377,7 +369,7 @@ class TestGenericBehavior:
         for manifests in [vdp_manifests, nips3_manifests]:
             ent_df, art_df, base_dir = manifests
             ent_nodes, art_nodes, _ = prepare_node_data(
-                ent_df, art_df, max_entities=5, base_dir=base_dir
+                ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
             )
             for node in ent_nodes + art_nodes:
                 # Should not raise

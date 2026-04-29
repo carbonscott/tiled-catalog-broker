@@ -31,7 +31,6 @@ def create_vdp_data():
     uids = [f"aaaa{i:04d}" for i in range(5)]
     ent_data = {
         "uid": uids,
-        "key": [f"H_{h[:8]}" for h in uids],
         "Ja_meV": [1.0, 2.0, 0.5, 3.0, 1.5],
         "Jb_meV": [0.5, 1.0, 0.3, 1.5, 0.7],
         "Jc_meV": [-0.3, -0.5, -0.1, -1.0, -0.4],
@@ -88,7 +87,6 @@ def create_nips3_data():
     uids = [f"rank0000_{i:04d}" for i in range(n_ents)]
     ent_data = {
         "uid": uids,
-        "key": [f"H_{h[:8]}" for h in uids],
         "F2_dd": [100.0 + i * 10 for i in range(n_ents)],
         "F2_dp": [50.0 + i * 5 for i in range(n_ents)],
         "F4_dd": [200.0 + i * 10 for i in range(n_ents)],

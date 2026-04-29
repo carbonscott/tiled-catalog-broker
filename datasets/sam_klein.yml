@@ -2,7 +2,7 @@
 # 10,000 entities (5 files x 2,000 batch size)
 # Source: exact-diagonalization RIXS spectra
 
-key: RIXS_SIM_BROAD_SIGMA
+key: BROAD_SIGMA  # auto-filled on 2026-04-21 from slug(label)
 label: "Broad Sigma"
 
 metadata:
@@ -15,7 +15,7 @@ metadata:
   round: 0
 
 data:
-  directory: /sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper
+  directory: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/RIXS_SIM_BROAD_SIGMA
   file_pattern: "*/simulations.h5"
   layout: batched
   # batch_size: 2000
