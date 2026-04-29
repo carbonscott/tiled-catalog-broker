@@ -35,7 +35,7 @@ from ruamel.yaml import YAML
 # Add project root to path for package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tiled_catalog_broker.tools.generate import generate_manifests, load_yaml
+from tiled_catalog_broker.tools.generate import generate_manifests, load_yaml, _make_uid
 from tiled_catalog_broker.tools.schema import ValidationError
 
 
@@ -221,7 +221,9 @@ class TestGenerateBatched:
         assert "alpha" in ent_df.columns
         assert "beta" in ent_df.columns
         assert "uid" in ent_df.columns
-        assert "key" in ent_df.columns
+        # `key` column removed — entity keys are derived at registration from
+        # (dataset_key, uid). The manifest holds the uid only.
+        assert "key" not in ent_df.columns
 
         # Check artifact columns
         assert "uid" in art_df.columns
@@ -357,3 +359,35 @@ class TestLoadYaml:
 
         with pytest.raises(ValidationError):
             load_yaml(str(yaml_path))
+
+
+class TestMakeUid:
+    """Tests for _make_uid — the headline content-addressing contract.
+
+    Same params -> same UID, regardless of file order, reshards, or
+    regeneration. Float-LSB drift tolerated. Namespace separates
+    otherwise-identical param sets across datasets.
+    """
+
+    def test_param_reorder_stability(self):
+        """Same params in different insertion order hash to the same UID."""
+        a = _make_uid({"Ja_meV": 0.5, "Jb_meV": 1.0, "spin_s": 0.5}, namespace="VDP")
+        b = _make_uid({"spin_s": 0.5, "Jb_meV": 1.0, "Ja_meV": 0.5}, namespace="VDP")
+        assert a == b
+
+    def test_namespace_separation(self):
+        """Identical params under different namespaces produce different UIDs."""
+        params = {"x": 1, "y": 2}
+        assert _make_uid(params, namespace="VDP") != _make_uid(params, namespace="EDRIXS")
+
+    def test_float_lsb_tolerance(self):
+        """Float drift below the 12-decimal rounding threshold is ignored."""
+        # 0.1 + 0.2 = 0.30000000000000004 -> rounds to 0.3 at 12 decimals
+        assert _make_uid({"x": 0.1 + 0.2}) == _make_uid({"x": 0.3})
+
+    def test_string_fallback_deterministic(self):
+        """Positional string fallback is deterministic (same input -> same UID)."""
+        s = "VDP_aaaa0007"
+        assert _make_uid(s) == _make_uid(s)
+        # And distinct strings produce distinct UIDs.
+        assert _make_uid(s) != _make_uid("VDP_aaaa0008")

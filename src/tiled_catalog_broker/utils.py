@@ -5,12 +5,29 @@ Common functions used across registration scripts.
 """
 
 import os
+import re
 
 import h5py
 import numpy as np
 import pandas as pd
 
 from .config import get_tiled_url, get_api_key
+
+
+def slugify_key(label):
+    """Convert a human-readable label to the catalog key (UPPER_SNAKE).
+
+    Rules: uppercase, replace runs of non-alphanumerics with a single
+    underscore, strip leading/trailing underscores.
+
+    Examples:
+        "Broad Sigma"            -> "BROAD_SIGMA"
+        "SUNNY NiPS3 10K"        -> "SUNNY_NIPS3_10K"
+        "NiPS3 Multimodal"       -> "NIPS3_MULTIMODAL"
+    """
+    if not label:
+        raise ValueError("slugify_key: label is empty")
+    return re.sub(r"[^A-Z0-9]+", "_", str(label).upper()).strip("_")
 
 
 # Standard columns in the artifact manifest that are NOT stored as metadata.
@@ -56,8 +73,12 @@ def get_artifact_info(base_dir, file_path, dataset_path, index=None, _cache={}):
     return list(full_shape), dtype_str, kind, itemsize
 
 
-def check_server():
-    """Check if Tiled server is running.
+def check_server(url=None, api_key=None):
+    """Check if a Tiled server is running.
+
+    Args:
+        url: Server URL. Defaults to get_tiled_url().
+        api_key: Apikey. Defaults to get_api_key().
 
     Returns:
         bool: True if server responds, False otherwise.
@@ -66,14 +87,17 @@ def check_server():
     import urllib.request
     import urllib.error
 
-    url = get_tiled_url()
-    api_key = get_api_key()
+    if url is None:
+        url = get_tiled_url()
+    if api_key is None:
+        api_key = get_api_key()
+
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Apikey {api_key}"
 
     try:
-        req = urllib.request.Request(
-            f"{url}/api/v1/",
-            headers={"Authorization": f"Apikey {api_key}"}
-        )
+        req = urllib.request.Request(f"{url}/api/v1/", headers=headers)
         # Allow self-signed certificates for internal HTTPS servers
         ctx = ssl.create_default_context()
         if url.startswith("https"):
@@ -83,6 +107,22 @@ def check_server():
             return response.status == 200
     except (urllib.error.URLError, urllib.error.HTTPError):
         return False
+
+
+def make_entity_key(ent_row, dataset_key):
+    """Generate the Tiled node key for an entity from its uid.
+
+    The entity key is derived at registration time from the dataset key
+    (slug(label)) and the first 13 characters of the entity's manifest
+    uid (two UUID segments for UUIDv5 inputs), so it is not persisted in
+    the manifest itself.
+
+    Examples:
+        >>> make_entity_key({"uid": "636ce3e4-1ea0-5f0f-a515-a4378fa5c842"},
+        ...                 "VDP_SIM")
+        'VDP_SIM_636ce3e4-1ea0'
+    """
+    return f"{dataset_key}_{str(ent_row['uid'])[:13]}"
 
 
 def make_artifact_key(art_row, prefix=""):

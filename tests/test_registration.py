@@ -177,9 +177,9 @@ class TestBulkRegistration:
                 )
             """))
 
-            # Insert test nodes
+            # Insert test nodes (synthesize key from uid for this SQL fixture)
             for _, row in ent_df.iterrows():
-                ent_key = row["key"]
+                ent_key = f"TEST_{str(row['uid'])[:13]}"
                 conn.execute(
                     text("INSERT INTO nodes (key, parent) VALUES (:key, 0)"),
                     {"key": ent_key}
