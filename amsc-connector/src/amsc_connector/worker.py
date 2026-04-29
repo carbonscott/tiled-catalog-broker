@@ -353,6 +353,14 @@ async def on_sync(
         )
         return
 
+    if not ctx.metadata.get("amsc_public", False):
+        logger.info(
+            "Node is not marked public; skipping registration path=%s event_id=%s",
+            "/".join(node_path),
+            event_id,
+        )
+        return
+
     entity = _build_entity(ctx)
     fqn = _expected_fqn(settings.openmetadata_fqn_prefix, node_path)
     await _create_or_update(
