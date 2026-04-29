@@ -26,6 +26,7 @@ storage/
 
 # Environment secrets
 .env
+.secrets
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
