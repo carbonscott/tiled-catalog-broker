@@ -105,3 +105,25 @@ class TestGetApiKey:
             os.environ["TILED_API_KEY"] = old_val
         if old_key:
             os.environ["TILED_KEY"] = old_key
+
+
+class TestServerPathMap:
+    """Tests for translate_host_to_server() + its env-var parser."""
+
+    def test_no_env_is_identity(self):
+        from tiled_catalog_broker.config import translate_host_to_server
+        os.environ.pop("TILED_SERVER_PATH_MAP", None)
+        assert translate_host_to_server("/sdf/a/b.h5") == "/sdf/a/b.h5"
+
+    def test_env_rewrites_prefix(self):
+        from tiled_catalog_broker.config import translate_host_to_server
+        os.environ["TILED_SERVER_PATH_MAP"] = (
+            "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/=/prjmaiqmag01/"
+        )
+        try:
+            got = translate_host_to_server(
+                "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/x.h5"
+            )
+            assert got == "/prjmaiqmag01/data-source/x.h5"
+        finally:
+            del os.environ["TILED_SERVER_PATH_MAP"]

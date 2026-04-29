@@ -26,6 +26,7 @@ from tiled.structures.array import ArrayStructure
 from tiled.structures.core import StructureFamily
 from tiled.structures.data_source import Asset, DataSource, Management
 
+from .config import translate_host_to_server
 from .utils import (
     ARTIFACT_STANDARD_COLS,
     get_artifact_info,
@@ -43,17 +44,24 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
     Args:
         art_row: DataFrame row with artifact manifest columns.
         base_dir: Base directory for resolving relative file paths (local).
-        server_base_dir: If provided, used for the asset data_uri instead of
-            base_dir.  Needed when the server sees the filesystem at a
-            different mount point (e.g. K8s pod).
+        server_base_dir: Optional explicit override for the asset data_uri
+            base. When None, ``TILED_SERVER_PATH_MAP`` is consulted to
+            translate the host path to its server-side equivalent — the
+            common case when the Tiled server sees the filesystem at a
+            different mount (K8s pod, reverse proxy, etc.).
 
     Returns:
         Tuple of (DataSource, data_shape, data_dtype).
     """
     h5_rel_path = art_row["file"]
-    uri_base = server_base_dir if server_base_dir is not None else base_dir
-    h5_full_path = os.path.join(uri_base, h5_rel_path)
     dataset_path = art_row["dataset"]
+
+    if server_base_dir is not None:
+        h5_full_path = os.path.join(server_base_dir, h5_rel_path)
+    else:
+        h5_full_path = translate_host_to_server(
+            os.path.join(base_dir, h5_rel_path)
+        )
 
     # Determine index for batched files
     index = None
