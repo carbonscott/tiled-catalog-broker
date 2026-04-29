@@ -235,77 +235,53 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
 def verify_registration_http(client):
     """Verify registration via Tiled client.
 
-    Args:
-        client: Tiled client connected to a running server.
+    Walks the three-level hierarchy: root -> dataset container -> entity
+    container -> artifact array. Samples the first of each and reports
+    whether dual-mode access (metadata locators + array children) is
+    present on the entity.
     """
     print("\n" + "=" * 50)
     print("Verification")
     print("=" * 50)
 
-    total = len(client)
-    print(f"Total entity containers: {total}")
-
-    if total == 0:
-        print("No containers registered yet.")
+    dataset_keys = list(client.keys())
+    print(f"Dataset containers at root: {len(dataset_keys)}")
+    if not dataset_keys:
+        print("No datasets registered yet.")
         return
+    print(f"  {dataset_keys[:5]}")
 
-    keys = list(client.keys())[:10]
-    print(f"First keys: {keys[:3]}")
+    ds_key = dataset_keys[0]
+    ds = client[ds_key]
+    ds_meta = dict(ds.metadata)
+    print(f"\nDataset '{ds_key}':")
+    print(f"  metadata keys: {len(ds_meta)}")
+    if ds_meta:
+        print(f"    sample: {sorted(ds_meta.keys())[:8]}")
 
-    # Find a container node to verify (skip non-container nodes like arrays)
-    # TODO: each client[k] is an HTTP request; could be slow on servers with
-    # many non-container nodes at root level.
-    h = None
-    ent_key = None
-    for k in keys:
-        node = client[k]
-        if hasattr(node, "keys"):
-            h = node
-            ent_key = k
-            break
-
-    if h is None:
-        print("No container nodes found at root level.")
+    ent_keys = list(ds.keys())
+    print(f"  entity containers: {len(ent_keys)}")
+    if not ent_keys:
         return
+    print(f"    sample: {ent_keys[:3]}")
 
-    meta = dict(h.metadata)
+    ent_key = ent_keys[0]
+    ent = ds[ent_key]
+    ent_meta = dict(ent.metadata)
+    path_keys = [k for k in ent_meta if k.startswith("path_")]
+    print(f"\nEntity '{ent_key}':")
+    print(f"  metadata keys: {len(ent_meta)} (locators: {len(path_keys)})")
 
-    print(f"\nContainer '{ent_key}':")
+    art_keys = list(ent.keys()) if hasattr(ent, "keys") else []
+    print(f"  artifact children: {len(art_keys)}")
+    if not art_keys:
+        print("\n  WARNING: no array children — Mode B access will fail.")
+        return
+    print(f"    sample: {art_keys[:5]}")
 
-    param_keys = [k for k in meta if not k.startswith(("path_", "dataset_", "index_"))]
-    print(f"  Metadata keys: {param_keys}")
-
-    path_keys = [k for k in meta if k.startswith("path_")]
-    dataset_keys = [k for k in meta if k.startswith("dataset_")]
-    index_keys = [k for k in meta if k.startswith("index_")]
-    print(f"\n  Locators in metadata:")
-    print(f"    path_*:    {len(path_keys)}")
-    print(f"    dataset_*: {len(dataset_keys)}")
-    print(f"    index_*:   {len(index_keys)}")
-    for pk in path_keys[:3]:
-        val = meta[pk]
-        if isinstance(val, str) and len(val) > 50:
-            val = "..." + val[-47:]
-        print(f"    {pk}: {val}")
-
-    children = list(h.keys())
-    print(f"\n  Array children: {len(children)}")
-    if children:
-        print(f"    {children[:5]}")
-        if len(children) > 5:
-            print(f"    ... and {len(children) - 5} more")
-
-        child_key = children[0]
-        child = h[child_key]
-        print(f"\n  Sample child '{child_key}':")
-        print(f"    Shape: {child.shape}")
-        print(f"    Dtype: {child.dtype}")
-
-    if path_keys and children:
-        print("\n  VERIFIED: Both locators AND array children present!")
-    else:
-        print("\n  WARNING: Dual-mode incomplete!")
-        if not path_keys:
-            print("    Missing: path_* metadata")
-        if not children:
-            print("    Missing: array children")
+    art = ent[art_keys[0]]
+    shape = getattr(art, "shape", None)
+    dtype = getattr(art, "dtype", None)
+    if shape is not None:
+        print(f"\nArtifact '{art_keys[0]}':")
+        print(f"  shape: {shape}  dtype: {dtype}")
