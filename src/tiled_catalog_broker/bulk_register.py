@@ -208,7 +208,7 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir, dataset_key):
                         to_json_safe(art_row["mimetype"])
                         if "mimetype" in art_df.columns
                         and pd.notna(art_row.get("mimetype"))
-                        else "application/x-hdf5"
+                        else "application/x-hdf5-broker"
                     ),
                 })
 
