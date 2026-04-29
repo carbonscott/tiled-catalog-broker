@@ -1,0 +1,25 @@
+---
+services:
+  amsc-connector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: samwelborn/tiled-amsc-connector:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./src:/app/src
+    command: ["fastapi", "dev", "src/amsc_connector/main.py", "--host", "0.0.0.0", "--port", "8001"]
+    networks:
+      - backend
+
+networks:
+  # Existing tiled Docker network; tiled has TILED_WEBHOOKS_ALLOW_HTTP=true and
+  # TILED_WEBHOOKS_ALLOW_PRIVATE_ADDRESSES=true so it can deliver webhook POSTs
+  # directly to amsc-connector on this network.
+  backend:
+    name: tiled_backend
+    external: true
+
