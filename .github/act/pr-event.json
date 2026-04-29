@@ -1,0 +1,14 @@
+{
+  "pull_request": {
+    "number": 57,
+    "head": {
+      "ref": "feature/amsc-connector",
+      "repo": {
+        "full_name": "carbonscott/tiled-catalog-broker"
+      }
+    },
+    "base": {
+      "ref": "main"
+    }
+  }
+}
