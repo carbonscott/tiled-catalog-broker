@@ -140,7 +140,8 @@ HDF5 data  --->  tcb inspect  --->  tcb generate  --->  tcb register  --->  tile
 ## HTTP Registration (Incremental)
 
 `tcb register` registers data into a **running** Tiled server. It is
-incremental: entities that already exist (by key) are skipped.
+incremental: entities that already exist (by key) are skipped. Server URL
+and apikey are read from `TILED_URL` / `TILED_API_KEY`.
 
 ```bash
 # Register a dataset into the already-running server
@@ -151,6 +152,26 @@ tcb register datasets/mydata.yml -n 5
 
 # Register multiple datasets at once
 tcb register datasets/vdp.yml datasets/edrixs.yml
+```
+
+### Switching between test and prod servers
+
+Keep one `.env` file per server and source the right one before running
+`tcb register`. No CLI flag needed:
+
+```bash
+# .env.test
+TILED_URL=https://tiled-test.internal/api
+TILED_API_KEY=...
+
+# .env.prod
+TILED_URL=https://tiled.internal/api
+TILED_API_KEY=...
+```
+
+```bash
+set -a; source .env.test; set +a   # export every var in the file
+tcb register datasets/mydata.yml
 ```
 
 ---
