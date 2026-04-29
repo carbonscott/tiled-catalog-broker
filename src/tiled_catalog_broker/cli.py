@@ -66,9 +66,12 @@ def _build_dataset_metadata(config, label):
     """Build the full dataset container metadata dict from a config."""
     dataset_metadata = config.get("metadata", {"label": label})
 
-    # Merge provenance into dataset container metadata
-    if "provenance" in config:
-        dataset_metadata.update(config["provenance"])
+    # Merge provenance into dataset container metadata. The block can be
+    # present but empty (all fields commented out), which ruamel parses as
+    # None rather than {} — guard so dict.update(None) doesn't crash.
+    provenance = config.get("provenance")
+    if provenance:
+        dataset_metadata.update(provenance)
 
     # Attach shared axis locators to dataset container metadata
     for ax in config.get("shared", []):
