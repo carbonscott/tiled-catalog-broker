@@ -62,17 +62,20 @@ def get_allowed_values(model, field_name):
 
 
 def get_alias_map(model, field_name):
-    """Build a mapping from alias IDs to (canonical_id, implies_dict).
+    """Build a mapping from alias IDs to (canonicals, implies_dict).
 
     Scans the vocabulary entries for 'aliases' fields and returns a dict
-    that maps each alias to the canonical ID and any implied field values.
+    that maps each alias to a list of canonical IDs and any implied field
+    values. An alias can explicitly set `canonicals: [...]` to expand to
+    multiple tags (e.g. INS_powder -> [INS, powder, INS_powder]); otherwise
+    it falls back to the parent entry's id as the sole canonical.
 
     Args:
         model: Parsed catalog model dict.
         field_name: Key in the model (e.g., "methods", "materials").
 
     Returns:
-        dict: {alias_id: {"canonical": canonical_id, "implies": {...}}}
+        dict: {alias_id: {"canonicals": [id, ...], "implies": {...}}}
     """
     if model is None or field_name not in model:
         return {}
@@ -80,14 +83,14 @@ def get_alias_map(model, field_name):
     for entry in model[field_name]:
         for alias in entry.get("aliases", []):
             if isinstance(alias, dict):
+                canonicals = alias.get("canonicals") or [entry["id"]]
                 alias_map[alias["id"]] = {
-                    "canonical": entry["id"],
+                    "canonicals": list(canonicals),
                     "implies": alias.get("implies", {}),
                 }
             else:
-                # Simple string alias (e.g., materials aliases: [NIPS, nips3])
                 alias_map[alias] = {
-                    "canonical": entry["id"],
+                    "canonicals": [entry["id"]],
                     "implies": {},
                 }
     return alias_map
@@ -116,31 +119,56 @@ def resolve_aliases(cfg, model):
     methods = metadata.get("method", [])
     if isinstance(methods, list):
         resolved = []
+        seen = set()
         for m in methods:
             if m in method_aliases:
                 info = method_aliases[m]
-                resolved.append(info["canonical"])
+                for canon in info["canonicals"]:
+                    if canon not in seen:
+                        resolved.append(canon)
+                        seen.add(canon)
                 messages.append(
-                    f"Resolved alias '{m}' → '{info['canonical']}'"
+                    f"Resolved alias '{m}' → {info['canonicals']}"
                 )
-                # Apply implied fields (e.g., data_type: simulation)
                 for k, v in info.get("implies", {}).items():
                     if not metadata.get(k):
                         metadata[k] = v
                         messages.append(
                             f"  implied {k}={v} from alias '{m}'"
                         )
-            else:
+            elif m not in seen:
                 resolved.append(m)
+                seen.add(m)
         metadata["method"] = resolved
 
     # Resolve material aliases
     mat_aliases = get_alias_map(model, "materials")
     mat = metadata.get("material")
-    if mat and mat in mat_aliases:
-        info = mat_aliases[mat]
-        metadata["material"] = info["canonical"]
-        messages.append(f"Resolved material alias '{mat}' → '{info['canonical']}'")
+    if mat:
+        if isinstance(mat, str):
+            if mat in mat_aliases:
+                info = mat_aliases[mat]
+                metadata["material"] = info["canonicals"][0]
+                messages.append(
+                    f"Resolved material alias '{mat}' → '{info['canonicals'][0]}'"
+                )
+        elif isinstance(mat, list):
+            resolved = []
+            seen = set()
+            for m in mat:
+                if m in mat_aliases:
+                    info = mat_aliases[m]
+                    for canon in info["canonicals"]:
+                        if canon not in seen:
+                            resolved.append(canon)
+                            seen.add(canon)
+                    messages.append(
+                        f"Resolved material alias '{m}' → {info['canonicals']}"
+                    )
+                elif m not in seen:
+                    resolved.append(m)
+                    seen.add(m)
+            metadata["material"] = resolved
 
     return messages
 
@@ -238,19 +266,14 @@ def validate(cfg, model_path=None):
 
     # --- Cross-field validation ---
     dt = metadata.get("data_type")
-    if dt == "experimental" and not metadata.get("facility"):
-        warnings.append("data_type is 'experimental' but no 'facility' specified")
+    if not metadata.get("facility"):
+        warnings.append("'facility' not specified — recommended for institutional provenance")
     if dt == "simulation" and not metadata.get("producer"):
         warnings.append("data_type is 'simulation' but no 'producer' specified")
     if dt == "experimental" and metadata.get("producer"):
         warnings.append(
             "data_type is 'experimental' but 'producer' is set"
             " — producer is typically for simulations"
-        )
-    if dt == "simulation" and metadata.get("facility"):
-        warnings.append(
-            "data_type is 'simulation' but 'facility' is set"
-            " — facility is typically for experiments"
         )
     if not metadata.get("material"):
         warnings.append("'material' not specified — recommended for discoverability")
@@ -274,7 +297,7 @@ def _validate_vocab(metadata, field, model_key, model, warnings, is_list=False):
     if not allowed:
         return
     all_accepted = set(allowed) | set(aliases.keys())
-    values = value if is_list and isinstance(value, list) else [value]
+    values = value if isinstance(value, list) else [value]
     for v in values:
         if v not in all_accepted:
             warnings.append(

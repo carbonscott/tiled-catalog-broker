@@ -1,0 +1,65 @@
+# NiPS3 Multimodal Synthetic (Sunny.jl)
+# Source: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/NiPS3_Multimodal_Synthetic/data
+# 7,616 entities (one HDF5 file per entity)
+# Spin-dynamics simulation with INS + magnetization observables
+
+# === Identity ===
+key: CONCATENATED_MULTIMODAL  # auto-filled on 2026-04-21 from slug(label)
+label: "Concatenated Multimodal"
+
+# === Dataset container metadata ===
+metadata:
+  method: [INS, Magnetization, INS_powder]
+  data_type: simulation
+  material: NiPS3
+  producer: sunny_jl
+  project: MAIQMag
+  facility: "ORNL"
+  description: "Multimodal data for ARW"
+
+# === Data layout ===
+data:
+  directory: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/NiPS3_Multimodal_Synthetic/data
+  file_pattern: "*.h5"
+  layout: per_entity
+
+# === Parameters (9 root scalars, vary per entity) ===
+parameters:
+  location: root_scalars
+  # J1a               float64  range [-5.398, -0.067]
+  # J1b               float64  range [-3.957, -0.001]
+  # J2a               float64  range [0.007, 0.398]
+  # J2b               float64  range [0.005, 0.399]
+  # J3a               float64  range [0.401, 27.433]
+  # J3b               float64  range [0.094, 27.419]
+  # J4                float64  range [-0.758, -0.004]
+  # Ax                float64  range [-0.030, 0.010]
+  # Az                float64  range [0.005, 0.416]
+
+# === Artifacts (observables, vary per entity) ===
+artifacts:
+  # INS spectra
+  - { type: hisym,       dataset: /hisym }        # (384, 384) high-symmetry INS spectrum
+  - { type: powder,      dataset: /powder }       # (512, 256) powder-averaged INS spectrum
+  - { type: powder_mask, dataset: /powder_mask }  # (512, 256) masked powder INS spectrum
+  # Magnetization curves
+  - { type: mag_a,       dataset: /Ma }           # (51,) magnetization along a-axis
+  - { type: mag_b,       dataset: /Mb }           # (51,) magnetization along b-axis
+  - { type: mag_cs,      dataset: /Mcs }          # (51,) magnetization along c*-axis
+
+# === Shared axes (coordinate grids, identical across all entities) ===
+shared:
+  # Magnetization axis
+  - { type: H,               dataset: /H }               # (51,)    magnetic field [0, 15] T
+  # INS high-symmetry axes
+  - { type: energies,         dataset: /energies }         # (384,)   energy grid [0, 100] meV
+  - { type: qs,               dataset: /qs }               # (384, 3) Q-space coordinates [0, 3]
+  # INS powder axes
+  - { type: energies_powder,  dataset: /energies_powder }  # (256,)   energy grid [0, 100] meV
+  - { type: radii,            dataset: /radii }            # (512,)   |Q| radial grid [0, 7.5]
+
+# === Provenance ===
+provenance:
+  # created_at: "2026-01-08"
+  # code_version: ""        # TODO: add Sunny.jl version
+  # code_commit: ""         # TODO: add git hash or GitHub link

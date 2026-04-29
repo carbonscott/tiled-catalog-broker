@@ -106,18 +106,25 @@ class TestGetAliasMap:
         model = load_catalog_model()
         alias_map = get_alias_map(model, "methods")
         assert "EDRIXS" in alias_map
-        assert alias_map["EDRIXS"]["canonical"] == "RIXS"
+        assert alias_map["EDRIXS"]["canonicals"] == ["RIXS"]
         assert alias_map["EDRIXS"]["implies"].get("data_type") == "simulation"
+
+    def test_get_alias_map_multi_canonical_alias(self):
+        """INS_powder expands to multiple canonicals."""
+        model = load_catalog_model()
+        alias_map = get_alias_map(model, "methods")
+        assert "INS_powder" in alias_map
+        assert alias_map["INS_powder"]["canonicals"] == ["INS", "powder", "INS_powder"]
 
     def test_get_alias_map_string_alias(self):
         """NiPS3 string aliases resolve."""
         model = load_catalog_model()
         alias_map = get_alias_map(model, "materials")
         assert "NIPS" in alias_map
-        assert alias_map["NIPS"]["canonical"] == "NiPS3"
+        assert alias_map["NIPS"]["canonicals"] == ["NiPS3"]
         assert alias_map["NIPS"]["implies"] == {}
         assert "nips3" in alias_map
-        assert alias_map["nips3"]["canonical"] == "NiPS3"
+        assert alias_map["nips3"]["canonicals"] == ["NiPS3"]
 
 
 class TestResolveAliases:
