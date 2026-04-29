@@ -1,0 +1,23 @@
+{
+  "action": "opened",
+  "number": 999999,
+  "pull_request": {
+    "number": 999999,
+    "head": {
+      "ref": "feat/amsc-connector",
+      "sha": "abc1234",
+      "repo": {
+        "full_name": "some-fork/tiled-catalog-broker"
+      }
+    },
+    "base": {
+      "ref": "main",
+      "repo": {
+        "full_name": "carbonscott/tiled-catalog-broker"
+      }
+    }
+  },
+  "repository": {
+    "full_name": "carbonscott/tiled-catalog-broker"
+  }
+}
