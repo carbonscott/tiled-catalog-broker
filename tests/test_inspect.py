@@ -169,12 +169,12 @@ class TestInspectDirectory:
 class TestEmitDraftYaml:
     """Tests for emit_draft_yaml()."""
 
-    def test_emit_draft_yaml_describes_key_autofill(self, batched_dir):
-        """emit_draft_yaml explains that `key` is auto-filled from label."""
+    def test_emit_draft_yaml_points_to_stamp_key(self, batched_dir):
+        """emit_draft_yaml directs the user to run `tcb stamp-key`."""
         result = inspect_directory(batched_dir)
         yaml_str = emit_draft_yaml(result)
-        assert "auto-filled at registration" in yaml_str
-        assert "slug(label)" in yaml_str
+        assert "tcb stamp-key" in yaml_str
+        assert "BROAD_SIGMA" in yaml_str  # example shown in the comment
 
     def test_emit_draft_yaml_no_round_in_provenance(self, batched_dir):
         """Provenance section doesn't mention 'round:' or 'prior_distribution:'."""

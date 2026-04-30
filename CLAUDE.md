@@ -40,7 +40,7 @@ tiled-catalog-broker/
 ├── config.yml                 # Tiled server configuration
 ├── src/
 │   └── tiled_catalog_broker/  # Installable Python package
-│       ├── cli.py             # CLI: tcb {inspect,generate,ingest,register}
+│       ├── cli.py             # CLI: tcb {inspect,generate,stamp-key,ingest,register}
 │       ├── config.py          # Environment/config loading
 │       ├── bulk_register.py   # Bulk SQL registration (deprecated, local testing only)
 │       ├── http_register.py   # HTTP registration via Tiled client

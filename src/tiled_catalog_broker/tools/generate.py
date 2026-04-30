@@ -208,12 +208,22 @@ def generate_manifests(yaml_path, output_dir=None, append=False):
 # Per-entity layout
 # ---------------------------------------------------------------------------
 
+def _warn_mixed_uid_paths(content_count, fallback_count, key_prefix):
+    """Warn if a dataset mixes content-addressed UIDs with positional fallbacks."""
+    if content_count and fallback_count:
+        print(
+            f"  WARNING: {key_prefix}: mixed UID paths "
+            f"({content_count} content-addressed, {fallback_count} positional fallback)"
+        )
+
+
 def _generate_per_entity(h5_files, root, key_prefix, artifacts_cfg,
                          shared_cfg, params_cfg, extra_meta_cfg, cfg,
                          param_manifest=None, existing_uids=None):
     """One HDF5 file = one entity. Scalars at root are parameters."""
     ent_rows = []
     art_rows = []
+    content_count = fallback_count = 0
     if existing_uids is None:
         existing_uids = set()
 
@@ -273,8 +283,10 @@ def _generate_per_entity(h5_files, root, key_prefix, artifacts_cfg,
 
         if entity_params:
             uid = _make_uid(entity_params, namespace=key_prefix)
+            content_count += 1
         else:
             uid = _make_uid(f"{key_prefix}_{file_stem}")
+            fallback_count += 1
 
         if uid in existing_uids:
             continue
@@ -314,6 +326,7 @@ def _generate_per_entity(h5_files, root, key_prefix, artifacts_cfg,
         if (i + 1) % 1000 == 0:
             print(f"  Processed {i + 1}/{len(h5_files)} entities...")
 
+    _warn_mixed_uid_paths(content_count, fallback_count, key_prefix)
     return ent_rows, art_rows
 
 
@@ -327,6 +340,7 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
     """Multiple entities stacked along axis-0 in each file."""
     ent_rows = []
     art_rows = []
+    content_count = fallback_count = 0
     global_idx = 0
     if existing_uids is None:
         existing_uids = set()
@@ -391,8 +405,10 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
 
                 if entity_params:
                     uid = _make_uid(entity_params, namespace=key_prefix)
+                    content_count += 1
                 else:
                     uid = _make_uid(f"{key_prefix}_{global_idx:06d}")
+                    fallback_count += 1
 
                 if uid in existing_uids:
                     global_idx += 1
@@ -428,6 +444,7 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
 
         print(f"  Processed {h5_path.name}: {batch_size} entities (total: {global_idx})")
 
+    _warn_mixed_uid_paths(content_count, fallback_count, key_prefix)
     return ent_rows, art_rows
 
 
@@ -441,6 +458,7 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
     """One HDF5 group per entity inside a file."""
     ent_rows = []
     art_rows = []
+    content_count = fallback_count = 0
     global_idx = 0
     if existing_uids is None:
         existing_uids = set()
@@ -495,8 +513,10 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
 
                 if entity_params:
                     uid = _make_uid(entity_params, namespace=key_prefix)
+                    content_count += 1
                 else:
                     uid = _make_uid(f"{key_prefix}_{global_idx:06d}")
+                    fallback_count += 1
 
                 if uid in existing_uids:
                     global_idx += 1
@@ -529,6 +549,7 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
 
         print(f"  Processed {h5_path.name}: {len(group_keys)} entity groups (total: {global_idx})")
 
+    _warn_mixed_uid_paths(content_count, fallback_count, key_prefix)
     return ent_rows, art_rows
 
 

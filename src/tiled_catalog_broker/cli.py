@@ -1,9 +1,10 @@
 """
 CLI entry points for tiled-catalog-broker.
 
-Provides four commands:
+Provides five commands:
   - tcb inspect:        Scan HDF5 data, generate draft YAML contract
   - tcb generate:       Generate Parquet manifests from finalized YAML
+  - tcb stamp-key:      Write the derived catalog key into a YAML
   - tcb ingest:         Bulk SQL registration (local testing, deprecated)
   - tcb register:       HTTP registration against a running Tiled server
 """
@@ -26,74 +27,39 @@ def _load_config(config_path):
         return yaml.load(f)
 
 
-def _resolve_and_persist_key(config, config_path):
-    """Compute the catalog key from `label` and persist it in the YAML.
+def _require_key(config, config_path):
+    """Read the catalog key from a config; print + exit if missing or drifted.
 
-    Rules:
-      - key is slugify_key(label) — the reviewer never authors it.
-      - If the YAML already has a matching key, it's reused (idempotent).
-      - If the YAML has a DIFFERENT key than slug(label) would produce,
-        we error: label drift would silently rename the container.
-      - If the YAML has no key (or blank), we compute it and patch the
-        YAML with a targeted text insertion (preserving every other line
-        verbatim — ruamel round-trip reflows paths and list indentation).
+    register/ingest are read-only with respect to the YAML; if the key is
+    missing, the user runs `tcb stamp-key` to fill it in.
     """
-    import datetime
-    import re
-
     from .utils import slugify_key
 
     label = config.get("label")
     if not label:
-        raise ValueError(
-            f"{config_path}: 'label' is required; 'key' is derived from it."
-        )
+        print(f"\nERROR: {config_path}: 'label' is required.", file=sys.stderr)
+        sys.exit(1)
     expected = slugify_key(label)
 
     current = config.get("key")
-    if current and str(current).strip():
-        if current != expected:
-            raise ValueError(
-                f"{config_path}: stored key '{current}' does not match "
-                f"slug(label) '{expected}'. Either restore the label that "
-                f"produced '{current}', or remove the 'key:' line to "
-                f"re-derive it."
-            )
-        config["key"] = current
-        return current
-
-    config["key"] = expected
-
-    stamp = datetime.date.today().isoformat()
-    new_line = f"key: {expected}  # auto-filled on {stamp} from slug(label)\n"
-
-    with open(config_path) as f:
-        content = f.read()
-
-    placeholder = re.compile(
-        r"^#\s*key is auto-filled.*\n", re.MULTILINE
-    )
-    if placeholder.search(content):
-        content = placeholder.sub(new_line, content, count=1)
-    else:
-        label_re = re.compile(r"^(label\s*:)", re.MULTILINE)
-        if label_re.search(content):
-            content = label_re.sub(new_line + r"\1", content, count=1)
-        else:
-            content = new_line + content
-
-    with open(config_path, "w") as f:
-        f.write(content)
-
-    print(f"  Assigned key '{expected}' (slug of label '{label}') -> {config_path}")
-    return expected
-
-
-def _compute_config_hash(config_path):
-    """Compute SHA256 hash of a YAML config file."""
-    import hashlib
-    with open(config_path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
+    if not current or not str(current).strip():
+        print(
+            f"\nERROR: {config_path}: missing 'key' field. Run\n"
+            f"    tcb stamp-key {config_path}\n"
+            f"to derive '{expected}' from the label.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if current != expected:
+        print(
+            f"\nERROR: {config_path}: stored key '{current}' does not match "
+            f"slug(label) '{expected}'. Either restore the label that "
+            f"produced '{current}', or remove the 'key:' line and run "
+            f"`tcb stamp-key`.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return current
 
 
 def _build_dataset_metadata(config, label):
@@ -176,6 +142,64 @@ def generate_yaml_main():
     _generate_main()
 
 
+# ── tcb stamp-key ─────────────────────────────────────────────
+
+def stamp_key_main():
+    """Write the derived catalog key into a YAML's `key:` field.
+
+    Run this once after authoring a YAML so subsequent `tcb register` and
+    `tcb ingest` calls have a key to use. The key is `slugify_key(label)`;
+    re-running on an already-correct YAML is a no-op. Mismatch between an
+    existing key and slug(label) is an error.
+    """
+    from ruamel.yaml import YAML
+
+    from .utils import slugify_key
+
+    parser = argparse.ArgumentParser(
+        description="Write the derived catalog key into one or more dataset YAMLs."
+    )
+    parser.add_argument("configs", nargs="+", help="Dataset YAML files")
+    args = parser.parse_args()
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+
+    for config_path in args.configs:
+        path = Path(config_path)
+        if not path.exists():
+            print(f"ERROR: {config_path} not found", file=sys.stderr)
+            sys.exit(1)
+
+        with path.open() as f:
+            cfg = yaml.load(f)
+
+        label = cfg.get("label")
+        if not label:
+            print(f"ERROR: {config_path}: 'label' is required", file=sys.stderr)
+            sys.exit(1)
+
+        expected = slugify_key(label)
+        current = cfg.get("key")
+
+        if current and str(current).strip():
+            if current == expected:
+                print(f"{config_path}: key '{current}' already correct (no change).")
+                continue
+            print(
+                f"ERROR: {config_path}: stored key '{current}' does not match "
+                f"slug(label) '{expected}'. Either restore the label that "
+                f"produced '{current}', or remove the 'key:' line and re-run.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        cfg["key"] = expected
+        with path.open("w") as f:
+            yaml.dump(cfg, f)
+        print(f"{config_path}: stamped key '{expected}' (slug of label '{label}')")
+
+
 # ── tcb ingest ────────────────────────────────────────────────
 
 def ingest_main():
@@ -235,7 +259,7 @@ def ingest_main():
     # Register each dataset
     for config_path, (name, config) in zip(args.configs, configs):
         label = config.get("label", name)
-        dataset_key = _resolve_and_persist_key(config, config_path)
+        dataset_key = _require_key(config, config_path)
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
@@ -257,15 +281,13 @@ def ingest_main():
         print(f"\n--- Registering {label} ({n} entities) ---")
 
         dataset_metadata = _build_dataset_metadata(config, label)
-        config_hash = _compute_config_hash(config_path)
 
         ent_nodes, art_nodes, art_data_sources = prepare_node_data(
             ent_df, art_df, max_entities=n, base_dir=base_dir,
             dataset_key=dataset_key,
         )
         bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
-                      dataset_key=dataset_key, dataset_metadata=dataset_metadata,
-                      config_hash=config_hash)
+                      dataset_key=dataset_key, dataset_metadata=dataset_metadata)
 
     # Verify
     print()
@@ -332,7 +354,7 @@ def register_main():
         config = _load_config(config_path)
         name = Path(config_path).stem
         label = config.get("label", name)
-        dataset_key = _resolve_and_persist_key(config, config_path)
+        dataset_key = _require_key(config, config_path)
         base_dir = config.get("base_dir")
         if base_dir is None and "data" in config:
             base_dir = config["data"].get("directory")
@@ -372,6 +394,7 @@ def main():
     commands = {
         "inspect": inspect_main,
         "generate": generate_yaml_main,
+        "stamp-key": stamp_key_main,
         "ingest": ingest_main,
         "register": register_main,
     }
@@ -379,10 +402,11 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("usage: tcb <command> [args]\n")
         print("commands:")
-        print("  inspect    Scan HDF5 data directory, generate draft YAML contract")
-        print("  generate   Generate Parquet manifests from a finalized YAML contract")
-        print("  ingest     Bulk SQL registration from Parquet manifests")
-        print("  register   HTTP registration against a running Tiled server")
+        print("  inspect     Scan HDF5 data directory, generate draft YAML contract")
+        print("  generate    Generate Parquet manifests from a finalized YAML contract")
+        print("  stamp-key   Write the derived catalog key into a YAML")
+        print("  ingest      Bulk SQL registration from Parquet manifests")
+        print("  register    HTTP registration against a running Tiled server")
         sys.exit(0)
 
     cmd = sys.argv[1]

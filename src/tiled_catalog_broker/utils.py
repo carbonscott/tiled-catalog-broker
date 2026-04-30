@@ -114,13 +114,13 @@ def make_entity_key(ent_row, dataset_key):
 
     The entity key is derived at registration time from the dataset key
     (slug(label)) and the first 13 characters of the entity's manifest
-    uid (two UUID segments for UUIDv5 inputs), so it is not persisted in
-    the manifest itself.
+    uid, so it is not persisted in the manifest itself. ``_make_uid``
+    returns 16-char hex (sha256 truncated), so 13 chars gives ample
+    collision resistance within a dataset.
 
     Examples:
-        >>> make_entity_key({"uid": "636ce3e4-1ea0-5f0f-a515-a4378fa5c842"},
-        ...                 "VDP_SIM")
-        'VDP_SIM_636ce3e4-1ea0'
+        >>> make_entity_key({"uid": "636ce3e41ea05f0f"}, "VDP_SIM")
+        'VDP_SIM_636ce3e41ea05'
     """
     return f"{dataset_key}_{str(ent_row['uid'])[:13]}"
 
