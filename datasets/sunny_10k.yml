@@ -2,7 +2,7 @@
 # 10,000 entities (1 file x 10,000 batch size)
 # Source: linear spin-wave theory S(Q,E) along high-symmetry path
 
-# key is auto-filled at registration as slug(label); don't author it.
+# key is set by `tcb stamp-key`; do not edit by hand.
 label: SUNNY NiPS3 10K
 
 metadata:

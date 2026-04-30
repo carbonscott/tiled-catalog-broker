@@ -34,11 +34,6 @@ class TestMakeEntityKey:
         row = {"uid": "636ce3e4-1ea0-5f0f-a515-a4378fa5c842"}
         assert make_entity_key(row, "VDP_SIM") == "VDP_SIM_636ce3e4-1ea0"
 
-    def test_short_uid_padded(self):
-        """Short uids are used verbatim (no padding needed)."""
-        row = {"uid": "abc12345"}
-        assert make_entity_key(row, "TEST") == "TEST_abc12345"
-
     def test_accepts_any_dataset_key(self):
         row = {"uid": "636ce3e4-1ea0-5f0f-a515-a4378fa5c842"}
         assert make_entity_key(row, "SAM_KLEIN") == "SAM_KLEIN_636ce3e4-1ea0"

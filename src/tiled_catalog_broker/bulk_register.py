@@ -217,7 +217,7 @@ def prepare_node_data(ent_df, art_df, max_entities, base_dir, dataset_key):
 
 
 def bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
-                  dataset_key, dataset_metadata, config_hash=None):
+                  dataset_key, dataset_metadata):
     """Bulk insert all data with trigger disable/rebuild.
 
     Args:
@@ -227,8 +227,6 @@ def bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
         art_data_sources: List of data source info for artifacts.
         dataset_key: Key for the dataset container (e.g. "VDP").
         dataset_metadata: Metadata dict for the dataset container.
-        config_hash: SHA256 hash of the YAML config. If the stored
-            _config_hash differs, metadata is updated in place.
     """
     import datetime as _dt
 
@@ -239,8 +237,6 @@ def bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
         "_last_registered": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "_manifest_entity_count": len(ent_nodes),
     }
-    if config_hash:
-        tracking["_config_hash"] = config_hash
 
     with engine.connect() as conn:
         # Step 1: Disable closure table trigger
@@ -256,20 +252,11 @@ def bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
         if row:
             dataset_parent_id = row[0]
             existing_meta = json.loads(row[1]) if row[1] else {}
-            old_hash = existing_meta.get("_config_hash")
-
-            if config_hash and old_hash == config_hash:
-                print(f"  Using existing container (id={dataset_parent_id}, config unchanged)")
-            else:
-                # Merge new metadata into existing
-                merged = {**existing_meta, **dataset_metadata, **tracking}
-                conn.execute(text(
-                    "UPDATE nodes SET metadata = :metadata WHERE id = :id"
-                ), {"metadata": json.dumps(merged), "id": dataset_parent_id})
-                if old_hash:
-                    print(f"  Updated container metadata (id={dataset_parent_id}, config changed)")
-                else:
-                    print(f"  Updated container metadata (id={dataset_parent_id}, added tracking)")
+            merged = {**existing_meta, **dataset_metadata, **tracking}
+            conn.execute(text(
+                "UPDATE nodes SET metadata = :metadata WHERE id = :id"
+            ), {"metadata": json.dumps(merged), "id": dataset_parent_id})
+            print(f"  Updated container metadata (id={dataset_parent_id})")
         else:
             full_metadata = {**dataset_metadata, **tracking}
             result = conn.execute(text("""

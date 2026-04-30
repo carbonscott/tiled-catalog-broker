@@ -461,8 +461,8 @@ def emit_draft_yaml(result, output_path=None):
 
     # Identity (TODO)
     w("# === REQUIRED: Fill in the label ===")
-    w("# The machine-readable `key` is auto-filled at registration as")
-    w("# slug(label) — e.g., 'Broad Sigma' -> 'BROAD_SIGMA'. Don't author it.")
+    w("# After setting `label`, run `tcb stamp-key <this-file>` to write the")
+    w("# derived `key:` field — e.g. 'Broad Sigma' -> 'BROAD_SIGMA'. Don't author it.")
     w('label: ""            # TODO: human-readable name (e.g., Broad Sigma)')
     w()
 

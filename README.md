@@ -45,13 +45,25 @@ Finalize the YAML (fill in TODOs), then generate Parquet manifests:
 tcb generate datasets/mydata.yml
 ```
 
-### Step 3: Start the Tiled Server
+### Step 3: Stamp the catalog key
+
+Derive the YAML's `key:` field from `label` (this is the dataset's
+container key in Tiled). Run once per YAML; idempotent on re-run.
+
+```bash
+tcb stamp-key datasets/mydata.yml
+```
+
+`tcb register` and `tcb ingest` are read-only over the YAML and will
+error with a hint if `key` is missing.
+
+### Step 4: Start the Tiled Server
 
 ```bash
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
 
-### Step 4: Register into Tiled
+### Step 5: Register into Tiled
 
 In a new terminal, register manifests into the running server via HTTP:
 
@@ -59,7 +71,7 @@ In a new terminal, register manifests into the running server via HTTP:
 tcb register datasets/mydata.yml
 ```
 
-### Step 5: Retrieve Data
+### Step 6: Retrieve Data
 
 Open a new terminal (keep the server running) and start Python:
 
@@ -110,7 +122,7 @@ with h5py.File(f"{base_dir}/{rel_path}") as f:
     curve = f[dataset][:]
 ```
 
-### Step 6: Interactive Exploration (Optional)
+### Step 7: Interactive Exploration (Optional)
 
 ```bash
 uv run --with marimo --with matplotlib \
@@ -124,14 +136,15 @@ uv run --with marimo --with matplotlib \
 The `tcb` CLI subcommands form a pipeline:
 
 ```
-HDF5 data  --->  tcb inspect  --->  tcb generate  --->  tcb register  --->  tiled serve
-                 (draft YAML)       (manifests)         (HTTP)              (queries)
+HDF5 data  -->  tcb inspect  -->  tcb generate  -->  tcb stamp-key  -->  tcb register  -->  tiled serve
+                (draft YAML)      (manifests)        (key in YAML)       (HTTP)             (queries)
 ```
 
 | Subcommand | Purpose | Server needed? |
 |------------|---------|----------------|
 | `tcb inspect` | Scan HDF5 data, generate draft YAML contract | No |
 | `tcb generate` | Generate Parquet manifests from finalized YAML | No |
+| `tcb stamp-key` | Write the derived catalog key into the YAML | No |
 | `tcb register` | Register manifests into a running server (HTTP) | Yes |
 | `tcb ingest` | Bulk-load into local SQLite (testing only, deprecated) | No |
 
@@ -189,7 +202,9 @@ label: MyData
 base_dir: /path/to/hdf5/root
 ```
 
-- `label` -- Human-readable name (becomes the Tiled key).
+- `label` -- Human-readable name. After authoring, run `tcb stamp-key` to
+  derive the Tiled container key (e.g. `"Broad Sigma"` -> `BROAD_SIGMA`)
+  into the YAML's `key:` field.
 - `base_dir` -- Root directory. All HDF5 `file` paths in the manifest are
   relative to this.
 
@@ -201,7 +216,7 @@ The manifest contains two DataFrames:
 
 | Column | Required | Description |
 |--------|----------|-------------|
-| `uid` | Yes | Unique identifier (first 8 chars become the Tiled key) |
+| `uid` | Yes | Content-addressed entity ID. Tiled key is `{dataset_key}_{uid[:13]}` (synthesized at register, not stored). |
 | *(any others)* | No | Become container metadata automatically |
 
 **Artifact DataFrame** -- one row per artifact:
