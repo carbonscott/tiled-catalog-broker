@@ -519,6 +519,18 @@ async def on_sync(
 
     entity = _build_entity(ctx)
     fqn = _expected_fqn(settings.openmetadata_fqn_prefix, node_path)
+
+    if settings.amsc_dry_run:
+        body = entity.model_dump(by_alias=True, exclude_none=True, mode="json")
+        logger.info(
+            "DRY_RUN would_register entity_type=%s fqn=%s location=%s body=%s",
+            entity.type,
+            fqn,
+            ctx.location,
+            body,
+        )
+        return
+
     await _create_or_update(
         settings.openmetadata_fqn_prefix,
         fqn,
