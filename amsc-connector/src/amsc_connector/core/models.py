@@ -68,6 +68,32 @@ class TiledFetchDLQHeaders(BaseDLQHeaders[Literal[DLQErrorType.TILED_FETCH]]):
     )
 
 
+class RetryHeaders(BaseModel):
+    """Headers attached to retry messages re-published to the sync stream."""
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+
+    x_tiled_event_id: str = Field(alias="x-tiled-event-id")
+    x_retry_count: str = Field(alias="x-retry-count")
+    x_first_failed_at: str = Field(alias="x-first-failed-at")
+
+
+class RetryErrorType(StrEnum):
+    AUTH_FAILED = "auth_failed"
+    UNKNOWN = "unknown"
+
+
+class RetryPayload(BaseModel):
+    """Payload serialized into the retry ZSET for delayed re-processing."""
+
+    path: list[str]
+    event_id: str
+    retry_count: int = 0
+    first_failed_at: float
+    last_error_type: RetryErrorType
+    entity_type: str | None = None
+
+
 __all__ = [
     "Artifact",
     "ArtifactCollection",
@@ -78,6 +104,9 @@ __all__ = [
     "MLHyperparameter",
     "MLModel",
     "RegistrationDLQHeaders",
+    "RetryErrorType",
+    "RetryHeaders",
+    "RetryPayload",
     "ScientificWork",
     "SyncMessage",
     "Table",

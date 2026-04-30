@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     tiled_retry_wait_initial: float = 1.0
     tiled_retry_wait_max: float = 10.0
 
+    # 401 retry settings (delayed retry via Redis ZSET)
+    dlq_retry_delay_seconds: int = 3600
+    dlq_retry_alert_threshold: int = 10
+
+    # Retry scheduler settings
+    retry_scheduler_poll_interval_seconds: int = 30
+    retry_scheduler_batch_size: int = 50
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
