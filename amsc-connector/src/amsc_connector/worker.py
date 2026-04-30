@@ -1,31 +1,46 @@
 """FastStream worker that consumes tiled sync triggers from Redis Streams."""
 
+import asyncio
+import contextlib
 import json
 import logging
 import os
+import time
 import uuid
 
 import httpx
+import redis.asyncio as aioredis
 import stamina
 import tiled.client as tc
 from faststream import Context, ExceptionMiddleware, FastStream, Header, Logger
 from faststream.redis import RedisBroker, RedisStreamMessage, StreamSub
 from pydantic import BaseModel, computed_field
+from redis.commands.core import AsyncScript
 from tiled.client.utils import ClientError
 from tiled.structures.core import StructureFamily
 
 from amsc_connector.core.config import get_settings
 from amsc_connector.core.constants import (
     HEADER_EVENT_ID,
+    HEADER_FIRST_FAILED_AT,
+    HEADER_RETRY_COUNT,
+    RETRY_ZSET,
     STREAM_CLOSED,
     STREAM_DLQ,
     STREAM_SYNC,
 )
-from amsc_connector.core.exceptions import EntityRegistrationError, TiledFetchError
+from amsc_connector.core.exceptions import (
+    EntityRegistrationAuthError,
+    EntityRegistrationError,
+    TiledFetchError,
+)
 from amsc_connector.core.models import (
     Artifact,
     ArtifactCollection,
     RegistrationDLQHeaders,
+    RetryErrorType,
+    RetryHeaders,
+    RetryPayload,
     ScientificWork,
     SyncMessage,
     TiledFetchDLQHeaders,
@@ -42,17 +57,63 @@ settings = get_settings()
 exc_middleware = ExceptionMiddleware()
 
 
+@exc_middleware.add_handler(EntityRegistrationAuthError)
+async def handle_registration_auth_error(
+    exc: EntityRegistrationAuthError,
+    message: RedisStreamMessage,
+    logger: Logger,
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
+    event_id: str = EventIdDep,
+    retry_count_raw: str = Header(HEADER_RETRY_COUNT, default="0"),
+    first_failed_at_raw: str = Header(HEADER_FIRST_FAILED_AT, default=""),
+) -> None:
+    """Schedule a delayed retry for 401 auth failures via the retry ZSET."""
+    logger.exception(
+        f"Auth failure registering location={exc.location} event_id={event_id}"
+    )
+    sync_msg = SyncMessage.model_validate_json(message.body)
+    retry_count = int(retry_count_raw) + 1
+    payload = RetryPayload(
+        path=sync_msg.path,
+        event_id=event_id,
+        retry_count=retry_count,
+        first_failed_at=float(first_failed_at_raw or time.time()),
+        last_error_type=RetryErrorType.AUTH_FAILED,
+        entity_type=exc.entity_type,
+    )
+    score = time.time() + settings.dlq_retry_delay_seconds
+    await redis_client.zadd(RETRY_ZSET, {payload.model_dump_json(): score})
+
+    if retry_count >= settings.dlq_retry_alert_threshold:
+        logger.error(
+            "401_RETRY_THRESHOLD_EXCEEDED event_id=%s retry_count=%d "
+            "entity_type=%s — possible permanent auth failure",
+            event_id,
+            retry_count,
+            exc.entity_type,
+        )
+
+    logger.info(
+        "Scheduled 401 retry in %ds event_id=%s retry_count=%d entity_type=%s",
+        settings.dlq_retry_delay_seconds,
+        event_id,
+        retry_count,
+        exc.entity_type,
+    )
+
+
 @exc_middleware.add_handler(EntityRegistrationError)
 async def handle_registration_error(
-    exc: EntityRegistrationError, message: RedisStreamMessage, logger: Logger
+    exc: EntityRegistrationError,
+    message: RedisStreamMessage,
+    logger: Logger,
+    event_id: str = EventIdDep,
 ) -> None:
-    """Log and publish failed registration messages to the DLQ."""
-    body = message.body
-    event_id = message.headers.get(HEADER_EVENT_ID, "unknown")
+    """Publish non-auth registration failures to the DLQ stream."""
     logger.exception(f"Failed to register location={exc.location} event_id={event_id}")
     headers = RegistrationDLQHeaders(x_event_id=event_id, x_error=exc.detail[:500])
     await broker.publish(
-        body,
+        message.body,
         stream=STREAM_DLQ,
         headers=headers.model_dump(by_alias=True),
     )
@@ -61,11 +122,13 @@ async def handle_registration_error(
 
 @exc_middleware.add_handler(TiledFetchError)
 async def handle_tiled_fetch_error(
-    exc: TiledFetchError, message: RedisStreamMessage, logger: Logger
+    exc: TiledFetchError,
+    message: RedisStreamMessage,
+    logger: Logger,
+    event_id: str = Header(HEADER_EVENT_ID, default="unknown"),
 ) -> None:
     """Log and publish failed Tiled fetch messages to the DLQ."""
     body = message.body
-    event_id = message.headers.get(HEADER_EVENT_ID, "unknown")
     path_str = "/".join(exc.path)
     logger.exception(
         f"Tiled fetch failed path={path_str} event_id={event_id}: {exc.detail}"
@@ -123,12 +186,97 @@ async def _startup() -> None:
     app.context.set_global("tiled_root", tiled_root)
     logging.info("Connected to Tiled at %s", tiled_url)
 
+    # Own redis.asyncio client for ZSET retry operations
+    redis_client = aioredis.from_url(settings.redis_dsn)
+    app.context.set_global("redis_client", redis_client)
+
+
+# Lua script for atomic score-checked pop from the retry ZSET.
+# Returns and removes only members with score <= the given threshold.
+# Note "score" here refer to the time when the retry should be attempted
+_RETRY_POP_LUA = """
+local result = redis.call(
+    'ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, ARGV[2]
+)
+if #result > 0 then redis.call('ZREM', KEYS[1], unpack(result)) end
+return result
+"""
+
+
+@app.after_startup
+async def _start_retry_scheduler(
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
+) -> None:
+    """Launch the background retry scheduler as an asyncio task."""
+    retry_pop_script: AsyncScript = redis_client.register_script(_RETRY_POP_LUA)  # pyrefly: ignore[not-async]
+    task = asyncio.create_task(_retry_scheduler_loop(retry_pop_script))
+    app.context.set_global("_retry_scheduler_task", task)
+
+
+async def _drain_ready_retries(
+    retry_pop_script: AsyncScript, logger: logging.Logger
+) -> None:
+    """Pop all due items from the retry ZSET and re-publish them."""
+    now = str(time.time())
+    batch_size = str(settings.retry_scheduler_batch_size)
+    while results := await retry_pop_script(keys=[RETRY_ZSET], args=[now, batch_size]):
+        for raw in results:
+            payload = RetryPayload.model_validate_json(raw)
+            headers = RetryHeaders(
+                x_tiled_event_id=payload.event_id,
+                x_retry_count=str(payload.retry_count),
+                x_first_failed_at=str(payload.first_failed_at),
+            )
+            await broker.publish(
+                SyncMessage(path=payload.path).model_dump(),
+                stream=STREAM_SYNC,
+                headers=headers.model_dump(by_alias=True),
+            )
+            logger.info(
+                "Dispatching retry event_id=%s retry_count=%d",
+                payload.event_id,
+                payload.retry_count,
+            )
+
+
+async def _retry_scheduler_loop(retry_pop_script: AsyncScript) -> None:
+    """Poll the retry ZSET and re-dispatch ready items to the sync stream."""
+    logger = logging.getLogger("amsc_connector.retry_scheduler")
+    logger.info(
+        "Retry scheduler started (poll_interval=%ds, batch_size=%d)",
+        settings.retry_scheduler_poll_interval_seconds,
+        settings.retry_scheduler_batch_size,
+    )
+    try:
+        while True:
+            try:
+                await _drain_ready_retries(retry_pop_script, logger)
+            except Exception:
+                logger.exception("Error in retry scheduler loop")
+            await asyncio.sleep(settings.retry_scheduler_poll_interval_seconds)
+    except asyncio.CancelledError:
+        logger.info("Retry scheduler stopped")
+
 
 @app.on_shutdown
 async def _shutdown(
     amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
     tiled_root: tc.container.Container = Context(),  # noqa: B008
 ) -> None:
+    # Cancel the retry scheduler
+    task: asyncio.Task | None = app.context.get("_retry_scheduler_task")
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        app.context.reset_global("_retry_scheduler_task")
+
+    # Close the dedicated Redis client
+    redis_client: aioredis.Redis | None = app.context.get("redis_client")
+    if redis_client is not None:
+        await redis_client.aclose()
+        app.context.reset_global("redis_client")
+
     await amsc_client.aclose()
     tiled_root.context.close()
     app.context.reset_global("amsc_client")
@@ -223,6 +371,14 @@ async def _create_or_update(
     if _is_already_exists(resp):
         resp = await _put_entity(fqn, body, client, entity_type, catalog_name)
         action = "Updated"
+
+    if resp.status_code == 401:
+        raise EntityRegistrationAuthError(
+            resp.text[:300],
+            entity_type=entity_type,
+            catalog_name=catalog_name,
+            location=location,
+        )
 
     if resp.is_error:
         raise EntityRegistrationError(
