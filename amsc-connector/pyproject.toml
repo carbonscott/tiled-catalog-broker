@@ -25,6 +25,12 @@ build-backend = "uv_build"
 dev = [
     "ruff>=0.15.12",
 ]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.0",
+    "testcontainers[redis]>=4.0",
+]
+
 [tool.pyrefly]
 project-includes = [
     "**/*.py*",
@@ -63,3 +69,7 @@ known-first-party = ["amsc-connector"]
 exclude = [
     "thirdparty/",
 ]
+
+[tool.pytest]
+testpaths = ["tests"]
+norecursedirs = ["thirdparty"]
