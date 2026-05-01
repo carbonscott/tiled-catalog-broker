@@ -43,6 +43,12 @@ from .utils import (
 # Callers can override via the max_workers kwarg on register_dataset_http.
 _DEFAULT_MAX_WORKERS = 8
 
+# Metadata keys propagated from the dataset YAML down to every entity
+# and artifact node, so per-node consumers (e.g. amsc-connector's
+# publish gate) can read the flag without walking the hierarchy.
+# Manifest columns of the same name win via setdefault.
+INHERITED_KEYS = ("amsc_public",)
+
 
 def create_data_source(art_row, base_dir, server_base_dir=None):
     """Create a Tiled DataSource for an artifact pointing to external HDF5.
@@ -117,7 +123,7 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
 
 def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
                          parent_client, base_dir, server_base_dir,
-                         dataset_key):
+                         dataset_key, inherited=None):
     """Register a single entity container and its artifact children.
 
     Designed to be called from worker threads. Returns counter deltas so
@@ -128,6 +134,9 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
         ent_added or skipped is 1; art_added counts artifacts successfully
         registered, art_failed counts artifacts that raised during register.
     """
+    if inherited is None:
+        inherited = {}
+
     uid = str(ent_row["uid"])
     ent_key = make_entity_key(ent_row, dataset_key)
 
@@ -150,6 +159,9 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
             metadata[f"dataset_{art_key}"] = art_row["dataset"]
             if "index" in art_row.index and pd.notna(art_row.get("index")):
                 metadata[f"index_{art_key}"] = int(art_row["index"])
+
+    for k, v in inherited.items():
+        metadata.setdefault(k, v)
 
     # Create container with all metadata under dataset
     ent_container = parent_client.create_container(
@@ -175,6 +187,9 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
                 for col in art_columns:
                     if col not in ARTIFACT_STANDARD_COLS:
                         art_metadata[col] = to_json_safe(art_row[col])
+
+                for k, v in inherited.items():
+                    art_metadata.setdefault(k, v)
 
                 ent_container.new(
                     structure_family=StructureFamily.array,
@@ -244,12 +259,15 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     ent_columns = list(ent_df.columns)
     art_columns = list(art_df.columns)
 
+    inherited = {k: dataset_metadata[k] for k in INHERITED_KEYS if k in dataset_metadata}
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(
                 _register_one_entity,
                 ent_row, ent_columns, art_grouped, art_columns,
                 parent_client, base_dir, server_base_dir, dataset_key,
+                inherited,
             )
             for _, ent_row in ent_df.iterrows()
         ]
