@@ -23,6 +23,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
+from tiled.structures.array import ArrayStructure
+from tiled.structures.core import StructureFamily
+from tiled.structures.data_source import Asset, DataSource, Management
 
 from .utils import (
     make_artifact_key,
@@ -60,10 +63,6 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
     Returns:
         Tuple of (DataSource, data_shape, data_dtype).
     """
-    from tiled.structures.core import StructureFamily
-    from tiled.structures.array import ArrayStructure
-    from tiled.structures.data_source import Asset, DataSource, Management
-
     h5_rel_path = art_row["file"]
     dataset_path = art_row["dataset"]
     uri_base = server_base_dir if server_base_dir else base_dir
@@ -125,17 +124,16 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
     the main thread can aggregate across futures without shared state.
 
     Returns:
-        (ent_added, art_added, skipped) — exactly one of ent_added or
-        skipped is 1; art_added counts artifacts successfully registered.
+        (ent_added, art_added, skipped, art_failed) — exactly one of
+        ent_added or skipped is 1; art_added counts artifacts successfully
+        registered, art_failed counts artifacts that raised during register.
     """
-    from tiled.structures.core import StructureFamily
-
     uid = str(ent_row["uid"])
     ent_key = make_entity_key(ent_row, dataset_key)
 
     # Skip if container already exists
     if ent_key in parent_client:
-        return (0, 0, 1)
+        return (0, 0, 1, 0)
 
     # Build metadata dynamically from ALL manifest columns
     metadata = {}
@@ -159,11 +157,11 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
     )
 
     art_added = 0
+    art_failed = 0
     if artifacts is not None:
         for _, art_row in artifacts.iterrows():
+            art_key = make_artifact_key(art_row)
             try:
-                art_key = make_artifact_key(art_row)
-
                 data_source, data_shape, data_dtype = create_data_source(
                     art_row, base_dir=base_dir,
                     server_base_dir=server_base_dir,
@@ -187,9 +185,10 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
                 art_added += 1
 
             except Exception as e:
-                print(f"  ERROR registering artifact {art_key}: {e}")
+                art_failed += 1
+                print(f"  ERROR ent={ent_key} art={art_key}: {e}")
 
-    return (1, art_added, 0)
+    return (1, art_added, 0, art_failed)
 
 
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
@@ -222,6 +221,7 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     ent_count = 0
     art_count = 0
     skip_count = 0
+    art_fail_count = 0
 
     # Create or reuse dataset container
     if dataset_key in client:
@@ -255,22 +255,26 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         ]
 
         for i, future in enumerate(as_completed(futures)):
-            ent_added, art_added, skipped = future.result()
+            ent_added, art_added, skipped, art_failed = future.result()
             ent_count += ent_added
             art_count += art_added
             skip_count += skipped
+            art_fail_count += art_failed
 
             if (i + 1) % 5 == 0 or (i + 1) == n:
                 elapsed = time.time() - start_time
-                rate = (i + 1) / elapsed if elapsed > 0 else 0
+                # Rate counts only entities that did real work; skipped
+                # futures finish in microseconds and would inflate it.
+                rate = ent_count / elapsed if elapsed > 0 else 0
                 print(f"  Progress: {i+1}/{n} entities ({rate:.1f}/sec)")
 
     elapsed_total = time.time() - start_time
     print(f"\nRegistration complete:")
-    print(f"  Entities:     {ent_count}")
-    print(f"  Artifacts:    {art_count}")
-    print(f"  Skipped:      {skip_count}")
-    print(f"  Time:         {elapsed_total:.1f} seconds")
+    print(f"  Entities:        {ent_count}")
+    print(f"  Artifacts:       {art_count}")
+    print(f"  Skipped:         {skip_count}")
+    print(f"  Artifact errors: {art_fail_count}")
+    print(f"  Time:            {elapsed_total:.1f} seconds")
 
     return ent_count > 0
 
