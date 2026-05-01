@@ -185,3 +185,119 @@ class TestValidate:
         del minimal_valid_config["metadata"]["producer"]
         warnings = validate(minimal_valid_config)
         assert any("simulation" in w and "producer" in w for w in warnings)
+
+
+@pytest.fixture
+def minimal_manifest_layout_config(tmp_path):
+    """Minimal valid config for layout: manifest."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    # Writeable empty placeholder parquets — existence is all we check at schema time
+    (data_dir / "ent.parquet").write_bytes(b"")
+    (data_dir / "art.parquet").write_bytes(b"")
+    return {
+        "label": "VDP Multimodal",
+        "data": {
+            "directory": str(data_dir),
+            "layout": "manifest",
+            "entity_manifest": "ent.parquet",
+            "artifact_manifest": "art.parquet",
+            "entity_uid_column": "huid",
+            "artifact_uid_column": "auid",
+            "file_column": "path_rel",
+        },
+        "artifact_datasets": {
+            "gs_state": ["/gs/moment_muB", "/gs/spin_dir"],
+            "mh_curve": ["/curve/H_T", "/curve/M_norm"],
+        },
+        "metadata": {
+            "method": ["SWT"],
+            "data_type": "simulation",
+            "material": "NiPS3",
+            "producer": "sunny_jl",
+        },
+    }
+
+
+class TestValidateManifestLayout:
+    """Tests for layout: manifest schema validation."""
+
+    def test_validate_valid_manifest_config(self, minimal_manifest_layout_config):
+        warnings = validate(minimal_manifest_layout_config)
+        assert isinstance(warnings, list)
+
+    def test_missing_entity_manifest_errors(self, minimal_manifest_layout_config):
+        del minimal_manifest_layout_config["data"]["entity_manifest"]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_manifest_layout_config)
+        assert any("entity_manifest" in e for e in exc_info.value.errors)
+
+    def test_missing_uid_columns_error(self, minimal_manifest_layout_config):
+        del minimal_manifest_layout_config["data"]["entity_uid_column"]
+        del minimal_manifest_layout_config["data"]["artifact_uid_column"]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_manifest_layout_config)
+        errors_joined = "\n".join(exc_info.value.errors)
+        assert "entity_uid_column" in errors_joined
+        assert "artifact_uid_column" in errors_joined
+
+    def test_missing_artifact_datasets_errors(self, minimal_manifest_layout_config):
+        del minimal_manifest_layout_config["artifact_datasets"]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_manifest_layout_config)
+        assert any("artifact_datasets" in e for e in exc_info.value.errors)
+
+    def test_manifest_file_must_exist(self, minimal_manifest_layout_config):
+        minimal_manifest_layout_config["data"]["entity_manifest"] = "nonexistent.parquet"
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_manifest_layout_config)
+        assert any("does not exist" in e for e in exc_info.value.errors)
+
+    def test_artifact_datasets_must_be_dict(self, minimal_manifest_layout_config):
+        minimal_manifest_layout_config["artifact_datasets"] = ["/gs/moment_muB"]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_manifest_layout_config)
+        assert any("must be a mapping" in e for e in exc_info.value.errors)
+
+    def test_artifact_datasets_paths_must_be_absolute(
+        self, minimal_manifest_layout_config
+    ):
+        minimal_manifest_layout_config["artifact_datasets"]["gs_state"] = ["gs/moment"]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_manifest_layout_config)
+        assert any("must be an absolute HDF5 path" in e for e in exc_info.value.errors)
+
+    def test_artifacts_block_ignored_with_warning(
+        self, minimal_manifest_layout_config
+    ):
+        """Authoring `artifacts:` under layout: manifest is tolerated but warned."""
+        minimal_manifest_layout_config["artifacts"] = [
+            {"type": "foo", "dataset": "/foo"}
+        ]
+        warnings = validate(minimal_manifest_layout_config)
+        assert any("artifacts" in w and "ignored" in w for w in warnings)
+
+    def test_absolute_manifest_paths_accepted(self, tmp_path):
+        """Absolute manifest paths are accepted as-is (not relative to directory)."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        ent_path = tmp_path / "ent.parquet"
+        art_path = tmp_path / "art.parquet"
+        ent_path.write_bytes(b"")
+        art_path.write_bytes(b"")
+        cfg = {
+            "label": "Abs Path Test",
+            "data": {
+                "directory": str(data_dir),
+                "layout": "manifest",
+                "entity_manifest": str(ent_path),
+                "artifact_manifest": str(art_path),
+                "entity_uid_column": "huid",
+                "artifact_uid_column": "auid",
+                "file_column": "path_rel",
+            },
+            "artifact_datasets": {"gs_state": ["/gs/spin"]},
+            "metadata": {"method": ["SWT"], "data_type": "simulation",
+                         "producer": "sunny_jl"},
+        }
+        validate(cfg)  # should not raise
