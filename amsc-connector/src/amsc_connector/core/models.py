@@ -91,6 +91,15 @@ class RetryPayload(BaseModel):
     entity_type: str | None = None
 
 
+class PendingEntry(BaseModel):
+    """Shape of one entry returned by redis xpending_range."""
+
+    message_id: bytes
+    consumer: bytes
+    time_since_delivered: int
+    times_delivered: int
+
+
 __all__ = [
     "Artifact",
     "ArtifactCollection",
