@@ -32,12 +32,13 @@ from .utils import (
     ARTIFACT_STANDARD_COLS,
 )
 
-# Number of entities to register concurrently. Each entity does one
-# create_container HTTP call plus one .new() per artifact; the baseline
-# profile showed ~80% of wall-clock in socket.recv across sequential
-# httpx requests, so parallelizing per-entity work is the highest-
-# leverage fix. Tiled uses httpx, which is thread-safe.
-_MAX_WORKERS = 8
+# Default size of the per-entity ThreadPoolExecutor.  Each entity does
+# one create_container HTTP call plus one .new() per artifact; the
+# baseline profile showed ~80% of wall-clock in socket.recv across
+# sequential httpx requests, so parallelizing per-entity work is the
+# highest-leverage fix.  Tiled uses httpx, which is thread-safe.
+# Callers can override via the max_workers kwarg on register_dataset_http.
+_DEFAULT_MAX_WORKERS = 8
 
 
 def create_data_source(art_row, base_dir, server_base_dir=None):
@@ -193,7 +194,8 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
 
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
                           dataset_key, dataset_metadata,
-                          server_base_dir=None):
+                          server_base_dir=None,
+                          max_workers=_DEFAULT_MAX_WORKERS):
     """Register one dataset via HTTP through a running Tiled server.
 
     Creates a dataset container, then entity containers with locator
@@ -210,6 +212,8 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         server_base_dir: If provided, used for asset data_uri instead of
             base_dir.  Needed when the server sees the filesystem at a
             different mount point.
+        max_workers: Size of the ThreadPoolExecutor for per-entity work.
+            Defaults to ``_DEFAULT_MAX_WORKERS``; tune for server capacity.
 
     Returns:
         bool: True if any entities were registered.
@@ -235,12 +239,12 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     art_grouped = art_df.groupby("uid")
 
     print(f"\n--- Registering {label} ({n} entities via HTTP, "
-          f"pool={_MAX_WORKERS}) ---")
+          f"pool={max_workers}) ---")
 
     ent_columns = list(ent_df.columns)
     art_columns = list(art_df.columns)
 
-    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(
                 _register_one_entity,
