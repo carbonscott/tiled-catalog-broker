@@ -10,6 +10,7 @@ Provides five commands:
   - tcb delete:         Delete registered data from a Tiled server
 """
 
+import os
 import sys
 import argparse
 from pathlib import Path
@@ -322,7 +323,21 @@ def register_main():
         metavar="NUM",
         help="Limit number of entities per dataset (default: all)",
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Concurrent registration workers "
+             "(default: TCB_MAX_WORKERS env var, or 8)",
+    )
     args = parser.parse_args()
+
+    max_workers = args.max_workers
+    if max_workers is None:
+        env_val = os.environ.get("TCB_MAX_WORKERS")
+        if env_val:
+            max_workers = int(env_val)
 
     import pandas as pd
     from tiled_catalog_broker.utils import check_server, get_artifact_info
@@ -384,10 +399,15 @@ def register_main():
 
         dataset_metadata = _build_dataset_metadata(config, label)
 
+        kwargs = {}
+        if max_workers is not None:
+            kwargs["max_workers"] = max_workers
+
         register_dataset_http(client, ent_df, art_df, base_dir, label,
                               dataset_key=dataset_key,
                               dataset_metadata=dataset_metadata,
-                              server_base_dir=server_base_dir)
+                              server_base_dir=server_base_dir,
+                              **kwargs)
 
     # Verify
     verify_registration_http(client)
