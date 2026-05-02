@@ -44,9 +44,9 @@ from .utils import (
 _DEFAULT_MAX_WORKERS = 8
 
 # Metadata keys propagated from the dataset YAML down to every entity
-# and artifact node, so per-node consumers (e.g. amsc-connector's
-# publish gate) can read the flag without walking the hierarchy.
-# Manifest columns of the same name win via setdefault.
+# and artifact node, so per-node consumers can read the flag without
+# walking the hierarchy. Manifest columns of the same name win via
+# setdefault.
 INHERITED_KEYS = ("amsc_public",)
 
 
