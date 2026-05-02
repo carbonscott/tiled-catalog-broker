@@ -510,6 +510,7 @@ def emit_draft_yaml(result, output_path=None):
 
     w('  # facility: ""      # optional (institution where data was produced)')
     w('  # description: ""   # optional')
+    w('  amsc_public: false  # propagated to every entity/artifact via INHERITED_KEYS; flip to true for public-readable datasets')
     w()
 
     # Data section
