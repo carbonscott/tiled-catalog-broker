@@ -151,6 +151,13 @@ dataset_fields:
     - name: prior_distribution
       type: string
       description: How parameters were sampled (e.g., uniform, LHS)
+    - name: amsc_public
+      type: bool
+      default: false
+      description: >-
+        Whether the dataset is public-readable. Propagated to every entity
+        and artifact node via INHERITED_KEYS so per-node consumers can
+        check the flag without walking the hierarchy.
 
 # --- Provenance fields ---
 # Optional fields for tracking how and when data was generated.
