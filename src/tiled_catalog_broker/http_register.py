@@ -238,6 +238,7 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     print("Pre-grouping artifacts by uid...")
     art_grouped = art_df.groupby("uid")
 
+    n = len(ent_df)
     print(f"\n--- Registering {label} ({n} entities via HTTP, "
           f"pool={max_workers}) ---")
 
