@@ -528,21 +528,6 @@ Choose metadata fields that help users discover your dataset alongside others.
 Common fields: `organization`, `data_type` (simulation/experimental), `material`,
 `producer`, `facility`, `instrument`, `measurement`.
 
-#### Inherited fields (`amsc_public`)
-
-A small set of metadata keys is **propagated** from the dataset YAML down to
-every entity and artifact node during registration, so per-node consumers can
-read the flag without walking the hierarchy. Currently the only such key is:
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `amsc_public` | bool | `false` | Whether the dataset is public-readable. Propagated to all entity and artifact nodes. |
-
-`tcb inspect` writes this as an active line in the draft YAML (defaulting to
-`false`). Flip to `true` for datasets you want to mark as public. The
-mechanism is implemented in `http_register.py` via the `INHERITED_KEYS`
-tuple — add new keys there to extend propagation.
-
 ### Server configuration
 
 Before ingesting, ensure your dataset's `base_dir` is listed in `config.yml`
