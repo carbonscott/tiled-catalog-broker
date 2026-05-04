@@ -22,9 +22,9 @@ class Settings(BaseSettings):
     # URL that tiled will POST webhook events to
     webhook_external_url: AnyHttpUrl
 
-    # Optional HMAC signing secret — when set, the connector verifies the
+    # HMAC signing secret — the connector verifies the
     # X-Tiled-Signature header on every incoming webhook event
-    webhook_secret: str | None = None
+    webhook_secret: str
 
     # Tiled node path to watch; empty string means the catalog root
     webhook_target_path: str = ""
