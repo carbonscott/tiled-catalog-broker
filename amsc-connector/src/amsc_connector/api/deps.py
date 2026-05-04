@@ -29,13 +29,12 @@ async def _check_signature(
     """Dependency: validate HMAC signature on the raw request body."""
     body = await request.body()
 
-    if settings.webhook_secret is not None:
-        if x_tiled_signature is None:
-            raise HTTPException(
-                status_code=401, detail="Missing X-Tiled-Signature header"
-            )
-        if not _verify_signature(body, settings.webhook_secret, x_tiled_signature):
-            raise HTTPException(status_code=401, detail="Invalid signature")
+    if x_tiled_signature is None:
+        raise HTTPException(
+            status_code=401, detail="Missing X-Tiled-Signature header"
+        )
+    if not _verify_signature(body, settings.webhook_secret, x_tiled_signature):
+        raise HTTPException(status_code=401, detail="Invalid signature")
 
 
 CheckSignature = Depends(_check_signature)
