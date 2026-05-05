@@ -37,6 +37,7 @@ from amsc_connector.core.exceptions import (
 from amsc_connector.core.models import (
     Artifact,
     ArtifactCollection,
+    PendingEntry,
     RegistrationDLQHeaders,
     RetryErrorType,
     RetryHeaders,
@@ -48,8 +49,11 @@ from amsc_connector.core.models import (
 
 Entity = ScientificWork | ArtifactCollection | Artifact
 
+
 CONSUMER_GROUP = "amsc-connector"
 CONSUMER_NAME = os.getenv("WORKER_ID", f"worker-{uuid.uuid4().hex[:8]}")
+RECOVERY_CONSUMER_NAME = f"{CONSUMER_NAME}-r"
+RECOVERY_MIN_IDLE_MS = 30_000
 EventIdDep = Header(HEADER_EVENT_ID)
 
 settings = get_settings()
@@ -258,6 +262,51 @@ async def _retry_scheduler_loop(retry_pop_script: AsyncScript) -> None:
         logger.info("Retry scheduler stopped")
 
 
+async def _cleanup_consumer(
+    redis_client: aioredis.Redis,
+    stream: str,
+    consumer: str,
+) -> None:
+    try:
+        # Re-inject any pending (unacked) messages as new stream entries so
+        # another worker picks them up immediately rather than waiting for
+        # XAUTOCLAIM's idle window.
+        while raw := await redis_client.xpending_range(
+            stream,
+            CONSUMER_GROUP,
+            min="-",
+            max="+",
+            count=100,
+            consumername=consumer,
+        ):
+            for entry in (PendingEntry.model_validate(p) for p in raw):
+                msg_id = entry.message_id
+                msgs = await redis_client.xrange(
+                    stream, min=msg_id, max=msg_id, count=1
+                )
+                if msgs:
+                    _, fields = msgs[0]
+                    # not atomic with xack below — crash here leaves msg in both
+                    # stream and PEL; autoclaim picks it up after 30s (idempotent)
+                    await redis_client.xadd(stream, fields)
+                # another pod's autoclaim can steal this msg between xpending_range
+                # and here; we'd xadd duplicate + ack their copy (idempotent,
+                # guarded by min_idle_time=30s)
+                await redis_client.xack(stream, CONSUMER_GROUP, msg_id)
+                logging.warning(
+                    "Re-queued pending msg %s consumer=%s stream=%s at shutdown",
+                    msg_id,
+                    consumer,
+                    stream,
+                )
+        await redis_client.xgroup_delconsumer(stream, CONSUMER_GROUP, consumer)
+        logging.info("Deleted consumer %s from stream %s", consumer, stream)
+    except Exception:
+        logging.exception(
+            "Failed to clean up consumer %s from stream %s", consumer, stream
+        )
+
+
 @app.on_shutdown
 async def _shutdown(
     amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
@@ -271,9 +320,19 @@ async def _shutdown(
             await task
         app.context.reset_global("_retry_scheduler_task")
 
-    # Close the dedicated Redis client
+    # Delete this worker's consumers from the group on graceful shutdown.
+    # Skip any consumer that still has pending entries — XAUTOCLAIM on another
+    # pod will recover them.  On a crash (not graceful shutdown) this code never
+    # runs, which is fine for the same reason.
     redis_client: aioredis.Redis | None = app.context.get("redis_client")
     if redis_client is not None:
+        await asyncio.gather(
+            *(
+                _cleanup_consumer(redis_client, stream, consumer)
+                for stream in (STREAM_SYNC, STREAM_CLOSED)
+                for consumer in (CONSUMER_NAME, RECOVERY_CONSUMER_NAME)
+            )
+        )
         await redis_client.aclose()
         app.context.reset_global("redis_client")
 
@@ -478,21 +537,13 @@ def _build_entity(
             return Artifact(type="artifact", format=ctx.mimetype, **common)
 
 
-@broker.subscriber(
-    stream=StreamSub(
-        STREAM_SYNC,
-        group=CONSUMER_GROUP,
-        consumer=CONSUMER_NAME,
-    ),
-)
-async def on_sync(
+async def _do_sync(
     msg: SyncMessage,
     logger: Logger,
-    amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
-    tiled_root: tc.container.Container = Context(),  # noqa: B008
-    event_id: str = EventIdDep,
+    amsc_client: httpx.AsyncClient,
+    tiled_root: tc.container.Container,
+    event_id: str,
 ) -> None:
-    """Fetch current node state from Tiled and create-or-update in OpenMetadata."""
     node_path = msg.path
 
     logger.info("sync id=%s path=%s", event_id, "/".join(node_path))
@@ -541,12 +592,65 @@ async def on_sync(
 
 @broker.subscriber(
     stream=StreamSub(
+        STREAM_SYNC,
+        group=CONSUMER_GROUP,
+        consumer=CONSUMER_NAME,
+    ),
+)
+async def on_sync(
+    msg: SyncMessage,
+    logger: Logger,
+    amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
+    tiled_root: tc.container.Container = Context(),  # noqa: B008
+    event_id: str = EventIdDep,
+) -> None:
+    """Fetch current node state from Tiled and create-or-update in OpenMetadata."""
+    await _do_sync(msg, logger, amsc_client, tiled_root, event_id)
+
+
+@broker.subscriber(
+    stream=StreamSub(
+        STREAM_SYNC,
+        group=CONSUMER_GROUP,
+        consumer=RECOVERY_CONSUMER_NAME,
+        min_idle_time=RECOVERY_MIN_IDLE_MS,
+    ),
+)
+async def on_sync_recovery(
+    msg: SyncMessage,
+    logger: Logger,
+    amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
+    tiled_root: tc.container.Container = Context(),  # noqa: B008
+    event_id: str = EventIdDep,
+) -> None:
+    """Reclaim and reprocess sync messages abandoned in the PEL by crashed consumers."""
+    await _do_sync(msg, logger, amsc_client, tiled_root, event_id)
+
+
+@broker.subscriber(
+    stream=StreamSub(
         STREAM_CLOSED,
         group=CONSUMER_GROUP,
         consumer=CONSUMER_NAME,
     ),
 )
 async def on_stream_closed(
+    msg: SyncMessage, logger: Logger, event_id: str = EventIdDep
+) -> None:
+    logger.info(
+        "Received stream_closed event id=%s path=%s", event_id, "/".join(msg.path)
+    )
+
+
+@broker.subscriber(
+    stream=StreamSub(
+        STREAM_CLOSED,
+        group=CONSUMER_GROUP,
+        consumer=RECOVERY_CONSUMER_NAME,
+        min_idle_time=RECOVERY_MIN_IDLE_MS,
+    ),
+)
+async def on_stream_closed_recovery(
     msg: SyncMessage, logger: Logger, event_id: str = EventIdDep
 ) -> None:
     logger.info(
