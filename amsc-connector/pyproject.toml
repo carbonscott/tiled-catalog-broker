@@ -1,0 +1,63 @@
+[project]
+name = "amsc-connector"
+version = "0.1.0"
+description = "FastAPI-based AMSC connector service with Tiled integration"
+readme = "README.md"
+authors = [
+    { name = "Sam Welborn", email = "swelborn@slac.stanford.edu" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.136.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.3",
+    "pydantic-settings>=2.11.0",
+    "tiled[server] @ git+https://github.com/bluesky/tiled@abe3928a0c2c6ed069d00f91c0645d39360938fb",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
+
+[tool.ruff]
+exclude = [
+    "thirdparty/",
+]
+
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "F",    # Pyflakes (catches logical errors, unused variables/imports)
+    "E",    # pycodestyle errors (PEP8 formatting issues)
+    "W",    # pycodestyle warnings
+    "I",    # isort (import sorting)
+    "UP",   # pyupgrade (automatically upgrades syntax for newer Python versions)
+    "B",    # flake8-bugbear (catches common bugs and design gotchas)
+    "C4",   # flake8-comprehensions (helps write better list/dict/set comprehensions)
+    "SIM",  # flake8-simplify (suggests ways to simplify your code)
+    "RUF",  # Ruff-specific rules (often catches modern Python edge cases)
+]
+
+ignore = [
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["amsc-connector"]
+
+[tool.ruff.format]
+exclude = [
+    "thirdparty/",
+]
