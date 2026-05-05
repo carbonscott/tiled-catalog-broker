@@ -15,6 +15,21 @@ services:
     networks:
       - backend
 
+  amsc-connector-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: samwelborn/tiled-amsc-connector:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./src:/app/src
+    command: ["faststream", "run", "amsc_connector.worker:app", "--reload"]
+    networks:
+      - backend
+
 networks:
   # Existing tiled Docker network; tiled has TILED_WEBHOOKS_ALLOW_HTTP=true and
   # TILED_WEBHOOKS_ALLOW_PRIVATE_ADDRESSES=true so it can deliver webhook POSTs
