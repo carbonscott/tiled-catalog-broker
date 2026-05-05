@@ -4,7 +4,7 @@ TODO: THIS IS A TEMPORARY FIX UNTIL CLIENT WORKS
 """
 
 from enum import StrEnum
-from typing import Generic, Literal, TypeVar
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,17 +39,14 @@ class DLQErrorType(StrEnum):
     TILED_FETCH = "tiled_fetch"
 
 
-_ET = TypeVar("_ET", bound=DLQErrorType)
-
-
-class BaseDLQHeaders(BaseModel, Generic[_ET]):
+class BaseDLQHeaders[ET: DLQErrorType](BaseModel):
     """Base headers attached to all DLQ messages."""
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
     x_event_id: str = Field(alias="x-tiled-event-id")
     x_error: str = Field(alias="x-error")
-    x_error_type: _ET = Field(alias="x-error-type")
+    x_error_type: ET = Field(alias="x-error-type")
 
 
 class RegistrationDLQHeaders(BaseDLQHeaders[Literal[DLQErrorType.REGISTRATION]]):
@@ -92,6 +89,15 @@ class RetryPayload(BaseModel):
     first_failed_at: float
     last_error_type: RetryErrorType
     entity_type: str | None = None
+
+
+class PendingEntry(BaseModel):
+    """Shape of one entry returned by redis xpending_range."""
+
+    message_id: bytes
+    consumer: bytes
+    time_since_delivered: int
+    times_delivered: int
 
 
 __all__ = [

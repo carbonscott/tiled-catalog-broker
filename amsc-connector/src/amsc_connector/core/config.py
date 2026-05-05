@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     amsc_api_base_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
     amsc_api_token: str
 
+    # When true, log what would be registered instead of calling the AMSC API
+    amsc_dry_run: bool = False
+
     # Tiled client retry settings (used by stamina)
     tiled_retry_attempts: int = 5
     tiled_retry_timeout: float = 30.0
