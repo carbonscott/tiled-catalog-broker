@@ -13,7 +13,8 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.11.0",
-    "tiled[server] @ git+https://github.com/bluesky/tiled@abe3928a0c2c6ed069d00f91c0645d39360938fb",
+    "stamina>=26.1.0",
+    "tiled[minimal-server, client] @ git+https://github.com/bluesky/tiled@abe3928a0c2c6ed069d00f91c0645d39360938fb",
 ]
 
 [build-system]
