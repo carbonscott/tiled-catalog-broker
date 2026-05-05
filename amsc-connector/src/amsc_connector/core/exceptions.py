@@ -28,6 +28,26 @@ class EntityRegistrationError(Exception):
         super().__init__(detail)
 
 
+class EntityRegistrationAuthError(EntityRegistrationError):
+    """Raised when entity registration fails with 401 Unauthorized."""
+
+    def __init__(
+        self,
+        detail: str,
+        *,
+        entity_type: str | None = None,
+        catalog_name: str | None = None,
+        location: str | None = None,
+    ) -> None:
+        super().__init__(
+            detail,
+            status_code=401,
+            entity_type=entity_type,
+            catalog_name=catalog_name,
+            location=location,
+        )
+
+
 class TiledFetchError(Exception):
     """Raised when a Tiled client operation fails after retries.
 
