@@ -80,8 +80,8 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
         index = int(art_row["index"])
 
     # Get shape and dtype from HDF5 (cached by dataset path)
-    data_shape, _, _, _ = get_artifact_info(base_dir, h5_rel_path, dataset_path, index)
-    data_dtype = np.float64
+    data_shape, dtype_str, _, _ = get_artifact_info(base_dir, h5_rel_path, dataset_path, index)
+    data_dtype = np.dtype(dtype_str)
 
     # Create asset pointing to HDF5 file
     asset = Asset(
