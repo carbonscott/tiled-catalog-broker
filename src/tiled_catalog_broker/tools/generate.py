@@ -47,13 +47,17 @@ _PARAM_MANIFEST_SKIP_COLS = {"file", "filename", "sample_idx", "output_file"}
 
 
 def load_yaml(yaml_path):
-    """Load and validate a dataset YAML config."""
+    """Load a dataset YAML config (validation disabled on this branch).
+
+    Method D's experimental contract: the YAML is authored from md docs +
+    register source only, with no schema/semantic-model feedback. Skipping
+    validate() here means malformed YAMLs surface as runtime errors
+    downstream rather than as schema-driven error messages that would
+    teach the agent the schema.
+    """
     yaml = YAML()
     with open(yaml_path) as f:
         cfg = yaml.load(f)
-    warnings = validate(cfg)
-    for w in warnings:
-        print(f"  Warning: {w}")
     return cfg
 
 
