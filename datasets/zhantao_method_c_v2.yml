@@ -1,0 +1,43 @@
+# Dataset config for Zhantao's 9-dof NiPS3 spin-wave dataset.
+#
+# v2: filled in TODOs from v1 — measurement confirmed as `ins`,
+#     amsc_public set to true.
+#
+# Source data:
+#   /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/Zhantao/
+#       nips3_fwhm4_9dof_20000_20260303_0537.h5    (one ~19.5 GB H5 file)
+#
+# Layout: one HDF5 file with 20,000 sample groups
+#   /sample_<N>/data            (2000, 100)  S(q, w)
+#   /sample_<N>/energies        (100,)       energy axis
+#   /sample_<N>/qs_rlu          (3, 2000)    q-points (rlu)
+#   /sample_<N>/qs_lab          (3, 2000)    q-points (lab)
+#   /sample_<N>/powder_data     (300, 100)   powder-averaged S(|q|, w)
+#   /sample_<N>/powder_energies (100,)       powder energy axis
+#   /sample_<N>/powder_qs_lab   (300,)       powder |q| axis
+#   /sample_<N>/params/{Ax,Az,J1a,J1b,J2a,J2b,J3a,J3b,J4}   9 scalar couplings
+#
+# Manifests (entities.parquet, artifacts.parquet) are produced by
+#   scripts/gen_zhantao_method_c.py
+# and written to datasets/manifests/Zhantao_C/ — `tcb register` finds them
+# automatically next to this YAML.
+
+label: Zhantao_C
+
+# `tcb stamp-key` will fill the slugified key field (ZHANTAO_C) on demand.
+
+data:
+  directory: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/Zhantao
+  # Server sees the same files via a different mount root
+  # (TILED_HOST_DATA_ROOT vs TILED_SERVER_DATA_ROOT).
+  server_base_dir: /prjmaiqmag01/data-source/Zhantao
+
+metadata:
+  organization: MAIQMag
+  data_type: simulation
+  material: NiPS3
+  producer: Sunny.jl
+  # Spin-wave-theory S(q,w); essentially simulated INS data.
+  measurement: ins
+  amsc_public: true
+key: ZHANTAO_C
