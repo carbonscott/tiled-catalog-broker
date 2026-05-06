@@ -1,0 +1,70 @@
+# Zhantao_D — 9-DoF NiPS3 spin-wave simulations (Sunny.jl, Latin Hypercube)
+#
+# v3: `layout:` is a discriminator string ('grouped'), not a dict.
+# Layout-specific fields go alongside it under data:. v2 attempted a
+# nested layout: dict and got "Unknown layout '{...}'".
+
+label: Zhantao_D
+key: ZHANTAO_D
+
+data:
+  directory: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/Zhantao
+  server_base_dir: /prjmaiqmag01/data-source/Zhantao
+  # Layout discriminator. cli.py advertises three: per_entity, batched, grouped.
+  layout: grouped
+  # Single source HDF5 file (relative to data.directory).
+  file: nips3_fwhm4_9dof_20000_20260303_0537.h5
+  # How to enumerate entities: each top-level group whose name matches
+  # the glob is one entity.  uid = the group name.
+  entity_glob: "sample_*"
+  uid_template: "{group}"
+  # Per-entity scalar parameters → entity manifest columns.
+  params:
+    group: params
+    fields:
+      - Ax
+      - Az
+      - J1a
+      - J1b
+      - J2a
+      - J2b
+      - J3a
+      - J3b
+      - J4
+  # Per-entity artifact arrays. dataset is interpolated with the
+  # entity uid; index is null in the grouped layout.
+  artifacts:
+    - type: sqw
+      dataset: /{uid}/data
+    - type: powder
+      dataset: /{uid}/powder_data
+    - type: qs_rlu
+      dataset: /{uid}/qs_rlu
+    - type: qs_lab
+      dataset: /{uid}/qs_lab
+    - type: powder_qs_lab
+      dataset: /{uid}/powder_qs_lab
+
+metadata:
+  organization: MAIQMag
+  data_type: simulation
+  material: NiPS3
+  measurement: spin-wave
+  description: >
+    9-DoF Hamiltonian parameter sweep for NiPS3 via Latin Hypercube
+    sampling, evaluated with Sunny.jl spin-wave theory at random
+    Brillouin-zone q-points (Nq=2000) plus a powder average (Nq=300)
+    over 100 energy bins.
+
+provenance:
+  producer: Sunny.jl
+  producer_version: TODO
+  producer_commit: TODO
+  prior_distribution: latin-hypercube-9d
+  created_at: TODO
+
+shared:
+  - type: energies
+    dataset: /sample_1/energies
+  - type: powder_energies
+    dataset: /sample_1/powder_energies
