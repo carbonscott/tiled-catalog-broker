@@ -1,0 +1,109 @@
+# Zhantao_B — NiPS3 multimodal simulation, 9 DOF, FWHM=4, 20,000 samples
+# Source: nips3_fwhm4_9dof_20260303 batch (Zhantao)
+# YAML authored by hand (Method B onboarding test — `tcb inspect` not used)
+#
+# === v2 changes (2026-05-01) ===
+# After reading the data producer's repo (data-source/Zhantao/nips-9d-irn):
+#   - decision-1 method: INS → SWT  (data is from Sunny `SpinWaveTheory(sys; ...)`
+#     → `intensities(swt, path_rot; energies, kernel)`, not a measurement)
+#   - decision-2 producer: confirmed `sunny_jl` (`using Sunny`)
+#   - decision-3 amsc_public: false → true  (per user)
+#   - decision-4 artifact names: kept semantic `hisym`/`powder`
+#   - decision-5 Q arrays: registered as artifacts (option b). Each sample has
+#     its own random Q-points, so they are real per-entity data and worth
+#     having as Mode B-loadable arrays for visualization.
+#   - decision-6 created_at: kept 2026-03-03 (filename stem); note the file's
+#     mtime is 2026-04-14, reflecting later post-processing (powder products,
+#     downsampled energy axis, qs_lab added) on top of the raw Sunny output.
+
+# `key:` is set by `tcb stamp-key` (will become ZHANTAO_B). Do not edit by hand.
+label: Zhantao_B
+
+# === Dataset container metadata ===
+metadata:
+  # TODO(decision-1): method — `INS` (it's S(Q,E)) vs `SWT` (linear spin-wave theory).
+  # I picked INS as the safer default since the observable is S(Q,E); flip to
+  # SWT (or add it as a second entry) if the underlying calculation is LSWT.
+  # v2: confirmed SWT — the producer calls Sunny.SpinWaveTheory(sys; ...).
+  method: [SWT]
+  data_type: simulation
+  material: NiPS3
+  # TODO(decision-2): producer — `sunny_jl` is the only NiPS3 spin-dynamics
+  # producer in catalog_model.yml. If Zhantao's pipeline is something else
+  # (custom code, neither sunny_jl nor edrixs nor lajer2025Hamiltonian),
+  # leave it blank or add a new entry to catalog_model.yml.
+  # v2: confirmed sunny_jl from `using Sunny` in nips_9d.jl.
+  producer: sunny_jl
+  project: MAIQMag
+  # TODO(decision-3): set true if this dataset is OK to publish via amsc-public.
+  # v2: set true per user.
+  amsc_public: true
+  description: "9-parameter NiPS3 spin-dynamics sweep (FWHM=4, 20k samples) — Zhantao"
+
+# === Auto-detected from HDF5 exploration ===
+data:
+  directory: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/Zhantao
+  file_pattern: "nips3_fwhm4_9dof_20000_20260303_0537.h5"
+  layout: grouped
+  # 20,000 entity groups: sample_1 … sample_20000 at the file root.
+  # Server sees this dir at /prjmaiqmag01/data-source/Zhantao
+  # (TILED_HOST_DATA_ROOT → TILED_SERVER_DATA_ROOT remap).
+  server_base_dir: /prjmaiqmag01/data-source/Zhantao
+
+parameters:
+  # group_scalars: each entity group has a `params` subgroup of scalar
+  # datasets (Ax, Az, J1a, J1b, J2a, J2b, J3a, J3b, J4) — 9 DOF.
+  location: group_scalars
+  group: params
+
+# === Artifacts: per-entity output observables ===
+# In `grouped` layout the broker prepends `/sample_N/` to each `dataset:` path,
+# so write the path *relative to the entity group*.
+artifacts:
+  # TODO(decision-4): artifact type names. I chose semantic names (`hisym`,
+  # `powder`) over the raw HDF5 dataset names (`data`, `powder_data`).
+  # Change here if you'd rather see `data`/`powder_data` as the Tiled keys.
+  # v2: kept semantic names — they read better in client["ZHANTAO_B"][...][...].
+- type: hisym
+  dataset: /data             # shape (2000, 100) float32 — S(Q,E) on hi-sym path
+- type: powder
+  dataset: /powder_data      # shape (300, 100)  float32 — powder S(Q,E)
+  # TODO(decision-5): the per-entity Q arrays — `qs_lab`, `qs_rlu`, `powder_qs_lab`.
+  # They differ per sample (verified), so they're not shared axes — they're
+  # per-entity data. Three options:
+  #   (a) leave them out (current choice — keep the catalog narrow);
+  #   (b) register them as artifacts so they show up under each entity:
+  #         - { type: qs_lab,        dataset: /qs_lab }         # (3, 2000)
+  #         - { type: qs_rlu,        dataset: /qs_rlu }         # (3, 2000)
+  #         - { type: powder_qs_lab, dataset: /powder_qs_lab }  # (300,)
+  #   (c) something else.
+  # If you want (b), uncomment the block above.
+  # v2: chose (b) — random Q-points per sample (`qs_rlu = [rand(3) .- 0.5
+  # for _ in 1:n_q_points]` in nips_9d.jl) means these axes are essential to
+  # interpret each sample's `hisym` array.
+- {type: qs_lab, dataset: /qs_lab}                    # (3, 2000)
+- {type: qs_rlu, dataset: /qs_rlu}                    # (3, 2000)
+- {type: powder_qs_lab, dataset: /powder_qs_lab}      # (300,)
+
+# === Shared axes: identical across all entities ===
+# Verified that `energies` and `powder_energies` are byte-identical between
+# sample_1 and sample_2. They live at /sample_N/energies but the canonical
+# location pointer below is documentation — broker just records it as a
+# `shared_dataset_<type>` field on the dataset container metadata.
+shared:
+- type: energies
+  dataset: /energies            # (100,) float32, range [0, 100]
+- type: powder_energies
+  dataset: /powder_energies     # (100,) float32
+
+# === Provenance ===
+provenance:
+  # TODO(decision-6): created_at — filename suffix is `20260303_0537`
+  # (likely YYYYMMDD_HHMM). Confirm or replace with the true generation date.
+  # v2: kept 2026-03-03 from filename. (Note: file mtime is 2026-04-14,
+  # i.e. post-processing happened later, but provenance.created_at refers
+  # to the underlying simulation, which the filename dates to 2026-03-03.)
+  created_at: "2026-03-03"
+  # code_version: ""
+  # code_commit: ""
+key: ZHANTAO_B
