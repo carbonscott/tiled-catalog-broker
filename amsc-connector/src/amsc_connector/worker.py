@@ -108,11 +108,18 @@ async def handle_retryable_registration_error(
         type(exc), UNKNOWN_REGISTRATION_RETRY_POLICY
     )
     error_type = policy.error_type
-    logger.exception(
-        "Retryable registration failure error_type=%s location=%s event_id=%s",
+    logger.error(
+        "Retryable registration failure error_type=%s status=%s detail=%s "
+        "location=%s event_id=%s",
         error_type,
+        exc.status_code,
+        exc.detail,
         exc.location,
         event_id,
+    )
+    logger.debug(
+        "Retryable registration failure traceback",
+        exc_info=True,
     )
 
     sync_msg = SyncMessage.model_validate_json(message.body)
@@ -159,7 +166,13 @@ async def handle_registration_error(
     event_id: str = EventIdDep,
 ) -> None:
     """Publish non-auth registration failures to the DLQ stream."""
-    logger.exception(f"Failed to register location={exc.location} event_id={event_id}")
+    logger.exception(
+        "Failed to register status=%s detail=%s location=%s event_id=%s",
+        exc.status_code,
+        exc.detail,
+        exc.location,
+        event_id,
+    )
     headers = RegistrationDLQHeaders(x_event_id=event_id, x_error=exc.detail[:500])
     await broker.publish(
         message.body,
