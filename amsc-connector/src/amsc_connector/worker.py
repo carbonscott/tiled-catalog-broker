@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 
 import httpx
 import redis.asyncio as aioredis
@@ -32,6 +33,8 @@ from amsc_connector.core.constants import (
 from amsc_connector.core.exceptions import (
     EntityRegistrationAuthError,
     EntityRegistrationError,
+    EntityRegistrationParentMissingError,
+    RetryableEntityRegistrationError,
     TiledFetchError,
 )
 from amsc_connector.core.models import (
@@ -61,9 +64,38 @@ settings = get_settings()
 exc_middleware = ExceptionMiddleware()
 
 
-@exc_middleware.add_handler(EntityRegistrationAuthError)
-async def handle_registration_auth_error(
-    exc: EntityRegistrationAuthError,
+@dataclass(frozen=True)
+class RegistrationRetryPolicy:
+    error_type: RetryErrorType
+    delay_seconds: int
+    alert_threshold: int
+
+
+REGISTRATION_RETRY_POLICIES: dict[
+    type[RetryableEntityRegistrationError], RegistrationRetryPolicy
+] = {
+    EntityRegistrationAuthError: RegistrationRetryPolicy(
+        error_type=RetryErrorType.AUTH_FAILED,
+        delay_seconds=settings.auth_retry_delay_seconds,
+        alert_threshold=settings.auth_retry_alert_threshold,
+    ),
+    EntityRegistrationParentMissingError: RegistrationRetryPolicy(
+        error_type=RetryErrorType.MISSING_PARENT_ENTITY,
+        delay_seconds=settings.missing_parent_retry_delay_seconds,
+        alert_threshold=settings.missing_parent_retry_alert_threshold,
+    ),
+}
+
+UNKNOWN_REGISTRATION_RETRY_POLICY = RegistrationRetryPolicy(
+    error_type=RetryErrorType.UNKNOWN,
+    delay_seconds=settings.auth_retry_delay_seconds,
+    alert_threshold=settings.auth_retry_alert_threshold,
+)
+
+
+@exc_middleware.add_handler(RetryableEntityRegistrationError)
+async def handle_retryable_registration_error(
+    exc: RetryableEntityRegistrationError,
     message: RedisStreamMessage,
     logger: Logger,
     redis_client: aioredis.Redis = Context(),  # noqa: B008
@@ -71,10 +103,18 @@ async def handle_registration_auth_error(
     retry_count_raw: str = Header(HEADER_RETRY_COUNT, default="0"),
     first_failed_at_raw: str = Header(HEADER_FIRST_FAILED_AT, default=""),
 ) -> None:
-    """Schedule a delayed retry for 401 auth failures via the retry ZSET."""
-    logger.exception(
-        f"Auth failure registering location={exc.location} event_id={event_id}"
+    """Schedule a delayed retry for retryable registration failures."""
+    policy = REGISTRATION_RETRY_POLICIES.get(
+        type(exc), UNKNOWN_REGISTRATION_RETRY_POLICY
     )
+    error_type = policy.error_type
+    logger.exception(
+        "Retryable registration failure error_type=%s location=%s event_id=%s",
+        error_type,
+        exc.location,
+        event_id,
+    )
+
     sync_msg = SyncMessage.model_validate_json(message.body)
     retry_count = int(retry_count_raw) + 1
     payload = RetryPayload(
@@ -82,27 +122,32 @@ async def handle_registration_auth_error(
         event_id=event_id,
         retry_count=retry_count,
         first_failed_at=float(first_failed_at_raw or time.time()),
-        last_error_type=RetryErrorType.AUTH_FAILED,
+        last_error_type=error_type,
         entity_type=exc.entity_type,
     )
-    score = time.time() + settings.dlq_retry_delay_seconds
-    await redis_client.zadd(RETRY_ZSET, {payload.model_dump_json(): score})
+    await redis_client.zadd(
+        RETRY_ZSET,
+        {payload.model_dump_json(): time.time() + policy.delay_seconds},
+    )
 
-    if retry_count >= settings.dlq_retry_alert_threshold:
+    if retry_count >= policy.alert_threshold:
         logger.error(
-            "401_RETRY_THRESHOLD_EXCEEDED event_id=%s retry_count=%d "
-            "entity_type=%s — possible permanent auth failure",
+            "REGISTRATION_RETRY_THRESHOLD_EXCEEDED event_id=%s retry_count=%d "
+            "entity_type=%s error_type=%s",
             event_id,
             retry_count,
             exc.entity_type,
+            error_type,
         )
 
     logger.info(
-        "Scheduled 401 retry in %ds event_id=%s retry_count=%d entity_type=%s",
-        settings.dlq_retry_delay_seconds,
+        "Scheduled registration retry in %ds event_id=%s retry_count=%d "
+        "entity_type=%s error_type=%s",
+        policy.delay_seconds,
         event_id,
         retry_count,
         exc.entity_type,
+        error_type,
     )
 
 
@@ -397,18 +442,57 @@ async def _put_entity(
         ) from exc
 
 
-def _is_already_exists(resp: httpx.Response) -> bool:
-    """Return True if the response indicates the entity already exists.
-
-    TODO: remove once the API returns 409 Conflict for duplicate entities
-    instead of 400 with a string-matched detail message.
-    """
+def _get_error_detail(resp: httpx.Response) -> str:
+    """Extract error detail from response JSON, falling back to raw text."""
     try:
-        return resp.status_code == 400 and "already exists" in resp.json().get(
-            "detail", ""
+        payload = resp.json()
+        if isinstance(payload, dict) and "detail" in payload:
+            return str(payload["detail"])
+    except ValueError:
+        pass
+    return resp.text.strip() or resp.reason_phrase
+
+
+def _raise_for_error(
+    resp: httpx.Response,
+    *,
+    entity_type: str,
+    catalog_name: str,
+    location: str,
+) -> None:
+    """Raise the appropriate exception for an error response."""
+    detail = _get_error_detail(resp)
+
+    # 401 Unauthorized
+    if resp.status_code == 401:
+        raise EntityRegistrationAuthError(
+            detail[:300],
+            entity_type=entity_type,
+            catalog_name=catalog_name,
+            location=location,
         )
-    except Exception:
-        return False
+
+    # 404 Parent Missing
+    if (
+        resp.status_code == 404
+        and "Parent ScientificWork not found" in detail
+        and entity_type != "scientificWork"
+    ):
+        raise EntityRegistrationParentMissingError(
+            detail[:300],
+            entity_type=entity_type,
+            catalog_name=catalog_name,
+            location=location,
+        )
+
+    # Generic Fallback
+    raise EntityRegistrationError(
+        detail[:300],
+        status_code=resp.status_code,
+        entity_type=entity_type,
+        catalog_name=catalog_name,
+        location=location,
+    )
 
 
 async def _create_or_update(
@@ -426,29 +510,27 @@ async def _create_or_update(
     location = body.get("location", "unknown")
 
     resp = await _post_entity(catalog_name, entity_type, body, client)
-    action = "Created"
-    if _is_already_exists(resp):
+
+    # Success on POST
+    if not resp.is_error:
+        logging.info("Created %s: %s", entity_type, fqn)
+        return
+
+    # Check for conflict
+    detail = _get_error_detail(resp)
+    if resp.status_code in (400, 409) and "already exists" in detail:
         resp = await _put_entity(fqn, body, client, entity_type, catalog_name)
-        action = "Updated"
+        if not resp.is_error:
+            logging.info("Updated %s: %s", entity_type, fqn)
+            return
 
-    if resp.status_code == 401:
-        raise EntityRegistrationAuthError(
-            resp.text[:300],
-            entity_type=entity_type,
-            catalog_name=catalog_name,
-            location=location,
-        )
-
-    if resp.is_error:
-        raise EntityRegistrationError(
-            resp.text[:300],
-            status_code=resp.status_code,
-            entity_type=entity_type,
-            catalog_name=catalog_name,
-            location=location,
-        )
-
-    logging.info("%s %s: %s", action, entity_type, fqn)
+    # If PUT failed, or not "Already Exists" error, handle
+    _raise_for_error(
+        resp,
+        entity_type=entity_type,
+        catalog_name=catalog_name,
+        location=location,
+    )
 
 
 class TiledNodeContext(BaseModel):
