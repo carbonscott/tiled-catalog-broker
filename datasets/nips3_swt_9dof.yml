@@ -1,0 +1,78 @@
+# NiPS3 9-DoF spin-wave simulation (Sunny.jl, Latin Hypercube sampling)
+#
+# Single 19.5 GB HDF5 file with 20,000 entity groups, each containing one
+# S(Q,ω) evaluation at random Brillouin-zone q-points, a powder average,
+# and 9 scalar Hamiltonian couplings under params/.
+#
+# Synthesized from the four-method onboarding comparison
+# (logs/method_{a,b,c,d}/notes.md on this branch). Method choices encoded
+# below — see the inline comments for why this is the canonical contract.
+
+# `key:` is set by `tcb stamp-key`; do not edit by hand.
+label: "NiPS3 SWT 9DoF"
+
+metadata:
+  # The producer's nips_9d.jl calls Sunny.SpinWaveTheory(sys; ...) →
+  # intensities(swt, path_rot; energies, kernel). The output is a *modeled*
+  # S(Q,ω), so SWT (spin-wave theory) is the correct method, not INS.
+  method: [SWT]
+  data_type: simulation
+  material: NiPS3
+  producer: sunny_jl
+  project: MAIQMag
+  amsc_public: true
+  description: >
+    9-DoF Hamiltonian parameter sweep for NiPS3 via Latin Hypercube
+    sampling, evaluated with Sunny.jl spin-wave theory at random
+    Brillouin-zone q-points (Nq=2000) plus a powder average (Nq=300)
+    over 100 energy bins. Producer repository: nips-9d-irn (sits next
+    to the data file in data-source/Zhantao/).
+
+provenance:
+  # Filename stem encodes 2026-03-03; file mtime is 2026-04-14 reflecting
+  # later post-processing (powder products, downsampled energy axis).
+  # created_at refers to the underlying simulation date.
+  created_at: "2026-03-03"
+  prior_distribution: latin-hypercube-9d
+  # producer_version: ""           # TODO: pin to a Sunny.jl release tag
+  # producer_commit: ""            # TODO: nips-9d-irn git commit hash
+
+data:
+  directory: /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/Zhantao
+  file_pattern: "nips3_fwhm4_9dof_20000_20260303_0537.h5"
+  layout: grouped
+  # Server-side mount path — auto-derived by `tcb inspect` from
+  # TILED_HOST_DATA_ROOT / TILED_SERVER_DATA_ROOT env vars; pre-stamped
+  # here for the canonical YAML.
+  server_base_dir: /prjmaiqmag01/data-source/Zhantao
+
+# 9 scalar couplings under <sample_N>/params/ (Ax, Az, J1a, J1b, J2a, J2b,
+# J3a, J3b, J4). `tcb generate` auto-discovers the field names — no need
+# to enumerate them here.
+parameters:
+  location: group_scalars
+  group: params
+
+# Per-entity arrays. In grouped layout, dataset paths are relative to the
+# entity group; the broker prepends /sample_N/ when building manifest rows.
+artifacts:
+  - type: data            # S(Q,ω) on path_rot — shape (2000, 100), float32
+    dataset: data
+  - type: powder_data     # |Q|-binned powder S(|Q|,ω) — shape (300, 100), float32
+    dataset: powder_data
+  - type: qs_lab          # q-vectors in lab frame — shape (3, 2000), float32
+    dataset: qs_lab
+  - type: qs_rlu          # q-vectors in reciprocal-lattice units — shape (3, 2000), float32
+    dataset: qs_rlu
+  - type: powder_qs_lab   # |Q| values for powder bins — shape (300,), float32
+    dataset: powder_qs_lab
+
+# Constant-across-samples axes: stored once on the dataset container as
+# shared_dataset_<type>: <path> rather than as 20,000 redundant artifacts.
+# Path must dereference in h5py — anchored to sample_1's copy as the
+# canonical reference (verified bytewise-identical across samples).
+shared:
+  - type: energies
+    dataset: /sample_1/energies          # shape (100,), float32, range [0, 100]
+  - type: powder_energies
+    dataset: /sample_1/powder_energies   # shape (100,), float32
