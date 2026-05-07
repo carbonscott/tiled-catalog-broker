@@ -11,6 +11,8 @@ class EntityRegistrationError(Exception):
         catalog_name: The catalog the entity was being registered to.
     """
 
+    STATUS_CODE: int | None = None
+
     def __init__(
         self,
         detail: str,
@@ -20,7 +22,7 @@ class EntityRegistrationError(Exception):
         catalog_name: str | None = None,
         location: str | None = None,
     ) -> None:
-        self.status_code = status_code
+        self.status_code = status_code or self.STATUS_CODE
         self.location = location
         self.detail = detail
         self.entity_type = entity_type
@@ -28,24 +30,23 @@ class EntityRegistrationError(Exception):
         super().__init__(detail)
 
 
-class EntityRegistrationAuthError(EntityRegistrationError):
+class RetryableEntityRegistrationError(EntityRegistrationError):
+    """Raised when a registration failure should be retried later."""
+
+
+class EntityRegistrationAuthError(RetryableEntityRegistrationError):
     """Raised when entity registration fails with 401 Unauthorized."""
 
-    def __init__(
-        self,
-        detail: str,
-        *,
-        entity_type: str | None = None,
-        catalog_name: str | None = None,
-        location: str | None = None,
-    ) -> None:
-        super().__init__(
-            detail,
-            status_code=401,
-            entity_type=entity_type,
-            catalog_name=catalog_name,
-            location=location,
-        )
+    STATUS_CODE = 401
+
+
+class EntityRegistrationParentMissingError(RetryableEntityRegistrationError):
+    """Raised when a child entity is registered before its parent scientific work.
+
+    TODO: remove when they remove this requirement
+    """
+
+    STATUS_CODE = 404
 
 
 class TiledFetchError(Exception):

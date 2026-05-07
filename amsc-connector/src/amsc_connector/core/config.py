@@ -62,9 +62,13 @@ class Settings(BaseSettings):
     tiled_retry_wait_initial: float = 1.0
     tiled_retry_wait_max: float = 10.0
 
-    # 401 retry settings (delayed retry via Redis ZSET)
-    dlq_retry_delay_seconds: int = 3600
-    dlq_retry_alert_threshold: int = 10
+    # 401 auth retry settings
+    auth_retry_delay_seconds: int = 120
+    auth_retry_alert_threshold: int = 300
+
+    # Parent ordering retry settings for child entities received before datasets
+    missing_parent_retry_delay_seconds: int = 30
+    missing_parent_retry_alert_threshold: int = 30
 
     # Retry scheduler settings
     retry_scheduler_poll_interval_seconds: int = 30
