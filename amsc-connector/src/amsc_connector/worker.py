@@ -34,6 +34,7 @@ from amsc_connector.core.exceptions import (
     EntityRegistrationAuthError,
     EntityRegistrationError,
     EntityRegistrationParentMissingError,
+    EntityRegistrationServerError,
     RetryableEntityRegistrationError,
     TiledFetchError,
 )
@@ -83,6 +84,11 @@ REGISTRATION_RETRY_POLICIES: dict[
         error_type=RetryErrorType.MISSING_PARENT_ENTITY,
         delay_seconds=settings.missing_parent_retry_delay_seconds,
         alert_threshold=settings.missing_parent_retry_alert_threshold,
+    ),
+    EntityRegistrationServerError: RegistrationRetryPolicy(
+        error_type=RetryErrorType.SERVER_ERROR,
+        delay_seconds=settings.server_error_retry_delay_seconds,
+        alert_threshold=settings.server_error_retry_alert_threshold,
     ),
 }
 
@@ -498,7 +504,17 @@ def _raise_for_error(
             location=location,
         )
 
-    # Generic Fallback
+    # 5xx Server Error — retryable, not our fault
+    if resp.status_code >= 500:
+        raise EntityRegistrationServerError(
+            detail[:300],
+            status_code=resp.status_code,
+            entity_type=entity_type,
+            catalog_name=catalog_name,
+            location=location,
+        )
+
+    # Generic Fallback (4xx other than 401/404-parent)
     raise EntityRegistrationError(
         detail[:300],
         status_code=resp.status_code,

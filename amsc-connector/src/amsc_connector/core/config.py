@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     missing_parent_retry_delay_seconds: int = 30
     missing_parent_retry_alert_threshold: int = 30
 
+    # 5xx server error retry settings (infinite retries, alert after threshold)
+    server_error_retry_delay_seconds: int = 60
+    server_error_retry_alert_threshold: int = 10
+
     # Retry scheduler settings
     retry_scheduler_poll_interval_seconds: int = 30
     retry_scheduler_batch_size: int = 50

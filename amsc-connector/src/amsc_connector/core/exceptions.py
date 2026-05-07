@@ -49,6 +49,12 @@ class EntityRegistrationParentMissingError(RetryableEntityRegistrationError):
     STATUS_CODE = 404
 
 
+class EntityRegistrationServerError(RetryableEntityRegistrationError):
+    """Raised when the catalog API returns a 5xx server error."""
+
+    STATUS_CODE = 500
+
+
 class TiledFetchError(Exception):
     """Raised when a Tiled client operation fails after retries.
 
