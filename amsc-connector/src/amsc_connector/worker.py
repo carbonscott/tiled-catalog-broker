@@ -142,6 +142,7 @@ async def handle_retryable_registration_error(
         RETRY_ZSET,
         {payload.model_dump_json(): time.time() + policy.delay_seconds},
     )
+    await message.delete(redis_client)
 
     if retry_count >= policy.alert_threshold:
         logger.error(
@@ -169,6 +170,7 @@ async def handle_registration_error(
     exc: EntityRegistrationError,
     message: RedisStreamMessage,
     logger: Logger,
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
     event_id: str = EventIdDep,
 ) -> None:
     """Publish non-auth registration failures to the DLQ stream."""
@@ -186,6 +188,7 @@ async def handle_registration_error(
         headers=headers.model_dump(by_alias=True),
     )
     logger.info(f"Published to DLQ: event_id={event_id} location={exc.location}")
+    await message.delete(redis_client)
 
 
 @exc_middleware.add_handler(TiledFetchError)
@@ -193,6 +196,7 @@ async def handle_tiled_fetch_error(
     exc: TiledFetchError,
     message: RedisStreamMessage,
     logger: Logger,
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
     event_id: str = Header(HEADER_EVENT_ID, default="unknown"),
 ) -> None:
     """Log and publish failed Tiled fetch messages to the DLQ."""
@@ -208,6 +212,7 @@ async def handle_tiled_fetch_error(
         headers=headers.model_dump(by_alias=True),
     )
     logger.info(f"Published to DLQ: event_id={event_id} path={path_str}")
+    await message.delete(redis_client)
 
 
 broker = RedisBroker(settings.redis_dsn, middlewares=[exc_middleware])
@@ -699,6 +704,7 @@ async def _do_sync(
         entity,
         amsc_client,
     )
+    logger.info("Registered event_id=%s path=%s", event_id, "/".join(node_path))
 
 
 @broker.subscriber(
@@ -710,13 +716,16 @@ async def _do_sync(
 )
 async def on_sync(
     msg: SyncMessage,
+    message: RedisStreamMessage,
     logger: Logger,
     amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
     tiled_root: tc.container.Container = Context(),  # noqa: B008
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
     event_id: str = EventIdDep,
 ) -> None:
     """Fetch current node state from Tiled and create-or-update in OpenMetadata."""
     await _do_sync(msg, logger, amsc_client, tiled_root, event_id)
+    await message.delete(redis_client)
 
 
 @broker.subscriber(
@@ -729,13 +738,16 @@ async def on_sync(
 )
 async def on_sync_recovery(
     msg: SyncMessage,
+    message: RedisStreamMessage,
     logger: Logger,
     amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
     tiled_root: tc.container.Container = Context(),  # noqa: B008
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
     event_id: str = EventIdDep,
 ) -> None:
     """Reclaim and reprocess sync messages abandoned in the PEL by crashed consumers."""
     await _do_sync(msg, logger, amsc_client, tiled_root, event_id)
+    await message.delete(redis_client)
 
 
 @broker.subscriber(
