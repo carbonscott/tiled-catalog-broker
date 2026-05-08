@@ -206,6 +206,66 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
     return (1, art_added, 0, art_failed)
 
 
+def _register_shared_arrays(parent_client, dataset_metadata, art_df,
+                            base_dir, server_base_dir):
+    """Register `shared:` axes as Tiled array children of the dataset container.
+
+    Reads the dataset-level locator strings (``shared_dataset_<type>:
+    <h5_path>``) that ``_build_dataset_metadata`` already wrote into
+    ``dataset_metadata`` and creates one Tiled array node per entry under
+    the dataset container — so HTTP-only consumers can fetch the shared
+    axis via ``client[dataset_key][type].read()`` instead of having to
+    open the source HDF5 file directly.
+
+    The asset URI is built the same way as per-entity artifacts. The
+    HDF5 file path is taken from the first artifact row (works for any
+    layout where shared axes live in any of the registered files; for
+    grouped layout that's the single file).
+
+    Pre-existing array nodes with the same key are left alone — re-runs
+    of register are safe.
+    """
+    shared = {k.removeprefix("shared_dataset_"): v
+              for k, v in dataset_metadata.items()
+              if k.startswith("shared_dataset_") and isinstance(v, str)}
+    if not shared or len(art_df) == 0:
+        return
+
+    sample_file = art_df["file"].iloc[0]
+    existing_keys = set(parent_client)
+
+    for shared_type, h5_path in shared.items():
+        if shared_type in existing_keys:
+            continue
+        synth_row = pd.Series({
+            "file": sample_file,
+            "dataset": h5_path,
+            "type": shared_type,
+        })
+        try:
+            data_source, shape, dtype = create_data_source(
+                synth_row, base_dir=base_dir,
+                server_base_dir=server_base_dir,
+            )
+            parent_client.new(
+                structure_family=StructureFamily.array,
+                data_sources=[data_source],
+                key=shared_type,
+                metadata={
+                    "type": shared_type,
+                    "shape": list(shape),
+                    "dtype": str(dtype),
+                    "shared_axis": True,
+                    "source_dataset_path": h5_path,
+                },
+            )
+            print(f"  Registered shared array '{shared_type}' "
+                  f"shape={tuple(shape)} dtype={dtype}")
+        except Exception as e:
+            print(f"  WARNING: failed to register shared array "
+                  f"'{shared_type}' (path={h5_path}): {e}")
+
+
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
                           dataset_key, dataset_metadata,
                           server_base_dir=None,
@@ -252,6 +312,14 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     # Pre-group artifacts by uid for O(1) lookup
     print("Pre-grouping artifacts by uid...")
     art_grouped = art_df.groupby("uid")
+
+    # Register shared axes (entries from the YAML's `shared:` block) as
+    # actual Tiled array children of the dataset container, in addition to
+    # the `shared_dataset_<type>` locator metadata that's already on the
+    # container. Lets pure-HTTP consumers fetch them via Mode B without
+    # filesystem access, and saves the per-entity duplication.
+    _register_shared_arrays(parent_client, dataset_metadata, art_df,
+                            base_dir, server_base_dir)
 
     n = len(ent_df)
     print(f"\n--- Registering {label} ({n} entities via HTTP, "
