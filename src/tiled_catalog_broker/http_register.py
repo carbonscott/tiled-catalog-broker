@@ -298,58 +298,77 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     return ent_count > 0
 
 
-def verify_registration_http(client):
+def verify_registration_http(client, target_keys=None):
     """Smoke-probe registration via Tiled client.
 
-    Samples the first dataset, first entity under it, and first artifact
-    under that — root -> dataset -> entity -> artifact — and reports
-    dual-mode access status (metadata locators + array children) on the
-    sampled entity. Not a full per-row verification; the goal is to catch
-    structural breakage (empty container, wrong hierarchy depth) post-
-    register without iterating the whole catalog.
+    Samples one entity + artifact from each target dataset (the ones
+    just registered) — root -> dataset -> entity -> artifact — and
+    reports dual-mode access status (metadata locators + array
+    children) on the sampled entity. Not a full per-row verification;
+    the goal is to catch structural breakage (empty container, wrong
+    hierarchy depth) post-register without iterating the whole catalog.
+
+    Args:
+        client: Tiled client connected to a running server.
+        target_keys: Optional iterable of dataset keys to verify (the
+            keys of the datasets just registered by the caller). If
+            omitted or empty, falls back to sampling the first dataset
+            at the root — useful as a generic health check but does
+            not necessarily exercise just-registered work.
     """
     print("\n" + "=" * 50)
     print("Verification")
     print("=" * 50)
 
-    dataset_keys = list(client.keys())
-    print(f"Dataset containers at root: {len(dataset_keys)}")
-    if not dataset_keys:
+    all_keys = list(client.keys())
+    print(f"Dataset containers at root: {len(all_keys)}")
+    if not all_keys:
         print("No datasets registered yet.")
         return
-    print(f"  {dataset_keys[:5]}")
 
-    ds_key = dataset_keys[0]
-    ds = client[ds_key]
-    ds_meta = dict(ds.metadata)
-    print(f"\nDataset '{ds_key}':")
-    print(f"  metadata keys: {len(ds_meta)}")
-    if ds_meta:
-        print(f"    sample: {sorted(ds_meta.keys())[:8]}")
+    if target_keys:
+        sample_keys = [k for k in target_keys if k in client]
+        missing = [k for k in target_keys if k not in client]
+        if missing:
+            print(f"  WARNING: target keys not visible at root: {missing}")
+        if not sample_keys:
+            return
+        print(f"  sampling just-registered: {sample_keys}")
+    else:
+        sample_keys = [all_keys[0]]
+        print(f"  no target_keys provided — sampling first dataset: {sample_keys[0]}")
 
-    ent_keys = list(ds.keys())
-    print(f"  entity containers: {len(ent_keys)}")
-    if not ent_keys:
-        return
-    print(f"    sample: {ent_keys[:3]}")
+    for ds_key in sample_keys:
+        ds = client[ds_key]
+        ds_meta = dict(ds.metadata)
+        print(f"\nDataset '{ds_key}':")
+        print(f"  metadata keys: {len(ds_meta)}")
+        if ds_meta:
+            print(f"    sample: {sorted(ds_meta.keys())[:8]}")
 
-    ent_key = ent_keys[0]
-    ent = ds[ent_key]
-    ent_meta = dict(ent.metadata)
-    path_keys = [k for k in ent_meta if k.startswith("path_")]
-    print(f"\nEntity '{ent_key}':")
-    print(f"  metadata keys: {len(ent_meta)} (locators: {len(path_keys)})")
+        ent_keys = list(ds.keys())
+        print(f"  entity containers: {len(ent_keys)}")
+        if not ent_keys:
+            continue
+        print(f"    sample: {ent_keys[:3]}")
 
-    art_keys = list(ent.keys()) if hasattr(ent, "keys") else []
-    print(f"  artifact children: {len(art_keys)}")
-    if not art_keys:
-        print("\n  WARNING: no array children — Mode B access will fail.")
-        return
-    print(f"    sample: {art_keys[:5]}")
+        ent_key = ent_keys[0]
+        ent = ds[ent_key]
+        ent_meta = dict(ent.metadata)
+        path_keys = [k for k in ent_meta if k.startswith("path_")]
+        print(f"\n  Entity '{ent_key}':")
+        print(f"    metadata keys: {len(ent_meta)} (locators: {len(path_keys)})")
 
-    art = ent[art_keys[0]]
-    shape = getattr(art, "shape", None)
-    dtype = getattr(art, "dtype", None)
-    if shape is not None:
-        print(f"\nArtifact '{art_keys[0]}':")
-        print(f"  shape: {shape}  dtype: {dtype}")
+        art_keys = list(ent.keys()) if hasattr(ent, "keys") else []
+        print(f"    artifact children: {len(art_keys)}")
+        if not art_keys:
+            print("\n    WARNING: no array children — Mode B access will fail.")
+            continue
+        print(f"      sample: {art_keys[:5]}")
+
+        art = ent[art_keys[0]]
+        shape = getattr(art, "shape", None)
+        dtype = getattr(art, "dtype", None)
+        if shape is not None:
+            print(f"\n  Artifact '{art_keys[0]}':")
+            print(f"    shape: {shape}  dtype: {dtype}")

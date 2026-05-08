@@ -352,6 +352,7 @@ def register_main():
     print(f"Connected to {tiled_url} ({len(client)} existing containers)")
 
     # Load and register each dataset
+    registered_keys = []
     for config_path in args.configs:
         if not Path(config_path).exists():
             print(f"\nERROR: Config not found: {config_path}")
@@ -388,9 +389,11 @@ def register_main():
                               dataset_key=dataset_key,
                               dataset_metadata=dataset_metadata,
                               server_base_dir=server_base_dir)
+        registered_keys.append(dataset_key)
 
-    # Verify
-    verify_registration_http(client)
+    # Verify the just-registered datasets, not whichever happens to sort
+    # first alphabetically at the root.
+    verify_registration_http(client, target_keys=registered_keys)
 
     print("\nDone!")
 
