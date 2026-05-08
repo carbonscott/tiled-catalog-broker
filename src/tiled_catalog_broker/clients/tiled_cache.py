@@ -226,6 +226,9 @@ class TiledCatalogDataset:
         # Fetch all entity keys once.
         # Tiled's meta["count"] is incorrectly reported (~101), causing links["next"]
         # to go None after 200 items. Paginate manually using len() which is correct.
+        # Filter to container children only — dataset containers may also hold
+        # array children (e.g. shared-axis arrays registered by the broker), and
+        # those aren't entities the dataset class should iterate.
         total = len(client)
         batch = 100
         self._ent_keys = []
@@ -233,10 +236,17 @@ class TiledCatalogDataset:
         while offset < total:
             resp = client.context.http_client.get(
                 client.item["links"]["search"],
-                params={"fields": "", "page[limit]": batch, "page[offset]": offset},
+                params={
+                    "fields": "structure_family",
+                    "page[limit]": batch,
+                    "page[offset]": offset,
+                },
             )
             page = resp.json()["data"]
-            self._ent_keys.extend(item["id"] for item in page)
+            self._ent_keys.extend(
+                item["id"] for item in page
+                if item["attributes"].get("structure_family") == "container"
+            )
             offset += len(page)
             if not page:
                 break
