@@ -233,6 +233,8 @@ def _register_shared_arrays(parent_client, dataset_metadata, art_df,
 
     sample_file = art_df["file"].iloc[0]
     existing_keys = set(parent_client)
+    inherited = {k: dataset_metadata[k] for k in INHERITED_KEYS
+                 if k in dataset_metadata}
 
     for shared_type, h5_path in shared.items():
         if shared_type in existing_keys:
@@ -247,17 +249,20 @@ def _register_shared_arrays(parent_client, dataset_metadata, art_df,
                 synth_row, base_dir=base_dir,
                 server_base_dir=server_base_dir,
             )
+            metadata = {
+                "type": shared_type,
+                "shape": list(shape),
+                "dtype": str(dtype),
+                "shared_axis": True,
+                "source_dataset_path": h5_path,
+            }
+            for k, v in inherited.items():
+                metadata.setdefault(k, v)
             parent_client.new(
                 structure_family=StructureFamily.array,
                 data_sources=[data_source],
                 key=shared_type,
-                metadata={
-                    "type": shared_type,
-                    "shape": list(shape),
-                    "dtype": str(dtype),
-                    "shared_axis": True,
-                    "source_dataset_path": h5_path,
-                },
+                metadata=metadata,
             )
             print(f"  Registered shared array '{shared_type}' "
                   f"shape={tuple(shape)} dtype={dtype}")
