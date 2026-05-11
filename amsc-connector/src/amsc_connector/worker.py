@@ -653,6 +653,81 @@ def _build_entity(
             return Artifact(type="artifact", format=ctx.mimetype, **common)
 
 
+def _is_amsc_public(ctx: TiledNodeContext) -> bool:
+    """Return whether a Tiled node should be published to AmSC."""
+    return bool(ctx.metadata.get("amsc_public", False))
+
+
+async def _register_context(
+    ctx: TiledNodeContext,
+    logger: Logger,
+    amsc_client: httpx.AsyncClient,
+) -> None:
+    """Create or update the AmSC entity represented by a Tiled context."""
+    entity = _build_entity(ctx)
+    fqn = _expected_fqn(settings.openmetadata_fqn_prefix, ctx.path)
+
+    if settings.amsc_dry_run:
+        body = entity.model_dump(by_alias=True, exclude_none=True, mode="json")
+        logger.info(
+            "DRY_RUN would_register entity_type=%s fqn=%s location=%s body=%s",
+            entity.type,
+            fqn,
+            ctx.location,
+            body,
+        )
+        return
+
+    await _create_or_update(
+        settings.openmetadata_fqn_prefix,
+        fqn,
+        entity,
+        amsc_client,
+    )
+
+
+async def _ensure_parent_chain(
+    node_path: list[str],
+    logger: Logger,
+    amsc_client: httpx.AsyncClient,
+    tiled_root: tc.container.Container,
+    event_id: str,
+) -> bool:
+    """Create missing parent entities for a path, from the root downward."""
+    for depth in range(1, len(node_path)):
+        parent_path = node_path[:depth]
+        parent_path_str = "/".join(parent_path)
+        try:
+            parent_ctx = _fetch_tiled_context(
+                parent_path, settings.openmetadata_fqn_prefix, tiled_root
+            )
+        except KeyError:
+            logger.error(
+                "Parent node not found in Tiled path=%s event_id=%s",
+                parent_path_str,
+                event_id,
+            )
+            return False
+
+        if not _is_amsc_public(parent_ctx):
+            logger.info(
+                "Parent node is not marked public; cannot create missing parent "
+                "path=%s event_id=%s",
+                parent_path_str,
+                event_id,
+            )
+            return False
+
+        await _register_context(parent_ctx, logger, amsc_client)
+        logger.info(
+            "Ensured parent entity event_id=%s path=%s",
+            event_id,
+            parent_path_str,
+        )
+
+    return True
+
+
 async def _do_sync(
     msg: SyncMessage,
     logger: Logger,
@@ -676,7 +751,7 @@ async def _do_sync(
         )
         return
 
-    if not ctx.metadata.get("amsc_public", False):
+    if not _is_amsc_public(ctx):
         logger.info(
             "Node is not marked public; skipping registration path=%s event_id=%s",
             "/".join(node_path),
@@ -684,26 +759,26 @@ async def _do_sync(
         )
         return
 
-    entity = _build_entity(ctx)
-    fqn = _expected_fqn(settings.openmetadata_fqn_prefix, node_path)
-
-    if settings.amsc_dry_run:
-        body = entity.model_dump(by_alias=True, exclude_none=True, mode="json")
+    try:
+        await _register_context(ctx, logger, amsc_client)
+    except EntityRegistrationParentMissingError:
         logger.info(
-            "DRY_RUN would_register entity_type=%s fqn=%s location=%s body=%s",
-            entity.type,
-            fqn,
-            ctx.location,
-            body,
+            "Parent missing while registering path=%s event_id=%s; "
+            "ensuring parent chain",
+            "/".join(node_path),
+            event_id,
         )
-        return
+        if not await _ensure_parent_chain(
+            node_path,
+            logger,
+            amsc_client,
+            tiled_root,
+            event_id,
+        ):
+            raise
 
-    await _create_or_update(
-        settings.openmetadata_fqn_prefix,
-        fqn,
-        entity,
-        amsc_client,
-    )
+        await _register_context(ctx, logger, amsc_client)
+
     logger.info("Registered event_id=%s path=%s", event_id, "/".join(node_path))
 
 
