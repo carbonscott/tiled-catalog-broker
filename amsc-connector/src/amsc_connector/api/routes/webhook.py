@@ -33,6 +33,13 @@ async def receive_webhook_event(
     if stream is None:
         logger.warning("unknown event.type=%s; routing to DLQ", event.type)
         stream = STREAM_DLQ
+    logger.info(
+        "received tiled webhook event_id=%s type=%s path=%s stream=%s",
+        x_tiled_event_id,
+        event.type,
+        "/".join(event.path),
+        stream,
+    )
     await broker.publish(
         SyncMessage(path=event.path),
         stream=stream,

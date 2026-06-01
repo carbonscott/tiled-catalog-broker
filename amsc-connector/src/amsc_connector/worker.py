@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 
 import httpx
 import redis.asyncio as aioredis
@@ -32,6 +33,9 @@ from amsc_connector.core.constants import (
 from amsc_connector.core.exceptions import (
     EntityRegistrationAuthError,
     EntityRegistrationError,
+    EntityRegistrationParentMissingError,
+    EntityRegistrationServerError,
+    RetryableEntityRegistrationError,
     TiledFetchError,
 )
 from amsc_connector.core.models import (
@@ -61,9 +65,43 @@ settings = get_settings()
 exc_middleware = ExceptionMiddleware()
 
 
-@exc_middleware.add_handler(EntityRegistrationAuthError)
-async def handle_registration_auth_error(
-    exc: EntityRegistrationAuthError,
+@dataclass(frozen=True)
+class RegistrationRetryPolicy:
+    error_type: RetryErrorType
+    delay_seconds: int
+    alert_threshold: int
+
+
+REGISTRATION_RETRY_POLICIES: dict[
+    type[RetryableEntityRegistrationError], RegistrationRetryPolicy
+] = {
+    EntityRegistrationAuthError: RegistrationRetryPolicy(
+        error_type=RetryErrorType.AUTH_FAILED,
+        delay_seconds=settings.auth_retry_delay_seconds,
+        alert_threshold=settings.auth_retry_alert_threshold,
+    ),
+    EntityRegistrationParentMissingError: RegistrationRetryPolicy(
+        error_type=RetryErrorType.MISSING_PARENT_ENTITY,
+        delay_seconds=settings.missing_parent_retry_delay_seconds,
+        alert_threshold=settings.missing_parent_retry_alert_threshold,
+    ),
+    EntityRegistrationServerError: RegistrationRetryPolicy(
+        error_type=RetryErrorType.SERVER_ERROR,
+        delay_seconds=settings.server_error_retry_delay_seconds,
+        alert_threshold=settings.server_error_retry_alert_threshold,
+    ),
+}
+
+UNKNOWN_REGISTRATION_RETRY_POLICY = RegistrationRetryPolicy(
+    error_type=RetryErrorType.UNKNOWN,
+    delay_seconds=settings.auth_retry_delay_seconds,
+    alert_threshold=settings.auth_retry_alert_threshold,
+)
+
+
+@exc_middleware.add_handler(RetryableEntityRegistrationError)
+async def handle_retryable_registration_error(
+    exc: RetryableEntityRegistrationError,
     message: RedisStreamMessage,
     logger: Logger,
     redis_client: aioredis.Redis = Context(),  # noqa: B008
@@ -71,10 +109,25 @@ async def handle_registration_auth_error(
     retry_count_raw: str = Header(HEADER_RETRY_COUNT, default="0"),
     first_failed_at_raw: str = Header(HEADER_FIRST_FAILED_AT, default=""),
 ) -> None:
-    """Schedule a delayed retry for 401 auth failures via the retry ZSET."""
-    logger.exception(
-        f"Auth failure registering location={exc.location} event_id={event_id}"
+    """Schedule a delayed retry for retryable registration failures."""
+    policy = REGISTRATION_RETRY_POLICIES.get(
+        type(exc), UNKNOWN_REGISTRATION_RETRY_POLICY
     )
+    error_type = policy.error_type
+    logger.error(
+        "Retryable registration failure error_type=%s status=%s detail=%s "
+        "location=%s event_id=%s",
+        error_type,
+        exc.status_code,
+        exc.detail,
+        exc.location,
+        event_id,
+    )
+    logger.debug(
+        "Retryable registration failure traceback",
+        exc_info=True,
+    )
+
     sync_msg = SyncMessage.model_validate_json(message.body)
     retry_count = int(retry_count_raw) + 1
     payload = RetryPayload(
@@ -82,27 +135,33 @@ async def handle_registration_auth_error(
         event_id=event_id,
         retry_count=retry_count,
         first_failed_at=float(first_failed_at_raw or time.time()),
-        last_error_type=RetryErrorType.AUTH_FAILED,
+        last_error_type=error_type,
         entity_type=exc.entity_type,
     )
-    score = time.time() + settings.dlq_retry_delay_seconds
-    await redis_client.zadd(RETRY_ZSET, {payload.model_dump_json(): score})
+    await redis_client.zadd(
+        RETRY_ZSET,
+        {payload.model_dump_json(): time.time() + policy.delay_seconds},
+    )
+    await message.delete(redis_client)
 
-    if retry_count >= settings.dlq_retry_alert_threshold:
+    if retry_count >= policy.alert_threshold:
         logger.error(
-            "401_RETRY_THRESHOLD_EXCEEDED event_id=%s retry_count=%d "
-            "entity_type=%s — possible permanent auth failure",
+            "REGISTRATION_RETRY_THRESHOLD_EXCEEDED event_id=%s retry_count=%d "
+            "entity_type=%s error_type=%s",
             event_id,
             retry_count,
             exc.entity_type,
+            error_type,
         )
 
     logger.info(
-        "Scheduled 401 retry in %ds event_id=%s retry_count=%d entity_type=%s",
-        settings.dlq_retry_delay_seconds,
+        "Scheduled registration retry in %ds event_id=%s retry_count=%d "
+        "entity_type=%s error_type=%s",
+        policy.delay_seconds,
         event_id,
         retry_count,
         exc.entity_type,
+        error_type,
     )
 
 
@@ -111,10 +170,17 @@ async def handle_registration_error(
     exc: EntityRegistrationError,
     message: RedisStreamMessage,
     logger: Logger,
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
     event_id: str = EventIdDep,
 ) -> None:
     """Publish non-auth registration failures to the DLQ stream."""
-    logger.exception(f"Failed to register location={exc.location} event_id={event_id}")
+    logger.exception(
+        "Failed to register status=%s detail=%s location=%s event_id=%s",
+        exc.status_code,
+        exc.detail,
+        exc.location,
+        event_id,
+    )
     headers = RegistrationDLQHeaders(x_event_id=event_id, x_error=exc.detail[:500])
     await broker.publish(
         message.body,
@@ -122,6 +188,7 @@ async def handle_registration_error(
         headers=headers.model_dump(by_alias=True),
     )
     logger.info(f"Published to DLQ: event_id={event_id} location={exc.location}")
+    await message.delete(redis_client)
 
 
 @exc_middleware.add_handler(TiledFetchError)
@@ -129,6 +196,7 @@ async def handle_tiled_fetch_error(
     exc: TiledFetchError,
     message: RedisStreamMessage,
     logger: Logger,
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
     event_id: str = Header(HEADER_EVENT_ID, default="unknown"),
 ) -> None:
     """Log and publish failed Tiled fetch messages to the DLQ."""
@@ -144,6 +212,7 @@ async def handle_tiled_fetch_error(
         headers=headers.model_dump(by_alias=True),
     )
     logger.info(f"Published to DLQ: event_id={event_id} path={path_str}")
+    await message.delete(redis_client)
 
 
 broker = RedisBroker(settings.redis_dsn, middlewares=[exc_middleware])
@@ -397,18 +466,67 @@ async def _put_entity(
         ) from exc
 
 
-def _is_already_exists(resp: httpx.Response) -> bool:
-    """Return True if the response indicates the entity already exists.
-
-    TODO: remove once the API returns 409 Conflict for duplicate entities
-    instead of 400 with a string-matched detail message.
-    """
+def _get_error_detail(resp: httpx.Response) -> str:
+    """Extract error detail from response JSON, falling back to raw text."""
     try:
-        return resp.status_code == 400 and "already exists" in resp.json().get(
-            "detail", ""
+        payload = resp.json()
+        if isinstance(payload, dict) and "detail" in payload:
+            return str(payload["detail"])
+    except ValueError:
+        pass
+    return resp.text.strip() or resp.reason_phrase
+
+
+def _raise_for_error(
+    resp: httpx.Response,
+    *,
+    entity_type: str,
+    catalog_name: str,
+    location: str,
+) -> None:
+    """Raise the appropriate exception for an error response."""
+    detail = _get_error_detail(resp)
+
+    # 401 Unauthorized
+    if resp.status_code == 401:
+        raise EntityRegistrationAuthError(
+            detail[:300],
+            entity_type=entity_type,
+            catalog_name=catalog_name,
+            location=location,
         )
-    except Exception:
-        return False
+
+    # 404 Parent Missing
+    if (
+        resp.status_code == 404
+        and "Parent ScientificWork not found" in detail
+        and entity_type != "scientificWork"
+    ):
+        raise EntityRegistrationParentMissingError(
+            detail[:300],
+            entity_type=entity_type,
+            catalog_name=catalog_name,
+            location=location,
+        )
+
+    # 5xx Server Error — retryable, not our fault
+    if resp.status_code >= 500:
+        raise EntityRegistrationServerError(
+            detail[:300],
+            status_code=resp.status_code,
+            entity_type=entity_type,
+            catalog_name=catalog_name,
+            location=location,
+        )
+
+    # Generic Fallback (4xx other than 401/404-parent)
+    raise EntityRegistrationError(
+        detail[:300],
+        status_code=resp.status_code,
+        entity_type=entity_type,
+        catalog_name=catalog_name,
+        location=location,
+    )
 
 
 async def _create_or_update(
@@ -426,29 +544,27 @@ async def _create_or_update(
     location = body.get("location", "unknown")
 
     resp = await _post_entity(catalog_name, entity_type, body, client)
-    action = "Created"
-    if _is_already_exists(resp):
+
+    # Success on POST
+    if not resp.is_error:
+        logging.info("Created %s: %s", entity_type, fqn)
+        return
+
+    # Check for conflict
+    detail = _get_error_detail(resp)
+    if resp.status_code in (400, 409) and "already exists" in detail:
         resp = await _put_entity(fqn, body, client, entity_type, catalog_name)
-        action = "Updated"
+        if not resp.is_error:
+            logging.info("Updated %s: %s", entity_type, fqn)
+            return
 
-    if resp.status_code == 401:
-        raise EntityRegistrationAuthError(
-            resp.text[:300],
-            entity_type=entity_type,
-            catalog_name=catalog_name,
-            location=location,
-        )
-
-    if resp.is_error:
-        raise EntityRegistrationError(
-            resp.text[:300],
-            status_code=resp.status_code,
-            entity_type=entity_type,
-            catalog_name=catalog_name,
-            location=location,
-        )
-
-    logging.info("%s %s: %s", action, entity_type, fqn)
+    # If PUT failed, or not "Already Exists" error, handle
+    _raise_for_error(
+        resp,
+        entity_type=entity_type,
+        catalog_name=catalog_name,
+        location=location,
+    )
 
 
 class TiledNodeContext(BaseModel):
@@ -537,6 +653,81 @@ def _build_entity(
             return Artifact(type="artifact", format=ctx.mimetype, **common)
 
 
+def _is_amsc_public(ctx: TiledNodeContext) -> bool:
+    """Return whether a Tiled node should be published to AmSC."""
+    return bool(ctx.metadata.get("amsc_public", False))
+
+
+async def _register_context(
+    ctx: TiledNodeContext,
+    logger: Logger,
+    amsc_client: httpx.AsyncClient,
+) -> None:
+    """Create or update the AmSC entity represented by a Tiled context."""
+    entity = _build_entity(ctx)
+    fqn = _expected_fqn(settings.openmetadata_fqn_prefix, ctx.path)
+
+    if settings.amsc_dry_run:
+        body = entity.model_dump(by_alias=True, exclude_none=True, mode="json")
+        logger.info(
+            "DRY_RUN would_register entity_type=%s fqn=%s location=%s body=%s",
+            entity.type,
+            fqn,
+            ctx.location,
+            body,
+        )
+        return
+
+    await _create_or_update(
+        settings.openmetadata_fqn_prefix,
+        fqn,
+        entity,
+        amsc_client,
+    )
+
+
+async def _ensure_parent_chain(
+    node_path: list[str],
+    logger: Logger,
+    amsc_client: httpx.AsyncClient,
+    tiled_root: tc.container.Container,
+    event_id: str,
+) -> bool:
+    """Create missing parent entities for a path, from the root downward."""
+    for depth in range(1, len(node_path)):
+        parent_path = node_path[:depth]
+        parent_path_str = "/".join(parent_path)
+        try:
+            parent_ctx = _fetch_tiled_context(
+                parent_path, settings.openmetadata_fqn_prefix, tiled_root
+            )
+        except KeyError:
+            logger.error(
+                "Parent node not found in Tiled path=%s event_id=%s",
+                parent_path_str,
+                event_id,
+            )
+            return False
+
+        if not _is_amsc_public(parent_ctx):
+            logger.info(
+                "Parent node is not marked public; cannot create missing parent "
+                "path=%s event_id=%s",
+                parent_path_str,
+                event_id,
+            )
+            return False
+
+        await _register_context(parent_ctx, logger, amsc_client)
+        logger.info(
+            "Ensured parent entity event_id=%s path=%s",
+            event_id,
+            parent_path_str,
+        )
+
+    return True
+
+
 async def _do_sync(
     msg: SyncMessage,
     logger: Logger,
@@ -560,7 +751,7 @@ async def _do_sync(
         )
         return
 
-    if not ctx.metadata.get("amsc_public", False):
+    if not _is_amsc_public(ctx):
         logger.info(
             "Node is not marked public; skipping registration path=%s event_id=%s",
             "/".join(node_path),
@@ -568,26 +759,27 @@ async def _do_sync(
         )
         return
 
-    entity = _build_entity(ctx)
-    fqn = _expected_fqn(settings.openmetadata_fqn_prefix, node_path)
-
-    if settings.amsc_dry_run:
-        body = entity.model_dump(by_alias=True, exclude_none=True, mode="json")
+    try:
+        await _register_context(ctx, logger, amsc_client)
+    except EntityRegistrationParentMissingError:
         logger.info(
-            "DRY_RUN would_register entity_type=%s fqn=%s location=%s body=%s",
-            entity.type,
-            fqn,
-            ctx.location,
-            body,
+            "Parent missing while registering path=%s event_id=%s; "
+            "ensuring parent chain",
+            "/".join(node_path),
+            event_id,
         )
-        return
+        if not await _ensure_parent_chain(
+            node_path,
+            logger,
+            amsc_client,
+            tiled_root,
+            event_id,
+        ):
+            raise
 
-    await _create_or_update(
-        settings.openmetadata_fqn_prefix,
-        fqn,
-        entity,
-        amsc_client,
-    )
+        await _register_context(ctx, logger, amsc_client)
+
+    logger.info("Registered event_id=%s path=%s", event_id, "/".join(node_path))
 
 
 @broker.subscriber(
@@ -599,13 +791,16 @@ async def _do_sync(
 )
 async def on_sync(
     msg: SyncMessage,
+    message: RedisStreamMessage,
     logger: Logger,
     amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
     tiled_root: tc.container.Container = Context(),  # noqa: B008
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
     event_id: str = EventIdDep,
 ) -> None:
     """Fetch current node state from Tiled and create-or-update in OpenMetadata."""
     await _do_sync(msg, logger, amsc_client, tiled_root, event_id)
+    await message.delete(redis_client)
 
 
 @broker.subscriber(
@@ -618,13 +813,16 @@ async def on_sync(
 )
 async def on_sync_recovery(
     msg: SyncMessage,
+    message: RedisStreamMessage,
     logger: Logger,
     amsc_client: httpx.AsyncClient = Context(),  # noqa: B008
     tiled_root: tc.container.Container = Context(),  # noqa: B008
+    redis_client: aioredis.Redis = Context(),  # noqa: B008
     event_id: str = EventIdDep,
 ) -> None:
     """Reclaim and reprocess sync messages abandoned in the PEL by crashed consumers."""
     await _do_sync(msg, logger, amsc_client, tiled_root, event_id)
+    await message.delete(redis_client)
 
 
 @broker.subscriber(

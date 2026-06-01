@@ -77,6 +77,8 @@ class RetryHeaders(BaseModel):
 
 class RetryErrorType(StrEnum):
     AUTH_FAILED = "auth_failed"
+    MISSING_PARENT_ENTITY = "missing_parent_entity"
+    SERVER_ERROR = "server_error"
     UNKNOWN = "unknown"
 
 
