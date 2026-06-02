@@ -19,9 +19,13 @@ When NOT to use:
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
+from tiled.structures.array import ArrayStructure
+from tiled.structures.core import StructureFamily
+from tiled.structures.data_source import Asset, DataSource, Management
 
 from .utils import (
     make_artifact_key,
@@ -30,6 +34,14 @@ from .utils import (
     get_artifact_info,
     ARTIFACT_STANDARD_COLS,
 )
+
+# Default size of the per-entity ThreadPoolExecutor.  Each entity does
+# one create_container HTTP call plus one .new() per artifact; the
+# baseline profile showed ~80% of wall-clock in socket.recv across
+# sequential httpx requests, so parallelizing per-entity work is the
+# highest-leverage fix.  Tiled uses httpx, which is thread-safe.
+# Callers can override via the max_workers kwarg on register_dataset_http.
+_DEFAULT_MAX_WORKERS = 8
 
 
 def create_data_source(art_row, base_dir, server_base_dir=None):
@@ -51,10 +63,6 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
     Returns:
         Tuple of (DataSource, data_shape, data_dtype).
     """
-    from tiled.structures.core import StructureFamily
-    from tiled.structures.array import ArrayStructure
-    from tiled.structures.data_source import Asset, DataSource, Management
-
     h5_rel_path = art_row["file"]
     dataset_path = art_row["dataset"]
     uri_base = server_base_dir if server_base_dir else base_dir
@@ -107,9 +115,86 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
     return data_source, data_shape, data_dtype
 
 
+def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
+                         parent_client, base_dir, server_base_dir,
+                         dataset_key):
+    """Register a single entity container and its artifact children.
+
+    Designed to be called from worker threads. Returns counter deltas so
+    the main thread can aggregate across futures without shared state.
+
+    Returns:
+        (ent_added, art_added, skipped, art_failed) — exactly one of
+        ent_added or skipped is 1; art_added counts artifacts successfully
+        registered, art_failed counts artifacts that raised during register.
+    """
+    uid = str(ent_row["uid"])
+    ent_key = make_entity_key(ent_row, dataset_key)
+
+    # Skip if container already exists
+    if ent_key in parent_client:
+        return (0, 0, 1, 0)
+
+    # Build metadata dynamically from ALL manifest columns
+    metadata = {}
+    for col in ent_columns:
+        metadata[col] = to_json_safe(ent_row[col])
+
+    # Attach artifact locators to metadata (for Mode A access)
+    artifacts = None
+    if uid in art_grouped.groups:
+        artifacts = art_grouped.get_group(uid)
+        for _, art_row in artifacts.iterrows():
+            art_key = make_artifact_key(art_row)
+            metadata[f"path_{art_key}"] = art_row["file"]
+            metadata[f"dataset_{art_key}"] = art_row["dataset"]
+            if "index" in art_row.index and pd.notna(art_row.get("index")):
+                metadata[f"index_{art_key}"] = int(art_row["index"])
+
+    # Create container with all metadata under dataset
+    ent_container = parent_client.create_container(
+        key=ent_key, metadata=metadata,
+    )
+
+    art_added = 0
+    art_failed = 0
+    if artifacts is not None:
+        for _, art_row in artifacts.iterrows():
+            art_key = make_artifact_key(art_row)
+            try:
+                data_source, data_shape, data_dtype = create_data_source(
+                    art_row, base_dir=base_dir,
+                    server_base_dir=server_base_dir,
+                )
+
+                art_metadata = {
+                    "type": art_row["type"],
+                    "shape": list(data_shape),
+                    "dtype": str(data_dtype),
+                }
+                for col in art_columns:
+                    if col not in ARTIFACT_STANDARD_COLS:
+                        art_metadata[col] = to_json_safe(art_row[col])
+
+                ent_container.new(
+                    structure_family=StructureFamily.array,
+                    data_sources=[data_source],
+                    key=art_key,
+                    metadata=art_metadata,
+                )
+                art_added += 1
+
+            except Exception as e:
+                art_failed += 1
+                print(f"  ERROR ent={ent_key} art={art_key}: {e}")
+
+    return (1, art_added, 0, art_failed)
+
+
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
                           dataset_key, dataset_metadata,
-                          server_base_dir=None):
+                          server_base_dir=None,
+                          max_workers=_DEFAULT_MAX_WORKERS):
     """Register one dataset via HTTP through a running Tiled server.
 
     Creates a dataset container, then entity containers with locator
@@ -126,16 +211,17 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         server_base_dir: If provided, used for asset data_uri instead of
             base_dir.  Needed when the server sees the filesystem at a
             different mount point.
+        max_workers: Size of the ThreadPoolExecutor for per-entity work.
+            Defaults to ``_DEFAULT_MAX_WORKERS``; tune for server capacity.
 
     Returns:
         bool: True if any entities were registered.
     """
-    from tiled.structures.core import StructureFamily
-
     start_time = time.time()
     ent_count = 0
     art_count = 0
     skip_count = 0
+    art_fail_count = 0
 
     # Create or reuse dataset container
     if dataset_key in client:
@@ -153,83 +239,43 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     art_grouped = art_df.groupby("uid")
 
     n = len(ent_df)
-    print(f"\n--- Registering {label} ({n} entities via HTTP) ---")
+    print(f"\n--- Registering {label} ({n} entities via HTTP, "
+          f"pool={max_workers}) ---")
 
-    for i, (_, ent_row) in enumerate(ent_df.iterrows()):
-        uid = str(ent_row["uid"])
-        ent_key = make_entity_key(ent_row, dataset_key)
+    ent_columns = list(ent_df.columns)
+    art_columns = list(art_df.columns)
 
-        # Skip if container already exists
-        if ent_key in parent_client:
-            skip_count += 1
-            continue
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(
+                _register_one_entity,
+                ent_row, ent_columns, art_grouped, art_columns,
+                parent_client, base_dir, server_base_dir, dataset_key,
+            )
+            for _, ent_row in ent_df.iterrows()
+        ]
 
-        # Build metadata dynamically from ALL manifest columns
-        metadata = {}
-        for col in ent_df.columns:
-            metadata[col] = to_json_safe(ent_row[col])
+        for i, future in enumerate(as_completed(futures)):
+            ent_added, art_added, skipped, art_failed = future.result()
+            ent_count += ent_added
+            art_count += art_added
+            skip_count += skipped
+            art_fail_count += art_failed
 
-        # Attach artifact locators to metadata (for Mode A access)
-        artifacts = None
-        if uid in art_grouped.groups:
-            artifacts = art_grouped.get_group(uid)
-            for _, art_row in artifacts.iterrows():
-                art_key = make_artifact_key(art_row)
-                metadata[f"path_{art_key}"] = art_row["file"]
-                metadata[f"dataset_{art_key}"] = art_row["dataset"]
-                if "index" in art_row.index and pd.notna(art_row.get("index")):
-                    metadata[f"index_{art_key}"] = int(art_row["index"])
-
-        # Create container with all metadata under dataset
-        ent_container = parent_client.create_container(key=ent_key, metadata=metadata)
-        ent_count += 1
-
-        # Register arrays as children (Mode B)
-        if artifacts is not None:
-            for _, art_row in artifacts.iterrows():
-                try:
-                    art_key = make_artifact_key(art_row)
-
-                    # Create data source pointing to external HDF5
-                    data_source, data_shape, data_dtype = create_data_source(
-                        art_row, base_dir=base_dir,
-                        server_base_dir=server_base_dir,
-                    )
-
-                    # Build artifact metadata dynamically from non-standard columns
-                    art_metadata = {
-                        "type": art_row["type"],
-                        "shape": list(data_shape),
-                        "dtype": str(data_dtype),
-                    }
-                    for col in art_df.columns:
-                        if col not in ARTIFACT_STANDARD_COLS:
-                            art_metadata[col] = to_json_safe(art_row[col])
-
-                    # Register artifact as child of container
-                    ent_container.new(
-                        structure_family=StructureFamily.array,
-                        data_sources=[data_source],
-                        key=art_key,
-                        metadata=art_metadata,
-                    )
-                    art_count += 1
-
-                except Exception as e:
-                    print(f"  ERROR registering artifact {art_key}: {e}")
-
-        # Progress update
-        if (i + 1) % 5 == 0 or (i + 1) == n:
-            elapsed = time.time() - start_time
-            rate = (i + 1) / elapsed if elapsed > 0 else 0
-            print(f"  Progress: {i+1}/{n} entities ({rate:.1f}/sec)")
+            if (i + 1) % 5 == 0 or (i + 1) == n:
+                elapsed = time.time() - start_time
+                # Rate counts only entities that did real work; skipped
+                # futures finish in microseconds and would inflate it.
+                rate = ent_count / elapsed if elapsed > 0 else 0
+                print(f"  Progress: {i+1}/{n} entities ({rate:.1f}/sec)")
 
     elapsed_total = time.time() - start_time
     print(f"\nRegistration complete:")
-    print(f"  Entities:     {ent_count}")
-    print(f"  Artifacts:    {art_count}")
-    print(f"  Skipped:      {skip_count}")
-    print(f"  Time:         {elapsed_total:.1f} seconds")
+    print(f"  Entities:        {ent_count}")
+    print(f"  Artifacts:       {art_count}")
+    print(f"  Skipped:         {skip_count}")
+    print(f"  Artifact errors: {art_fail_count}")
+    print(f"  Time:            {elapsed_total:.1f} seconds")
 
     return ent_count > 0
 
