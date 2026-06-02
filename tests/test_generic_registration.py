@@ -374,3 +374,81 @@ class TestGenericBehavior:
             for node in ent_nodes + art_nodes:
                 # Should not raise
                 json.dumps(node["metadata"])
+
+
+# ─── INHERITED_KEYS propagation (HTTP path) ──────────────────────────────────
+
+
+class TestInheritedKeysHTTP:
+    """Inherited dataset keys land on every entity and artifact node."""
+
+    def test_inherited_keys_propagate_to_entity_and_artifact(self, monkeypatch):
+        from unittest.mock import MagicMock
+        from tiled_catalog_broker import http_register
+        from tiled_catalog_broker.http_register import _register_one_entity
+
+        monkeypatch.setattr(
+            http_register, "create_data_source",
+            lambda *a, **kw: (MagicMock(), (10,), "float64"),
+        )
+
+        ent_df = pd.DataFrame([{"uid": "e0001abc1234567", "Ja_meV": 1.0}])
+        art_df = pd.DataFrame([{
+            "uid": "e0001abc1234567",
+            "type": "rixs",
+            "file": "f.h5",
+            "dataset": "/x",
+        }])
+        art_grouped = art_df.groupby("uid")
+
+        parent_client = MagicMock()
+        parent_client.__contains__.return_value = False
+        ent_container = parent_client.create_container.return_value
+
+        result = _register_one_entity(
+            ent_df.iloc[0], list(ent_df.columns),
+            art_grouped, list(art_df.columns),
+            parent_client, base_dir="/tmp", server_base_dir=None,
+            dataset_key="TEST", inherited={"amsc_public": True},
+        )
+
+        assert result == (1, 1, 0, 0)
+
+        ent_meta = parent_client.create_container.call_args.kwargs["metadata"]
+        assert ent_meta["amsc_public"] is True
+
+        art_meta = ent_container.new.call_args.kwargs["metadata"]
+        assert art_meta["amsc_public"] is True
+
+    def test_manifest_value_wins_over_inherited(self, monkeypatch):
+        """setdefault semantics — manifest column with the same name wins."""
+        from unittest.mock import MagicMock
+        from tiled_catalog_broker import http_register
+        from tiled_catalog_broker.http_register import _register_one_entity
+
+        monkeypatch.setattr(
+            http_register, "create_data_source",
+            lambda *a, **kw: (MagicMock(), (10,), "float64"),
+        )
+
+        ent_df = pd.DataFrame([{"uid": "e0002abc1234567", "amsc_public": False}])
+        art_df = pd.DataFrame([{
+            "uid": "e0002abc1234567",
+            "type": "rixs",
+            "file": "f.h5",
+            "dataset": "/x",
+        }])
+        art_grouped = art_df.groupby("uid")
+
+        parent_client = MagicMock()
+        parent_client.__contains__.return_value = False
+
+        _register_one_entity(
+            ent_df.iloc[0], list(ent_df.columns),
+            art_grouped, list(art_df.columns),
+            parent_client, base_dir="/tmp", server_base_dir=None,
+            dataset_key="TEST", inherited={"amsc_public": True},
+        )
+
+        ent_meta = parent_client.create_container.call_args.kwargs["metadata"]
+        assert ent_meta["amsc_public"] is False
