@@ -7,10 +7,10 @@ and the semantic model (schema/catalog_model.yml).
 import os
 from pathlib import Path
 
+from pydantic import ValidationError as PydanticValidationError
 from ruamel.yaml import YAML
 
-VALID_LAYOUTS = {"per_entity", "batched", "grouped"}
-VALID_PARAM_LOCATIONS = {"root_scalars", "root_attributes", "group", "group_scalars", "manifest"}
+from ._models import DatasetConfig
 
 
 class ValidationError(Exception):
@@ -145,6 +145,20 @@ def resolve_aliases(cfg, model):
     return messages
 
 
+def _format_model_errors(exc):
+    """Translate a pydantic ValidationError into the broker's flat error strings.
+
+    Each pydantic error becomes a "<dotted.location>: <message>" line so the existing
+    ``ValidationError(errors)`` message format (and substring-based tests) keep working.
+    """
+    messages = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err["loc"])
+        msg = err["msg"].removeprefix("Value error, ")
+        messages.append(f"{loc}: {msg}" if loc else msg)
+    return messages
+
+
 def validate(cfg, model_path=None):
     """Validate a parsed dataset YAML config.
 
@@ -167,73 +181,28 @@ def validate(cfg, model_path=None):
     for msg in alias_messages:
         warnings.append(msg)
 
-    # --- Required identity fields ---
-    if not cfg.get("label"):
-        errors.append("'label' is required (e.g., edrixs_sbi)")
-    if not cfg.get("key"):
-        if not cfg.get("key_prefix"):
-            errors.append("'key' is required (dataset container key in Tiled)")
+    # --- Structural validation via the pydantic contract model ---
+    # try/except is required here: pydantic raises a single ValidationError for all
+    # structural problems, which we translate into the broker's flat-list format.
+    try:
+        DatasetConfig.model_validate(cfg)
+    except PydanticValidationError as e:
+        errors.extend(_format_model_errors(e))
 
-    # --- Data section ---
+    # --- Filesystem + advisory checks (kept out of the pure model) ---
     data = cfg.get("data")
-    if not data:
-        errors.append("'data' section is required")
-    else:
-        if not data.get("directory"):
-            errors.append("'data.directory' is required")
-        elif not os.path.isdir(data["directory"]):
-            errors.append(f"'data.directory' does not exist: {data['directory']}")
-
-        layout = data.get("layout")
-        if not layout:
-            errors.append("'data.layout' is required (per_entity | batched | grouped)")
-        elif layout not in VALID_LAYOUTS:
-            errors.append(f"'data.layout' must be one of {VALID_LAYOUTS}, got '{layout}'")
-
-        if not data.get("file_pattern"):
-            warnings.append("'data.file_pattern' not set — will default to '**/*.h5'")
-
-        sbd = data.get("server_base_dir")
-        if sbd is not None and sbd != "" and not isinstance(sbd, str):
-            errors.append(
-                f"'data.server_base_dir' must be a string if set, got {type(sbd).__name__}"
-            )
-
-    # --- Artifacts ---
-    artifacts = cfg.get("artifacts", [])
-    if not artifacts:
-        errors.append("'artifacts' list is required (at least one artifact)")
-    else:
-        for i, art in enumerate(artifacts):
-            if not art.get("type"):
-                errors.append(f"artifacts[{i}].type is required")
-            if not art.get("dataset"):
-                errors.append(f"artifacts[{i}].dataset is required")
-
-    # --- Parameters (optional but validated if present) ---
-    params = cfg.get("parameters")
-    if params:
-        loc = params.get("location")
-        if loc and loc not in VALID_PARAM_LOCATIONS:
-            errors.append(
-                f"'parameters.location' must be one of {VALID_PARAM_LOCATIONS}, got '{loc}'"
-            )
-        if loc == "group" and not params.get("group"):
-            errors.append("'parameters.group' is required when location is 'group'")
-        if loc == "manifest" and not params.get("manifest"):
-            errors.append("'parameters.manifest' is required when location is 'manifest'")
-
-    # --- Shared axes (optional, validated if present) ---
-    for i, ax in enumerate(cfg.get("shared", [])):
-        if not ax.get("type"):
-            errors.append(f"shared[{i}].type is required")
-        if not ax.get("dataset"):
-            errors.append(f"shared[{i}].dataset is required")
+    directory = data.get("directory") if isinstance(data, dict) else None
+    if isinstance(directory, str) and directory and not os.path.isdir(directory):
+        errors.append(f"'data.directory' does not exist: {directory}")
+    if isinstance(data, dict) and not data.get("file_pattern"):
+        warnings.append("'data.file_pattern' not set — will default to '**/*.h5'")
 
     # --- Provenance (optional, no special validation) ---
 
     # --- Dataset container metadata: validate against semantic model ---
-    metadata = cfg.get("metadata", {})
+    metadata = cfg.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
     if model:
         _validate_vocab(metadata, "method", "methods", model, warnings, is_list=True)
         _validate_vocab(metadata, "data_type", "data_types", model, warnings)

@@ -3,6 +3,7 @@
 # dependencies = [
 #     "pytest",
 #     "ruamel.yaml",
+#     "pydantic>=2",
 # ]
 # ///
 """
@@ -185,3 +186,74 @@ class TestValidate:
         del minimal_valid_config["metadata"]["producer"]
         warnings = validate(minimal_valid_config)
         assert any("simulation" in w and "producer" in w for w in warnings)
+
+
+class TestModelContract:
+    """Tests for the pydantic-backed structural contract (tools/_models.py)."""
+
+    def test_key_prefix_satisfies_identity(self, minimal_valid_config):
+        """key_prefix is an accepted alternative to key."""
+        del minimal_valid_config["key"]
+        minimal_valid_config["key_prefix"] = "TEST_"
+        warnings = validate(minimal_valid_config)
+        assert isinstance(warnings, list)
+
+    def test_empty_label_rejected(self, minimal_valid_config):
+        """An empty-string label is treated as missing (min_length=1)."""
+        minimal_valid_config["label"] = ""
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert any("label" in e.lower() for e in exc_info.value.errors)
+
+    def test_empty_artifact_field_rejected(self, minimal_valid_config):
+        """An empty artifact type/dataset is treated as missing."""
+        minimal_valid_config["artifacts"] = [{"type": "", "dataset": "/x"}]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert any("type" in e.lower() for e in exc_info.value.errors)
+
+    def test_unknown_key_in_data_rejected(self, minimal_valid_config):
+        """forbid: a typo'd key in the data section is rejected, not silently dropped."""
+        minimal_valid_config["data"]["file_patern"] = "*.h5"  # typo
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert any("file_patern" in e for e in exc_info.value.errors)
+
+    def test_params_group_requires_group(self, minimal_valid_config):
+        """location=group without a group field is rejected."""
+        minimal_valid_config["parameters"] = {"location": "group"}
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert any("group" in e.lower() for e in exc_info.value.errors)
+
+    def test_params_manifest_requires_manifest(self, minimal_valid_config):
+        """location=manifest without a manifest field is rejected."""
+        minimal_valid_config["parameters"] = {"location": "manifest"}
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert any("manifest" in e.lower() for e in exc_info.value.errors)
+
+    def test_params_group_valid(self, minimal_valid_config):
+        """location=group with a group field passes."""
+        minimal_valid_config["parameters"] = {"location": "group", "group": "/params"}
+        assert isinstance(validate(minimal_valid_config), list)
+
+    def test_bad_param_location_rejected(self, minimal_valid_config):
+        """An unknown parameters.location value is rejected."""
+        minimal_valid_config["parameters"] = {"location": "not_a_location"}
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert any("location" in e.lower() for e in exc_info.value.errors)
+
+    def test_shared_axis_requires_dataset(self, minimal_valid_config):
+        """A shared axis missing its dataset is rejected."""
+        minimal_valid_config["shared"] = [{"type": "E_axis"}]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert any("dataset" in e.lower() for e in exc_info.value.errors)
+
+    def test_extra_metadata_keys_allowed(self, minimal_valid_config):
+        """metadata is extensible — unknown metadata keys do not error."""
+        minimal_valid_config["metadata"]["prior_distribution"] = "uniform"
+        minimal_valid_config["metadata"]["round"] = 0
+        assert isinstance(validate(minimal_valid_config), list)

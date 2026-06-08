@@ -105,7 +105,10 @@ producers:
     description: Exact-diagonalization RIXS simulation library (Python)
 
 # --- Dataset metadata fields ---
-# Defines which fields are required/optional on dataset container metadata.
+# Advisory reference: which metadata fields exist and which vocabulary each draws from.
+# NOTE: the validator does NOT hard-require these — unknown/missing values produce
+# warnings, not errors (see docs/adr/0003). The required/optional split here drives draft
+# hints and documentation, not enforcement.
 dataset_fields:
   required:
     - name: data_type
