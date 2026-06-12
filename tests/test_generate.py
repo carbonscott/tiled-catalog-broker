@@ -36,7 +36,7 @@ from ruamel.yaml import YAML
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tiled_catalog_broker.tools.generate import generate_manifests, load_yaml, _make_uid
-from tiled_catalog_broker.tools.schema import ValidationError
+from pydantic import ValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +343,48 @@ class TestGenerateSharedExcluded:
         assert "energy" not in ent_df.columns
         # But the parameter should be there
         assert "alpha" in ent_df.columns
+
+
+class TestGenerateGrouped:
+    """Tests for generate_manifests with grouped layout (one HDF5 group/entity)."""
+
+    def test_generate_grouped(self, tmp_path):
+        """Entities come from subgroups; source_group + full dataset paths emitted."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        with h5py.File(data_dir / "file.h5", "w") as f:
+            samples = f.create_group("samples")
+            for i in range(3):
+                g = samples.create_group(f"sample_{i:03d}")
+                p = g.create_group("params")
+                p.create_dataset("alpha", data=float(i))
+                g.create_dataset("spectrum", data=np.arange(5.0))
+
+        cfg = {
+            "label": "test_grouped", "key": "TEST_SIM_GROUPED",
+            "data": {"directory": str(data_dir), "layout": "grouped",
+                     "file_pattern": "*.h5"},
+            "artifacts": [{"type": "spectrum", "dataset": "spectrum"}],
+            "parameters": {"location": "group_scalars",
+                           "entity_group": "samples", "group": "params"},
+            "metadata": {"method": ["RIXS"], "data_type": "simulation",
+                         "material": "NiPS3", "producer": "edrixs"},
+        }
+        yaml_path = tmp_path / "grouped.yml"
+        _write_yaml(yaml_path, cfg)
+
+        ent_path, art_path = generate_manifests(
+            str(yaml_path), output_dir=str(tmp_path / "manifests" / "g"))
+        ent_df = pd.read_parquet(ent_path)
+        art_df = pd.read_parquet(art_path)
+
+        assert len(ent_df) == 3
+        assert "source_group" in ent_df.columns
+        assert sorted(ent_df["source_group"]) == [
+            "samples/sample_000", "samples/sample_001", "samples/sample_002"]
+        assert "alpha" in ent_df.columns
+        # Artifact dataset paths are resolved within each entity's group
+        assert "/samples/sample_000/spectrum" in set(art_df["dataset"])
 
 
 class TestLoadYaml:
