@@ -43,7 +43,6 @@ class ParamLocation(str, Enum):
     root_attributes = "root_attributes"
     group = "group"
     group_scalars = "group_scalars"
-    manifest = "manifest"
 
 
 class DatasetMetadata(BaseModel):
@@ -88,7 +87,6 @@ class ParametersSection(BaseModel):
 
     location: ParamLocation | None = None
     group: str | None = None
-    manifest: str | None = None
     # The HDF5 group holding one subgroup per entity (grouped layout). Optional;
     # the generator falls back to "samples", then to top-level groups.
     entity_group: str | None = None
@@ -97,10 +95,6 @@ class ParametersSection(BaseModel):
     def _location_requirements(self):
         if self.location == ParamLocation.group and not self.group:
             raise ValueError("'parameters.group' is required when location is 'group'")
-        if self.location == ParamLocation.manifest and not self.manifest:
-            raise ValueError(
-                "'parameters.manifest' is required when location is 'manifest'"
-            )
         return self
 
 

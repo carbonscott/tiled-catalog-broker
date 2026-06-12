@@ -226,13 +226,6 @@ class TestModelContract:
             validate(minimal_valid_config)
         assert any("group" in e.lower() for e in exc_info.value.errors)
 
-    def test_params_manifest_requires_manifest(self, minimal_valid_config):
-        """location=manifest without a manifest field is rejected."""
-        minimal_valid_config["parameters"] = {"location": "manifest"}
-        with pytest.raises(ValidationError) as exc_info:
-            validate(minimal_valid_config)
-        assert any("manifest" in e.lower() for e in exc_info.value.errors)
-
     def test_params_group_valid(self, minimal_valid_config):
         """location=group with a group field passes."""
         minimal_valid_config["parameters"] = {"location": "group", "group": "/params"}
