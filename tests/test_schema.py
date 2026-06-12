@@ -238,6 +238,13 @@ class TestModelContract:
         minimal_valid_config["parameters"] = {"location": "group", "group": "/params"}
         assert isinstance(validate(minimal_valid_config), list)
 
+    def test_params_entity_group_allowed(self, minimal_valid_config):
+        """grouped layout declares parameters.entity_group — it must be accepted."""
+        minimal_valid_config["parameters"] = {
+            "location": "group_scalars", "entity_group": "samples"
+        }
+        assert isinstance(validate(minimal_valid_config), list)
+
     def test_bad_param_location_rejected(self, minimal_valid_config):
         """An unknown parameters.location value is rejected."""
         minimal_valid_config["parameters"] = {"location": "not_a_location"}
