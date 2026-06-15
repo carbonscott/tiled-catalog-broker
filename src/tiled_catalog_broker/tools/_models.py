@@ -6,12 +6,9 @@ surface** (see CONTEXT.md) — an agent or human can read this file to learn wha
 dataset YAML looks like, without reading broker implementation. Every field carries a
 ``description`` so the contract is self-documenting (and surfaces in the JSON schema).
 
-Two things stay in ``schema.py`` layered on top of a successful parse, by design:
-
-- Controlled-vocabulary checks (``method``/``material``/``producer``/... against
-  ``catalog_model.yml``) — these are non-fatal *warnings*, not errors (ADR-0003).
-- Filesystem checks (does ``data.directory`` exist) — environment-dependent, so keeping
-  them out of the model lets a config be validated without its data present.
+Controlled-vocabulary checks (``method``/``material``/... against ``catalog_model.yml``)
+stay in ``schema.py`` layered on top of a successful parse — they are non-fatal *warnings*,
+not errors (ADR-0003).
 
 Strictness: the closed sub-sections (``data``, ``artifacts``, ``parameters``, ``shared``)
 ``forbid`` unknown keys to catch typos. ``metadata`` is extensible so it ``allow``s extras;
@@ -99,9 +96,9 @@ class DataSection(BaseModel):
     layout: Layout = Field(
         description="How entities are physically packed in the HDF5 data; see Layout.",
     )
-    file_pattern: str | None = Field(
-        default=None,
-        description="Glob for HDF5 files under `directory` (defaults to '**/*.h5').",
+    file_pattern: str = Field(
+        default="**/*.h5",
+        description="Glob for HDF5 files under `directory`.",
     )
     server_base_dir: str | None = Field(
         default=None,

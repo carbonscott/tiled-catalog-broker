@@ -24,8 +24,9 @@ import pytest
 # Add project root to path for package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from pydantic import ValidationError
+
 from tiled_catalog_broker.tools.schema import (
-    ValidationError,
     get_alias_map,
     get_allowed_values,
     load_catalog_model,
@@ -69,11 +70,6 @@ class TestLoadCatalogModel:
         assert isinstance(model, dict)
         assert "methods" in model
 
-    def test_load_catalog_model_missing(self):
-        """Returns None for a nonexistent path."""
-        result = load_catalog_model("/nonexistent/path/catalog_model.yml")
-        assert result is None
-
 
 class TestGetAllowedValues:
     """Tests for get_allowed_values()."""
@@ -93,10 +89,6 @@ class TestGetAllowedValues:
         """Returns empty list for a field not in the model."""
         model = {"methods": [{"id": "RIXS"}]}
         assert get_allowed_values(model, "materials") == []
-
-    def test_get_allowed_values_none_model(self):
-        """Returns empty list when model is None."""
-        assert get_allowed_values(None, "methods") == []
 
 
 class TestGetAliasMap:
@@ -156,7 +148,7 @@ class TestValidate:
         minimal_valid_config["artifacts"] = []
         with pytest.raises(ValidationError) as exc_info:
             validate(minimal_valid_config)
-        assert any("artifact" in e.lower() for e in exc_info.value.errors)
+        assert "artifact" in str(exc_info.value).lower()
 
     def test_validate_missing_metadata_field(self, minimal_valid_config):
         """data_type, method, material are required (presence) — missing → error."""
@@ -165,7 +157,7 @@ class TestValidate:
             del cfg["metadata"][field]
             with pytest.raises(ValidationError) as exc_info:
                 validate(cfg)
-            assert any(field in e.lower() for e in exc_info.value.errors)
+            assert field in str(exc_info.value).lower()
 
     def test_validate_unknown_metadata_value_warns_not_errors(self, minimal_valid_config):
         """A required field with an out-of-vocab *value* still validates (warns only)."""
@@ -196,14 +188,14 @@ class TestModelContract:
         del minimal_valid_config["key"]
         with pytest.raises(ValidationError) as exc_info:
             validate(minimal_valid_config)
-        assert any("key" in e.lower() for e in exc_info.value.errors)
+        assert "key" in str(exc_info.value).lower()
 
     def test_params_group_requires_group(self, minimal_valid_config):
         """location=group without a group field is rejected."""
         minimal_valid_config["parameters"] = {"location": "group"}
         with pytest.raises(ValidationError) as exc_info:
             validate(minimal_valid_config)
-        assert any("group" in e.lower() for e in exc_info.value.errors)
+        assert "group" in str(exc_info.value).lower()
 
     def test_params_group_valid(self, minimal_valid_config):
         """location=group with a group field passes."""
@@ -222,7 +214,7 @@ class TestModelContract:
         minimal_valid_config["shared"] = [{"type": "E_axis"}]
         with pytest.raises(ValidationError) as exc_info:
             validate(minimal_valid_config)
-        assert any("dataset" in e.lower() for e in exc_info.value.errors)
+        assert "dataset" in str(exc_info.value).lower()
 
     def test_extra_metadata_keys_allowed(self, minimal_valid_config):
         """metadata is extensible — unknown metadata keys do not error."""

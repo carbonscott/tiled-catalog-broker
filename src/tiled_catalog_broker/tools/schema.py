@@ -4,45 +4,18 @@ Validates dataset YAML configs against both structural requirements
 and the semantic model (schema/catalog_model.yml).
 """
 
-import os
 from pathlib import Path
 
-from pydantic import ValidationError as PydanticValidationError
 from ruamel.yaml import YAML
 
 from ._models import DatasetConfig
 
 
-class ValidationError(Exception):
-    """Raised when a dataset YAML fails validation."""
-
-    def __init__(self, errors):
-        self.errors = errors
-        super().__init__(
-            f"{len(errors)} validation error(s):\n"
-            + "\n".join(f"  - {e}" for e in errors)
-        )
-
-
-def load_catalog_model(model_path=None):
-    """Load the semantic model YAML.
-
-    Args:
-        model_path: Path to catalog_model.yml.
-            Defaults to schema/catalog_model.yml relative to the package.
-
-    Returns:
-        dict: The parsed catalog model, or None if not found.
-    """
-    if model_path is None:
-        model_path = (
-            Path(__file__).parent / "schema" / "catalog_model.yml"
-        )
-    if not Path(model_path).exists():
-        return None
-
+def load_catalog_model():
+    """Load and parse the bundled semantic model (schema/catalog_model.yml)."""
+    path = Path(__file__).parent / "schema" / "catalog_model.yml"
     yaml = YAML()
-    with open(model_path) as f:
+    with open(path) as f:
         return yaml.load(f)
 
 
@@ -56,7 +29,7 @@ def get_allowed_values(model, field_name):
     Returns:
         list[str]: Allowed ID values, or empty list if not found.
     """
-    if model is None or field_name not in model:
+    if field_name not in model:
         return []
     return [entry["id"] for entry in model[field_name]]
 
@@ -74,7 +47,7 @@ def get_alias_map(model, field_name):
     Returns:
         dict: {alias_id: {"canonical": canonical_id, "implies": {...}}}
     """
-    if model is None or field_name not in model:
+    if field_name not in model:
         return {}
     alias_map = {}
     for entry in model[field_name]:
@@ -106,8 +79,6 @@ def resolve_aliases(cfg, model):
     Returns:
         list[str]: Messages about resolved aliases.
     """
-    if model is None:
-        return []
     messages = []
     metadata = cfg.get("metadata", {})
 
@@ -145,65 +116,28 @@ def resolve_aliases(cfg, model):
     return messages
 
 
-def _format_model_errors(exc):
-    """Translate a pydantic ValidationError into the broker's flat error strings.
-
-    Each pydantic error becomes a "<dotted.location>: <message>" line so the existing
-    ``ValidationError(errors)`` message format (and substring-based tests) keep working.
-    """
-    messages = []
-    for err in exc.errors():
-        loc = ".".join(str(p) for p in err["loc"])
-        msg = err["msg"].removeprefix("Value error, ")
-        messages.append(f"{loc}: {msg}" if loc else msg)
-    return messages
-
-
-def validate(cfg, model_path=None):
+def validate(cfg):
     """Validate a parsed dataset YAML config.
 
-    Args:
-        cfg: dict loaded from YAML.
-        model_path: Optional path to catalog_model.yml.
-
-    Returns:
-        list of warning strings (non-fatal).
-
-    Raises:
-        ValidationError: if required fields are missing or invalid.
+    Returns a list of non-fatal warning strings. Raises pydantic ``ValidationError``
+    if the config violates the structural contract.
     """
     warnings = []
-    model = load_catalog_model(model_path)
+    model = load_catalog_model()
 
     # Resolve aliases before validation (mutates cfg in place).
     warnings.extend(resolve_aliases(cfg, model))
 
-    # Structural validation via the pydantic contract model. Raise immediately —
-    # the filesystem/vocab checks below operate on the validated object.
-    # try/except is required here: pydantic raises a single ValidationError for all
-    # structural problems, which we translate into the broker's flat-list format.
-    try:
-        config = DatasetConfig.model_validate(cfg)
-    except PydanticValidationError as e:
-        raise ValidationError(_format_model_errors(e))
-
-    # Filesystem check (kept out of the pure model so a config can be validated
-    # without its data present — but enforced here when the directory is given).
-    if not os.path.isdir(config.data.directory):
-        raise ValidationError(
-            [f"'data.directory' does not exist: {config.data.directory}"]
-        )
-    if not config.data.file_pattern:
-        warnings.append("'data.file_pattern' not set — will default to '**/*.h5'")
+    # Structural validation — pydantic raises ValidationError on any violation.
+    config = DatasetConfig.model_validate(cfg)
 
     metadata = config.metadata
-    if model:
-        _validate_vocab(metadata, "method", "methods", model, warnings, is_list=True)
-        _validate_vocab(metadata, "data_type", "data_types", model, warnings)
-        _validate_vocab(metadata, "material", "materials", model, warnings)
-        _validate_vocab(metadata, "producer", "producers", model, warnings)
-        _validate_vocab(metadata, "facility", "facilities", model, warnings)
-        _validate_vocab(metadata, "project", "projects", model, warnings)
+    _validate_vocab(metadata, "method", "methods", model, warnings, is_list=True)
+    _validate_vocab(metadata, "data_type", "data_types", model, warnings)
+    _validate_vocab(metadata, "material", "materials", model, warnings)
+    _validate_vocab(metadata, "producer", "producers", model, warnings)
+    _validate_vocab(metadata, "facility", "facilities", model, warnings)
+    _validate_vocab(metadata, "project", "projects", model, warnings)
 
     # Cross-field advisory checks (producer↔simulation, facility↔experimental).
     dt = metadata.data_type
