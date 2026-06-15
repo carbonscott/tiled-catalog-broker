@@ -51,6 +51,7 @@ def minimal_valid_config(tmp_path):
         "artifacts": [
             {"type": "spectrum", "dataset": "/spectrum"},
         ],
+        "parameters": {"location": "root_scalars"},
         "metadata": {
             "method": ["RIXS"],
             "data_type": "simulation",
@@ -189,6 +190,20 @@ class TestModelContract:
         with pytest.raises(ValidationError) as exc_info:
             validate(minimal_valid_config)
         assert "key" in str(exc_info.value).lower()
+
+    def test_parameters_required(self, minimal_valid_config):
+        """The parameters section (and its location) is required."""
+        del minimal_valid_config["parameters"]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert "parameters" in str(exc_info.value).lower()
+
+    def test_params_location_required(self, minimal_valid_config):
+        """parameters.location must be present."""
+        minimal_valid_config["parameters"] = {}
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert "location" in str(exc_info.value).lower()
 
     def test_params_group_requires_group(self, minimal_valid_config):
         """location=group without a group field is rejected."""

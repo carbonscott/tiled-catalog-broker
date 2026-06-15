@@ -137,8 +137,7 @@ class SharedAxisSpec(BaseModel):
 class ParametersSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    location: ParamLocation | None = Field(
-        default=None,
+    location: ParamLocation = Field(
         description="Where to read per-entity parameters from; see ParamLocation.",
     )
     group: str | None = Field(
@@ -189,8 +188,7 @@ class DatasetConfig(BaseModel):
         min_length=1,
         description="The array artifacts each entity exposes (at least one).",
     )
-    parameters: ParametersSection | None = Field(
-        default=None,
+    parameters: ParametersSection = Field(
         description="How to extract each entity's physics parameters from the HDF5.",
     )
     shared: list[SharedAxisSpec] = Field(
