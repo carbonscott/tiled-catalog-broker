@@ -13,14 +13,11 @@ Two things stay in ``schema.py`` layered on top of a successful parse, by design
 - Filesystem checks (does ``data.directory`` exist) — environment-dependent, so keeping
   them out of the model lets a config be validated without its data present.
 
-Conventions follow ``amsc-connector/core/_models.py`` (pydantic v2, ``ConfigDict``,
-``@model_validator``, ``StrEnum``). The broker targets Python >=3.12.
-
 Strictness: the closed sub-sections (``data``, ``artifacts``, ``parameters``, ``shared``)
 ``forbid`` unknown keys to catch typos. ``metadata`` is extensible so it ``allow``s extras;
 the top level ``ignore``s extras for keys that carry no structural rules (``provenance``,
 ``extra_metadata``, ``artifact_datasets``). Required strings use ``min_length=1`` so an
-empty string is treated as missing, matching the prior validator.
+empty string is treated as missing.
 """
 
 from enum import StrEnum
@@ -61,10 +58,8 @@ class ParamLocation(StrEnum):
 
 
 class DatasetMetadata(BaseModel):
-    # Dataset metadata is extensible — datasets add their own keys (e.g.
-    # prior_distribution, round), so allow extras. method/data_type/material are
-    # required (presence); the rest are optional. *Values* are only soft-checked
-    # against the vocab as warnings in schema.py, never gated here (ADR-0003).
+    # Extensible — datasets add their own keys (e.g. prior_distribution), so allow
+    # extras. Values are soft-checked as warnings in schema.py, not gated (ADR-0003).
     model_config = ConfigDict(extra="allow")
 
     method: list[str] = Field(

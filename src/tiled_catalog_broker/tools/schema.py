@@ -196,7 +196,6 @@ def validate(cfg, model_path=None):
     if not config.data.file_pattern:
         warnings.append("'data.file_pattern' not set — will default to '**/*.h5'")
 
-    # Dataset metadata: soft controlled-vocabulary checks (warnings only, ADR-0003).
     metadata = config.metadata
     if model:
         _validate_vocab(metadata, "method", "methods", model, warnings, is_list=True)
