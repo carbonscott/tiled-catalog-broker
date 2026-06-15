@@ -13,9 +13,9 @@ controlled vocab becomes one facet among several rather than a checkpoint. #72 f
 vocab's value is as a consistency/teaching tool, not a gate; hard enforcement would
 contradict that and foreclose the flexible-discovery direction.
 
-Consequence / cleanup: the `dataset_fields` section of `catalog_model.yml` currently
-*declares* `data_type`/`method` as "required" with `enum_ref`s, but the validator does not
-enforce that (it warns) and the field→vocab mapping is hardcoded in `schema.py` instead.
-That section is decorative and contradicts actual enforcement — it should be corrected to
-describe what the code really does (advisory), not expanded into a real gate. A pydantic
-model of the vocab file's own shape is deferred (low value until the file is edited widely).
+Consequence: field *presence* and field *value* are enforced separately. `_models.py`
+hard-requires the **presence** of `data_type`, `method`, and `material` (a config missing
+one errors), and `catalog_model.yml`'s `dataset_fields: required` list now matches that set.
+What stays **soft is the value** — an out-of-vocab `material` validates with only a warning,
+per this ADR. The field→vocab mapping that drives those warnings still lives in `schema.py`;
+a pydantic model of the vocab file's own shape is deferred (low value until it's edited widely).

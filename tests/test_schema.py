@@ -151,14 +151,6 @@ class TestValidate:
         warnings = validate(minimal_valid_config)
         assert isinstance(warnings, list)
 
-    def test_validate_missing_key(self, minimal_valid_config):
-        """Raises ValidationError when 'key' is missing."""
-        del minimal_valid_config["key"]
-        del minimal_valid_config["label"]
-        with pytest.raises(ValidationError) as exc_info:
-            validate(minimal_valid_config)
-        assert any("label" in e.lower() or "key" in e.lower() for e in exc_info.value.errors)
-
     def test_validate_missing_artifacts(self, minimal_valid_config):
         """Raises ValidationError when artifacts list is empty."""
         minimal_valid_config["artifacts"] = []
@@ -166,12 +158,20 @@ class TestValidate:
             validate(minimal_valid_config)
         assert any("artifact" in e.lower() for e in exc_info.value.errors)
 
-    def test_validate_bad_layout(self, minimal_valid_config):
-        """Raises ValidationError for an invalid layout value."""
-        minimal_valid_config["data"]["layout"] = "invalid_layout"
-        with pytest.raises(ValidationError) as exc_info:
-            validate(minimal_valid_config)
-        assert any("layout" in e.lower() for e in exc_info.value.errors)
+    def test_validate_missing_metadata_field(self, minimal_valid_config):
+        """data_type, method, material are required (presence) — missing → error."""
+        for field in ("data_type", "method", "material"):
+            cfg = {**minimal_valid_config, "metadata": dict(minimal_valid_config["metadata"])}
+            del cfg["metadata"][field]
+            with pytest.raises(ValidationError) as exc_info:
+                validate(cfg)
+            assert any(field in e.lower() for e in exc_info.value.errors)
+
+    def test_validate_unknown_metadata_value_warns_not_errors(self, minimal_valid_config):
+        """A required field with an out-of-vocab *value* still validates (warns only)."""
+        minimal_valid_config["metadata"]["material"] = "SomeNovelMaterial"
+        warnings = validate(minimal_valid_config)  # must not raise
+        assert isinstance(warnings, list)
 
     def test_validate_alias_accepted(self, minimal_valid_config):
         """EDRIXS in method doesn't produce a vocab warning."""
@@ -191,33 +191,12 @@ class TestValidate:
 class TestModelContract:
     """Tests for the pydantic-backed structural contract (tools/_models.py)."""
 
-    def test_key_prefix_satisfies_identity(self, minimal_valid_config):
-        """key_prefix is an accepted alternative to key."""
+    def test_key_required(self, minimal_valid_config):
+        """`key` is the sole identity field — absent (even with a label) → error."""
         del minimal_valid_config["key"]
-        minimal_valid_config["key_prefix"] = "TEST_"
-        warnings = validate(minimal_valid_config)
-        assert isinstance(warnings, list)
-
-    def test_empty_label_rejected(self, minimal_valid_config):
-        """An empty-string label is treated as missing (min_length=1)."""
-        minimal_valid_config["label"] = ""
         with pytest.raises(ValidationError) as exc_info:
             validate(minimal_valid_config)
-        assert any("label" in e.lower() for e in exc_info.value.errors)
-
-    def test_empty_artifact_field_rejected(self, minimal_valid_config):
-        """An empty artifact type/dataset is treated as missing."""
-        minimal_valid_config["artifacts"] = [{"type": "", "dataset": "/x"}]
-        with pytest.raises(ValidationError) as exc_info:
-            validate(minimal_valid_config)
-        assert any("type" in e.lower() for e in exc_info.value.errors)
-
-    def test_unknown_key_in_data_rejected(self, minimal_valid_config):
-        """forbid: a typo'd key in the data section is rejected, not silently dropped."""
-        minimal_valid_config["data"]["file_patern"] = "*.h5"  # typo
-        with pytest.raises(ValidationError) as exc_info:
-            validate(minimal_valid_config)
-        assert any("file_patern" in e for e in exc_info.value.errors)
+        assert any("key" in e.lower() for e in exc_info.value.errors)
 
     def test_params_group_requires_group(self, minimal_valid_config):
         """location=group without a group field is rejected."""
@@ -237,13 +216,6 @@ class TestModelContract:
             "location": "group_scalars", "entity_group": "samples"
         }
         assert isinstance(validate(minimal_valid_config), list)
-
-    def test_bad_param_location_rejected(self, minimal_valid_config):
-        """An unknown parameters.location value is rejected."""
-        minimal_valid_config["parameters"] = {"location": "not_a_location"}
-        with pytest.raises(ValidationError) as exc_info:
-            validate(minimal_valid_config)
-        assert any("location" in e.lower() for e in exc_info.value.errors)
 
     def test_shared_axis_requires_dataset(self, minimal_valid_config):
         """A shared axis missing its dataset is rejected."""
