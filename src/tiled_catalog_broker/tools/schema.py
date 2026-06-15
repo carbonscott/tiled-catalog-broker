@@ -172,37 +172,32 @@ def validate(cfg, model_path=None):
     Raises:
         ValidationError: if required fields are missing or invalid.
     """
-    errors = []
     warnings = []
     model = load_catalog_model(model_path)
 
-    # --- Resolve aliases before validation ---
-    alias_messages = resolve_aliases(cfg, model)
-    for msg in alias_messages:
-        warnings.append(msg)
+    # Resolve aliases before validation (mutates cfg in place).
+    warnings.extend(resolve_aliases(cfg, model))
 
-    # --- Structural validation via the pydantic contract model ---
+    # Structural validation via the pydantic contract model. Raise immediately —
+    # the filesystem/vocab checks below operate on the validated object.
     # try/except is required here: pydantic raises a single ValidationError for all
     # structural problems, which we translate into the broker's flat-list format.
     try:
-        DatasetConfig.model_validate(cfg)
+        config = DatasetConfig.model_validate(cfg)
     except PydanticValidationError as e:
-        errors.extend(_format_model_errors(e))
+        raise ValidationError(_format_model_errors(e))
 
-    # --- Filesystem + advisory checks (kept out of the pure model) ---
-    data = cfg.get("data")
-    directory = data.get("directory") if isinstance(data, dict) else None
-    if isinstance(directory, str) and directory and not os.path.isdir(directory):
-        errors.append(f"'data.directory' does not exist: {directory}")
-    if isinstance(data, dict) and not data.get("file_pattern"):
+    # Filesystem check (kept out of the pure model so a config can be validated
+    # without its data present — but enforced here when the directory is given).
+    if not os.path.isdir(config.data.directory):
+        raise ValidationError(
+            [f"'data.directory' does not exist: {config.data.directory}"]
+        )
+    if not config.data.file_pattern:
         warnings.append("'data.file_pattern' not set — will default to '**/*.h5'")
 
-    # --- Provenance (optional, no special validation) ---
-
-    # --- Dataset container metadata: validate against semantic model ---
-    metadata = cfg.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
+    # Dataset metadata: soft controlled-vocabulary checks (warnings only, ADR-0003).
+    metadata = config.metadata
     if model:
         _validate_vocab(metadata, "method", "methods", model, warnings, is_list=True)
         _validate_vocab(metadata, "data_type", "data_types", model, warnings)
@@ -211,27 +206,22 @@ def validate(cfg, model_path=None):
         _validate_vocab(metadata, "facility", "facilities", model, warnings)
         _validate_vocab(metadata, "project", "projects", model, warnings)
 
-    # --- Cross-field validation ---
-    dt = metadata.get("data_type")
-    if dt == "experimental" and not metadata.get("facility"):
+    # Cross-field advisory checks (producer↔simulation, facility↔experimental).
+    dt = metadata.data_type
+    if dt == "experimental" and not metadata.facility:
         warnings.append("data_type is 'experimental' but no 'facility' specified")
-    if dt == "simulation" and not metadata.get("producer"):
+    if dt == "simulation" and not metadata.producer:
         warnings.append("data_type is 'simulation' but no 'producer' specified")
-    if dt == "experimental" and metadata.get("producer"):
+    if dt == "experimental" and metadata.producer:
         warnings.append(
             "data_type is 'experimental' but 'producer' is set"
             " — producer is typically for simulations"
         )
-    if dt == "simulation" and metadata.get("facility"):
+    if dt == "simulation" and metadata.facility:
         warnings.append(
             "data_type is 'simulation' but 'facility' is set"
             " — facility is typically for experiments"
         )
-    if not metadata.get("material"):
-        warnings.append("'material' not specified — recommended for discoverability")
-
-    if errors:
-        raise ValidationError(errors)
 
     return warnings
 
@@ -239,9 +229,10 @@ def validate(cfg, model_path=None):
 def _validate_vocab(metadata, field, model_key, model, warnings, is_list=False):
     """Check a metadata field against the catalog model vocabulary.
 
-    Accepts both canonical IDs and known aliases.
+    `metadata` is a validated DatasetMetadata model. Accepts both canonical IDs
+    and known aliases.
     """
-    value = metadata.get(field)
+    value = getattr(metadata, field, None)
     if value is None:
         return
     allowed = get_allowed_values(model, model_key)
