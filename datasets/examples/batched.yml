@@ -1,0 +1,40 @@
+# Example: batched layout
+#
+# Many entities stacked along axis-0 of shared datasets within each file. Entity i is
+# row i of every artifact dataset. Per-entity parameters live in a parallel array (one
+# row per entity), here under a `/params` group.
+#
+#   run.h5
+#   ├── /spectra        (10000, 151, 40)   →  entity i = /spectra[i]
+#   ├── /params/
+#   │   ├── tenDq       (10000,)
+#   │   └── F2_dd       (10000,)
+#   └── /eloss          (151,)             →  shared axis, registered once
+#
+# A dataset may span several files (e.g. 5 files x 2000 entities); the glob picks them up.
+# Validate it by running `tcb generate datasets/examples/batched.yml`.
+
+key: EXAMPLE_BATCHED        # set by `tcb stamp-key`; shown here so the example is complete
+label: Example Batched
+
+metadata:
+  method: [RIXS]
+  data_type: simulation
+  material: NiPS3
+  producer: edrixs
+  project: MAIQMag
+
+data:
+  directory: /abs/path/to/batched_data
+  file_pattern: "*/simulations.h5"   # may match multiple files; entities concatenate
+  layout: batched
+
+parameters:
+  location: group            # parameters are per-entity arrays inside a group...
+  group: /params             # ...required when location is `group`
+
+artifacts:
+  - { type: rixs_spectrum, dataset: /spectra }   # axis-0 indexed per entity
+
+shared:
+  - { type: eloss, dataset: /eloss }

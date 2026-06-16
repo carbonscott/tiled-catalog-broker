@@ -2,7 +2,6 @@
 CLI entry points for tiled-catalog-broker.
 
 Provides five commands:
-  - tcb inspect:        Scan HDF5 data, generate draft YAML contract
   - tcb generate:       Generate Parquet manifests from finalized YAML
   - tcb stamp-key:      Write the derived catalog key into a YAML
   - tcb ingest:         Bulk SQL registration (local testing, deprecated)
@@ -121,27 +120,14 @@ def _find_manifests(config_path, label, name):
     return None, None
 
 
-# ── tcb inspect ───────────────────────────────────────────────
-
-def inspect_main():
-    """Scan an HDF5 data directory and generate a draft YAML contract.
-
-    The inspector auto-detects layout (per_entity, batched, grouped),
-    classifies datasets, checks consistency, and emits a YAML with
-    TODO markers for fields requiring human judgment.
-    """
-    from tiled_catalog_broker.tools.inspect import main as _inspect_main
-    _inspect_main()
-
-
 # ── tcb generate ─────────────────────────────────────────────
 
 def generate_yaml_main():
     """Generate Parquet manifests from a finalized YAML contract.
 
-    Reads a YAML config (produced by `tcb inspect` and finalized by user),
-    scans the HDF5 files, and produces entities.parquet + artifacts.parquet
-    compatible with `tcb ingest`.
+    Reads a dataset YAML config (authored against the contract surface —
+    see docs/ONBOARDING.md), scans the HDF5 files, and produces
+    entities.parquet + artifacts.parquet for `tcb register`.
     """
     from tiled_catalog_broker.tools.generate import main as _generate_main
     _generate_main()
@@ -603,7 +589,6 @@ def delete_main():
 def main():
     """Main entry point: tcb <command> [args]."""
     commands = {
-        "inspect": inspect_main,
         "generate": generate_yaml_main,
         "stamp-key": stamp_key_main,
         "ingest": ingest_main,
@@ -614,7 +599,6 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("usage: tcb <command> [args]\n")
         print("commands:")
-        print("  inspect     Scan HDF5 data directory, generate draft YAML contract")
         print("  generate    Generate Parquet manifests from a finalized YAML contract")
         print("  stamp-key   Write the derived catalog key into a YAML")
         print("  ingest      Bulk SQL registration from Parquet manifests")

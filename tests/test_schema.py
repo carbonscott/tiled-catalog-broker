@@ -28,7 +28,6 @@ from pydantic import ValidationError
 
 from tiled_catalog_broker.tools.schema import (
     get_alias_map,
-    get_allowed_values,
     load_catalog_model,
     resolve_aliases,
     validate,
@@ -70,26 +69,6 @@ class TestLoadCatalogModel:
         assert model is not None
         assert isinstance(model, dict)
         assert "methods" in model
-
-
-class TestGetAllowedValues:
-    """Tests for get_allowed_values()."""
-
-    def test_get_allowed_values(self):
-        """Pass a minimal model dict, get back list of IDs."""
-        model = {
-            "methods": [
-                {"id": "RIXS", "label": "RIXS"},
-                {"id": "INS", "label": "INS"},
-            ]
-        }
-        result = get_allowed_values(model, "methods")
-        assert result == ["RIXS", "INS"]
-
-    def test_get_allowed_values_missing_field(self):
-        """Returns empty list for a field not in the model."""
-        model = {"methods": [{"id": "RIXS"}]}
-        assert get_allowed_values(model, "materials") == []
 
 
 class TestGetAliasMap:
