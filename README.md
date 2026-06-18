@@ -36,6 +36,9 @@ Write a dataset YAML against the contract surface — see
 matching your layout from [`datasets/examples/`](datasets/examples/). The authoritative
 field list is `src/tiled_catalog_broker/tools/_models.py`.
 
+> Using Claude Code? Run **`/onboarding`** to have an agent read the contract surface and
+> walk you through authoring the YAML and running the pipeline.
+
 ### Step 2: Generate Manifests
 
 Generate Parquet manifests from the YAML (this also validates it against the contract):
