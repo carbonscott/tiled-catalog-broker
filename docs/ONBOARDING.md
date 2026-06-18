@@ -97,39 +97,9 @@ For `grouped`, `parameters.entity_group` names the group that holds one subgroup
 
 ## 3. Authoring the dataset YAML
 
-A dataset YAML describes **exactly one** dataset. The authoritative field list is
-`_models.py`; the shape is:
-
-```yaml
-label: My Dataset                 # human-readable name; basis for the UID namespace
-# key: set by `tcb stamp-key` — do not hand-edit
-
-metadata:                         # queryable discovery facets (see §4)
-  method: [RIXS]                  # required, >=1
-  data_type: simulation           # required
-  material: NiPS3                 # required
-  producer: edrixs                # optional (simulations)
-  project: MAIQMag                # optional
-  # extra keys allowed — datasets add their own (e.g. prior_distribution)
-
-data:
-  directory: /abs/path/to/data    # where the HDF5 files live
-  file_pattern: "*.h5"            # glob under directory (default **/*.h5)
-  layout: per_entity              # per_entity | batched | grouped
-
-parameters:
-  location: root_scalars          # see §2; `group` also needs `group:`
-
-artifacts:                        # >=1; each becomes an array key under its entity
-  - type: spectrum                # the array's key
-    dataset: /spectrum            # HDF5 path to the array
-
-shared:                           # optional axis arrays registered once per dataset
-  - type: energy
-    dataset: /energy
-```
-
-Notes:
+A dataset YAML describes **exactly one** dataset. For the full field list and per-field
+rules read `src/tiled_catalog_broker/tools/_models.py`; for a complete file to adapt, copy
+the `datasets/examples/<layout>.yml` that matches your layout. Key things to know:
 - **Required** (config errors if missing): `label`, `metadata.method`/`data_type`/`material`,
   `data.directory`/`layout`, at least one `artifacts` entry, `parameters.location`, and `key`
   (filled by `tcb stamp-key`).
