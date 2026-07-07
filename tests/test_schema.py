@@ -3,6 +3,7 @@
 # dependencies = [
 #     "pytest",
 #     "ruamel.yaml",
+#     "pydantic>=2",
 # ]
 # ///
 """
@@ -23,8 +24,9 @@ import pytest
 # Add project root to path for package imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from pydantic import ValidationError
+
 from tiled_catalog_broker.tools.schema import (
-    ValidationError,
     get_alias_map,
     get_allowed_values,
     load_catalog_model,
@@ -49,6 +51,7 @@ def minimal_valid_config(tmp_path):
         "artifacts": [
             {"type": "spectrum", "dataset": "/spectrum"},
         ],
+        "parameters": {"location": "root_scalars"},
         "metadata": {
             "method": ["RIXS"],
             "data_type": "simulation",
@@ -67,11 +70,6 @@ class TestLoadCatalogModel:
         assert model is not None
         assert isinstance(model, dict)
         assert "methods" in model
-
-    def test_load_catalog_model_missing(self):
-        """Returns None for a nonexistent path."""
-        result = load_catalog_model("/nonexistent/path/catalog_model.yml")
-        assert result is None
 
 
 class TestGetAllowedValues:
@@ -92,10 +90,6 @@ class TestGetAllowedValues:
         """Returns empty list for a field not in the model."""
         model = {"methods": [{"id": "RIXS"}]}
         assert get_allowed_values(model, "materials") == []
-
-    def test_get_allowed_values_none_model(self):
-        """Returns empty list when model is None."""
-        assert get_allowed_values(None, "methods") == []
 
 
 class TestGetAliasMap:
@@ -150,27 +144,27 @@ class TestValidate:
         warnings = validate(minimal_valid_config)
         assert isinstance(warnings, list)
 
-    def test_validate_missing_key(self, minimal_valid_config):
-        """Raises ValidationError when 'key' is missing."""
-        del minimal_valid_config["key"]
-        del minimal_valid_config["label"]
-        with pytest.raises(ValidationError) as exc_info:
-            validate(minimal_valid_config)
-        assert any("label" in e.lower() or "key" in e.lower() for e in exc_info.value.errors)
-
     def test_validate_missing_artifacts(self, minimal_valid_config):
         """Raises ValidationError when artifacts list is empty."""
         minimal_valid_config["artifacts"] = []
         with pytest.raises(ValidationError) as exc_info:
             validate(minimal_valid_config)
-        assert any("artifact" in e.lower() for e in exc_info.value.errors)
+        assert "artifact" in str(exc_info.value).lower()
 
-    def test_validate_bad_layout(self, minimal_valid_config):
-        """Raises ValidationError for an invalid layout value."""
-        minimal_valid_config["data"]["layout"] = "invalid_layout"
-        with pytest.raises(ValidationError) as exc_info:
-            validate(minimal_valid_config)
-        assert any("layout" in e.lower() for e in exc_info.value.errors)
+    def test_validate_missing_metadata_field(self, minimal_valid_config):
+        """data_type, method, material are required (presence) — missing → error."""
+        for field in ("data_type", "method", "material"):
+            cfg = {**minimal_valid_config, "metadata": dict(minimal_valid_config["metadata"])}
+            del cfg["metadata"][field]
+            with pytest.raises(ValidationError) as exc_info:
+                validate(cfg)
+            assert field in str(exc_info.value).lower()
+
+    def test_validate_unknown_metadata_value_warns_not_errors(self, minimal_valid_config):
+        """A required field with an out-of-vocab *value* still validates (warns only)."""
+        minimal_valid_config["metadata"]["material"] = "SomeNovelMaterial"
+        warnings = validate(minimal_valid_config)  # must not raise
+        assert isinstance(warnings, list)
 
     def test_validate_alias_accepted(self, minimal_valid_config):
         """EDRIXS in method doesn't produce a vocab warning."""
@@ -185,3 +179,60 @@ class TestValidate:
         del minimal_valid_config["metadata"]["producer"]
         warnings = validate(minimal_valid_config)
         assert any("simulation" in w and "producer" in w for w in warnings)
+
+
+class TestModelContract:
+    """Tests for the pydantic-backed structural contract (tools/_models.py)."""
+
+    def test_key_required(self, minimal_valid_config):
+        """`key` is the sole identity field — absent (even with a label) → error."""
+        del minimal_valid_config["key"]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert "key" in str(exc_info.value).lower()
+
+    def test_parameters_required(self, minimal_valid_config):
+        """The parameters section (and its location) is required."""
+        del minimal_valid_config["parameters"]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert "parameters" in str(exc_info.value).lower()
+
+    def test_params_location_required(self, minimal_valid_config):
+        """parameters.location must be present."""
+        minimal_valid_config["parameters"] = {}
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert "location" in str(exc_info.value).lower()
+
+    def test_params_group_requires_group(self, minimal_valid_config):
+        """location=group without a group field is rejected."""
+        minimal_valid_config["parameters"] = {"location": "group"}
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert "group" in str(exc_info.value).lower()
+
+    def test_params_group_valid(self, minimal_valid_config):
+        """location=group with a group field passes."""
+        minimal_valid_config["parameters"] = {"location": "group", "group": "/params"}
+        assert isinstance(validate(minimal_valid_config), list)
+
+    def test_params_entity_group_allowed(self, minimal_valid_config):
+        """grouped layout declares parameters.entity_group — it must be accepted."""
+        minimal_valid_config["parameters"] = {
+            "location": "group_scalars", "entity_group": "samples"
+        }
+        assert isinstance(validate(minimal_valid_config), list)
+
+    def test_shared_axis_requires_dataset(self, minimal_valid_config):
+        """A shared axis missing its dataset is rejected."""
+        minimal_valid_config["shared"] = [{"type": "E_axis"}]
+        with pytest.raises(ValidationError) as exc_info:
+            validate(minimal_valid_config)
+        assert "dataset" in str(exc_info.value).lower()
+
+    def test_extra_metadata_keys_allowed(self, minimal_valid_config):
+        """metadata is extensible — unknown metadata keys do not error."""
+        minimal_valid_config["metadata"]["prior_distribution"] = "uniform"
+        minimal_valid_config["metadata"]["round"] = 0
+        assert isinstance(validate(minimal_valid_config), list)

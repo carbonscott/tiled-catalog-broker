@@ -4,45 +4,18 @@ Validates dataset YAML configs against both structural requirements
 and the semantic model (schema/catalog_model.yml).
 """
 
-import os
 from pathlib import Path
 
 from ruamel.yaml import YAML
 
-VALID_LAYOUTS = {"per_entity", "batched", "grouped"}
-VALID_PARAM_LOCATIONS = {"root_scalars", "root_attributes", "group", "group_scalars", "manifest"}
+from ._models import DatasetConfig
 
 
-class ValidationError(Exception):
-    """Raised when a dataset YAML fails validation."""
-
-    def __init__(self, errors):
-        self.errors = errors
-        super().__init__(
-            f"{len(errors)} validation error(s):\n"
-            + "\n".join(f"  - {e}" for e in errors)
-        )
-
-
-def load_catalog_model(model_path=None):
-    """Load the semantic model YAML.
-
-    Args:
-        model_path: Path to catalog_model.yml.
-            Defaults to schema/catalog_model.yml relative to the package.
-
-    Returns:
-        dict: The parsed catalog model, or None if not found.
-    """
-    if model_path is None:
-        model_path = (
-            Path(__file__).parent / "schema" / "catalog_model.yml"
-        )
-    if not Path(model_path).exists():
-        return None
-
+def load_catalog_model():
+    """Load and parse the bundled semantic model (schema/catalog_model.yml)."""
+    path = Path(__file__).parent / "schema" / "catalog_model.yml"
     yaml = YAML()
-    with open(model_path) as f:
+    with open(path) as f:
         return yaml.load(f)
 
 
@@ -56,7 +29,7 @@ def get_allowed_values(model, field_name):
     Returns:
         list[str]: Allowed ID values, or empty list if not found.
     """
-    if model is None or field_name not in model:
+    if field_name not in model:
         return []
     return [entry["id"] for entry in model[field_name]]
 
@@ -74,7 +47,7 @@ def get_alias_map(model, field_name):
     Returns:
         dict: {alias_id: {"canonical": canonical_id, "implies": {...}}}
     """
-    if model is None or field_name not in model:
+    if field_name not in model:
         return {}
     alias_map = {}
     for entry in model[field_name]:
@@ -106,8 +79,6 @@ def resolve_aliases(cfg, model):
     Returns:
         list[str]: Messages about resolved aliases.
     """
-    if model is None:
-        return []
     messages = []
     metadata = cfg.get("metadata", {})
 
@@ -145,124 +116,45 @@ def resolve_aliases(cfg, model):
     return messages
 
 
-def validate(cfg, model_path=None):
+def validate(cfg):
     """Validate a parsed dataset YAML config.
 
-    Args:
-        cfg: dict loaded from YAML.
-        model_path: Optional path to catalog_model.yml.
-
-    Returns:
-        list of warning strings (non-fatal).
-
-    Raises:
-        ValidationError: if required fields are missing or invalid.
+    Returns a list of non-fatal warning strings. Raises pydantic ``ValidationError``
+    if the config violates the structural contract.
     """
-    errors = []
     warnings = []
-    model = load_catalog_model(model_path)
+    model = load_catalog_model()
 
-    # --- Resolve aliases before validation ---
-    alias_messages = resolve_aliases(cfg, model)
-    for msg in alias_messages:
-        warnings.append(msg)
+    # Resolve aliases before validation (mutates cfg in place).
+    warnings.extend(resolve_aliases(cfg, model))
 
-    # --- Required identity fields ---
-    if not cfg.get("label"):
-        errors.append("'label' is required (e.g., edrixs_sbi)")
-    if not cfg.get("key"):
-        if not cfg.get("key_prefix"):
-            errors.append("'key' is required (dataset container key in Tiled)")
+    # Structural validation — pydantic raises ValidationError on any violation.
+    config = DatasetConfig.model_validate(cfg)
 
-    # --- Data section ---
-    data = cfg.get("data")
-    if not data:
-        errors.append("'data' section is required")
-    else:
-        if not data.get("directory"):
-            errors.append("'data.directory' is required")
-        elif not os.path.isdir(data["directory"]):
-            errors.append(f"'data.directory' does not exist: {data['directory']}")
+    metadata = config.metadata
+    _validate_vocab(metadata, "method", "methods", model, warnings, is_list=True)
+    _validate_vocab(metadata, "data_type", "data_types", model, warnings)
+    _validate_vocab(metadata, "material", "materials", model, warnings)
+    _validate_vocab(metadata, "producer", "producers", model, warnings)
+    _validate_vocab(metadata, "facility", "facilities", model, warnings)
+    _validate_vocab(metadata, "project", "projects", model, warnings)
 
-        layout = data.get("layout")
-        if not layout:
-            errors.append("'data.layout' is required (per_entity | batched | grouped)")
-        elif layout not in VALID_LAYOUTS:
-            errors.append(f"'data.layout' must be one of {VALID_LAYOUTS}, got '{layout}'")
-
-        if not data.get("file_pattern"):
-            warnings.append("'data.file_pattern' not set — will default to '**/*.h5'")
-
-        sbd = data.get("server_base_dir")
-        if sbd is not None and sbd != "" and not isinstance(sbd, str):
-            errors.append(
-                f"'data.server_base_dir' must be a string if set, got {type(sbd).__name__}"
-            )
-
-    # --- Artifacts ---
-    artifacts = cfg.get("artifacts", [])
-    if not artifacts:
-        errors.append("'artifacts' list is required (at least one artifact)")
-    else:
-        for i, art in enumerate(artifacts):
-            if not art.get("type"):
-                errors.append(f"artifacts[{i}].type is required")
-            if not art.get("dataset"):
-                errors.append(f"artifacts[{i}].dataset is required")
-
-    # --- Parameters (optional but validated if present) ---
-    params = cfg.get("parameters")
-    if params:
-        loc = params.get("location")
-        if loc and loc not in VALID_PARAM_LOCATIONS:
-            errors.append(
-                f"'parameters.location' must be one of {VALID_PARAM_LOCATIONS}, got '{loc}'"
-            )
-        if loc == "group" and not params.get("group"):
-            errors.append("'parameters.group' is required when location is 'group'")
-        if loc == "manifest" and not params.get("manifest"):
-            errors.append("'parameters.manifest' is required when location is 'manifest'")
-
-    # --- Shared axes (optional, validated if present) ---
-    for i, ax in enumerate(cfg.get("shared", [])):
-        if not ax.get("type"):
-            errors.append(f"shared[{i}].type is required")
-        if not ax.get("dataset"):
-            errors.append(f"shared[{i}].dataset is required")
-
-    # --- Provenance (optional, no special validation) ---
-
-    # --- Dataset container metadata: validate against semantic model ---
-    metadata = cfg.get("metadata", {})
-    if model:
-        _validate_vocab(metadata, "method", "methods", model, warnings, is_list=True)
-        _validate_vocab(metadata, "data_type", "data_types", model, warnings)
-        _validate_vocab(metadata, "material", "materials", model, warnings)
-        _validate_vocab(metadata, "producer", "producers", model, warnings)
-        _validate_vocab(metadata, "facility", "facilities", model, warnings)
-        _validate_vocab(metadata, "project", "projects", model, warnings)
-
-    # --- Cross-field validation ---
-    dt = metadata.get("data_type")
-    if dt == "experimental" and not metadata.get("facility"):
+    # Cross-field advisory checks (producer↔simulation, facility↔experimental).
+    dt = metadata.data_type
+    if dt == "experimental" and not metadata.facility:
         warnings.append("data_type is 'experimental' but no 'facility' specified")
-    if dt == "simulation" and not metadata.get("producer"):
+    if dt == "simulation" and not metadata.producer:
         warnings.append("data_type is 'simulation' but no 'producer' specified")
-    if dt == "experimental" and metadata.get("producer"):
+    if dt == "experimental" and metadata.producer:
         warnings.append(
             "data_type is 'experimental' but 'producer' is set"
             " — producer is typically for simulations"
         )
-    if dt == "simulation" and metadata.get("facility"):
+    if dt == "simulation" and metadata.facility:
         warnings.append(
             "data_type is 'simulation' but 'facility' is set"
             " — facility is typically for experiments"
         )
-    if not metadata.get("material"):
-        warnings.append("'material' not specified — recommended for discoverability")
-
-    if errors:
-        raise ValidationError(errors)
 
     return warnings
 
@@ -270,9 +162,10 @@ def validate(cfg, model_path=None):
 def _validate_vocab(metadata, field, model_key, model, warnings, is_list=False):
     """Check a metadata field against the catalog model vocabulary.
 
-    Accepts both canonical IDs and known aliases.
+    `metadata` is a validated DatasetMetadata model. Accepts both canonical IDs
+    and known aliases.
     """
-    value = metadata.get(field)
+    value = getattr(metadata, field, None)
     if value is None:
         return
     allowed = get_allowed_values(model, model_key)
