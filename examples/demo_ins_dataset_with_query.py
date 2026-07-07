@@ -538,8 +538,6 @@ def _(mo):
     - M(H) constrains bulk susceptibility and saturation
     - INS constrains exchange bandwidth and anisotropy gap
     - Together: more unique determination of (Ja, Jb, Jc, Dc)
-
-    For full physics context, see `docs/CONTEXT-SCIENCE.md`.
     """)
     return
 

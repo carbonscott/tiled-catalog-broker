@@ -601,8 +601,6 @@ def _(mo):
     # Theta: training labels (Hamiltonian parameters)
     # Ready for PyTorch DataLoader
     ```
-
-    For full physics context, see `docs/CONTEXT-SCIENCE.md`.
     """)
     return
 

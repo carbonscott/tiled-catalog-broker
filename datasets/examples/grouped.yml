@@ -1,0 +1,41 @@
+# Example: grouped layout
+#
+# One HDF5 group per entity inside a file, each group self-contained. `parameters.entity_group`
+# names the group that holds one subgroup per entity; `artifacts[].dataset` is resolved
+# relative to each entity group.
+#
+#   samples.h5
+#   └── /samples/
+#       ├── sample_000/
+#       │   ├── spectrum        (151, 40)   →  artifact, path is `spectrum` (group-relative)
+#       │   └── params/
+#       │       ├── tenDq       ()          →  scalar parameter
+#       │       └── F2_dd       ()
+#       ├── sample_001/  ...
+#       └── ...
+#
+# If `entity_group` is omitted it defaults to `samples`, then falls back to the file's
+# top-level groups. Validate it by running `tcb generate datasets/examples/grouped.yml`.
+
+key: EXAMPLE_GROUPED        # set by `tcb stamp-key`; shown here so the example is complete
+label: Example Grouped
+
+metadata:
+  method: [RIXS]
+  data_type: simulation
+  material: NiPS3
+  producer: edrixs
+  project: MAIQMag
+
+data:
+  directory: /abs/path/to/grouped_data
+  file_pattern: "*.h5"
+  layout: grouped
+
+parameters:
+  location: group_scalars    # scalar datasets inside each entity group are the parameters
+  entity_group: samples      # group holding one subgroup per entity
+  group: params              # subgroup (within each entity) holding the scalar params
+
+artifacts:
+  - { type: spectrum, dataset: spectrum }   # group-relative path under each entity

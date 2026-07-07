@@ -29,17 +29,19 @@ uv pip install -e .
 
 ## Quickstart
 
-### Step 1: Inspect HDF5 Data
+### Step 1: Author a Dataset YAML
 
-Scan an HDF5 data directory to auto-generate a draft YAML contract:
+Write a dataset YAML against the contract surface — see
+[docs/ONBOARDING.md](docs/ONBOARDING.md) for the full walkthrough, and copy the example
+matching your layout from [`datasets/examples/`](datasets/examples/). The authoritative
+field list is `src/tiled_catalog_broker/tools/_models.py`.
 
-```bash
-tcb inspect /path/to/hdf5/data/
-```
+> Using Claude Code? Run **`/onboarding`** to have an agent read the contract surface and
+> walk you through authoring the YAML and running the pipeline.
 
 ### Step 2: Generate Manifests
 
-Finalize the YAML (fill in TODOs), then generate Parquet manifests:
+Generate Parquet manifests from the YAML (this also validates it against the contract):
 
 ```bash
 tcb generate datasets/mydata.yml
@@ -136,14 +138,13 @@ uv run --with marimo --with matplotlib \
 The `tcb` CLI subcommands form a pipeline:
 
 ```
-HDF5 data  -->  tcb inspect  -->  tcb generate  -->  tcb stamp-key  -->  tcb register  -->  tiled serve
-                (draft YAML)      (manifests)        (key in YAML)       (HTTP)             (queries)
+dataset YAML  -->  tcb generate  -->  tcb stamp-key  -->  tcb register  -->  tiled serve
+(the contract)     (manifests)        (key in YAML)       (HTTP)             (queries)
 ```
 
 | Subcommand | Purpose | Server needed? |
 |------------|---------|----------------|
-| `tcb inspect` | Scan HDF5 data, generate draft YAML contract | No |
-| `tcb generate` | Generate Parquet manifests from finalized YAML | No |
+| `tcb generate` | Generate Parquet manifests from a dataset YAML | No |
 | `tcb stamp-key` | Write the derived catalog key into the YAML | No |
 | `tcb register` | Register manifests into a running server (HTTP) | Yes |
 | `tcb delete` | Remove registered data from a running server (catalog only; HDF5 files untouched) | Yes |
@@ -280,7 +281,7 @@ tcb register datasets/mydata.yml
 ### Unit Tests (no server required)
 
 ```bash
-uv run --with pytest pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py tests/test_inspect.py tests/test_generate.py tests/test_schema.py -v
+uv run --with pytest pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py tests/test_generate.py tests/test_schema.py tests/test_examples.py -v
 ```
 
 ### Integration Tests (require running server with data)
@@ -297,9 +298,9 @@ uv run --with pytest pytest tests/ -v
 |-----------|------|----------------|
 | `test_config.py` | Unit | Configuration loading |
 | `test_utils.py` | Unit | Artifact key generation, shared helpers |
-| `test_inspect.py` | Unit | HDF5 inspection, layout detection |
 | `test_generate.py` | Unit | Parquet manifest generation |
 | `test_schema.py` | Unit | YAML contract validation |
+| `test_examples.py` | Unit | Example dataset YAMLs validate against the contract |
 | `test_generic_registration.py` | Unit | Node preparation for VDP + NiPS3 datasets |
 | `test_registration.py` | Integration | HTTP and bulk registration |
 | `test_data_retrieval.py` | Integration | Mode A/B data access |
@@ -315,16 +316,16 @@ tiled-catalog-broker/
 ├── config.yml                 # Tiled server configuration
 ├── src/
 │   └── tiled_catalog_broker/  # Installable Python package
-│       ├── cli.py             # CLI: tcb {inspect,generate,ingest,register}
+│       ├── cli.py             # CLI: tcb {generate,stamp-key,ingest,register,delete}
 │       ├── config.py          # Environment/config loading
 │       ├── bulk_register.py   # Bulk SQL registration (deprecated, local testing only)
 │       ├── http_register.py   # HTTP registration via Tiled client
 │       ├── utils.py           # Shared helpers
 │       ├── adapters/          # Tiled array adapters
 │       ├── tools/             # Data-prep tools
-│       │   ├── inspect.py     # Auto-generate draft YAML from HDF5
+│       │   ├── _models.py     # Pydantic dataset YAML contract (the contract surface)
 │       │   ├── generate.py    # Generate Parquet manifests from YAML
-│       │   └── schema.py      # YAML contract validation
+│       │   └── schema.py      # YAML contract validation + soft vocab checks
 │       └── clients/           # Client-side utilities
 │           ├── tiled_cache.py # Disk-backed cache + PyTorch Dataset
 │           └── query_manifest.py  # Mode A discovery API
@@ -365,8 +366,3 @@ safe to run multiple times.
 | 10 | < 1 sec | ~300 KB |
 | 1,000 | ~5 sec | ~20 MB |
 | 10,000 | ~53 sec | ~192 MB |
-
-### PostgreSQL Backend
-
-For concurrent access or very large catalogs, use PostgreSQL instead of SQLite.
-See `docs/V6A-POSTGRES-NOTES.md` for setup and configuration.

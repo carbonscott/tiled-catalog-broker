@@ -62,9 +62,8 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
         server_base_dir: Optional server-side mount path. If set, becomes
             the asset `data_uri` base — needed when the Tiled server sees
             the filesystem at a different mount than the authoring host
-            (K8s pod, reverse proxy). Pre-computed by `tcb inspect` from
-            `TILED_HOST_DATA_ROOT` / `TILED_SERVER_DATA_ROOT` env vars
-            and persisted in the YAML's `data.server_base_dir:` field.
+            (K8s pod, reverse proxy). Set by the author in the YAML's
+            `data.server_base_dir:` field when host and server mounts differ.
 
     Returns:
         Tuple of (DataSource, data_shape, data_dtype).

@@ -13,12 +13,11 @@ Handles three layout patterns:
   - batched: entities stacked along axis-0 of datasets in each file
   - grouped: one HDF5 group per entity inside a single file
 
-Supports five parameter locations:
+Supports four parameter locations:
   - root_scalars: scalar HDF5 datasets at file root
   - root_attributes: HDF5 root-level file attributes (f.attrs)
   - group: datasets inside a named HDF5 group (e.g., /params)
   - group_scalars: scalars inside entity groups (grouped layout)
-  - manifest: external CSV or Parquet file with parameter columns
 
 Usage:
     dcs generate datasets/edrixs_sbi.yml
@@ -27,7 +26,9 @@ Usage:
 
 import os
 import sys
+import json
 import hashlib
+import argparse
 import datetime
 from pathlib import Path
 from collections import OrderedDict
@@ -37,13 +38,11 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from pydantic import ValidationError
 from ruamel.yaml import YAML
 
-from .schema import validate, ValidationError
-
-
-# Columns in external parameter manifests that are not physics parameters.
-_PARAM_MANIFEST_SKIP_COLS = {"file", "filename", "sample_idx", "output_file"}
+from ._models import ArtifactSpec, DatasetConfig, Layout, ParametersSection, ParamLocation
+from .schema import validate
 
 
 def load_yaml(yaml_path):
@@ -85,39 +84,20 @@ def generate_manifests(yaml_path, output_dir=None, append=False):
         (str, str): Paths to entities.parquet and artifacts.parquet.
     """
     cfg = load_yaml(yaml_path)
+    config = DatasetConfig.model_validate(cfg)
     config_hash = compute_config_hash(yaml_path)
 
-    from ..utils import slugify_key
-
-    label = cfg["label"]
-    # UIDs must be stable whether or not `key` has been stamped into the YAML
-    # yet by `tcb register`; always derive from slug(label).
-    key_prefix = cfg.get("key") or cfg.get("key_prefix") or slugify_key(label)
-    data = cfg["data"]
-    directory = data["directory"]
-    file_pattern = data.get("file_pattern", "**/*.h5")
-    layout = data["layout"]
+    key_prefix = config.key
+    layout = config.data.layout
 
     if output_dir is None:
-        output_dir = os.path.join(os.path.dirname(yaml_path) or ".", "manifests", label)
+        output_dir = os.path.join(
+            os.path.dirname(yaml_path) or ".", "manifests", config.label
+        )
     os.makedirs(output_dir, exist_ok=True)
 
-    artifacts_cfg = cfg.get("artifacts", [])
-    shared_cfg = cfg.get("shared", [])
-    params_cfg = cfg.get("parameters", {})
+    # extra_metadata is not part of the structural model; read it from the raw config.
     extra_meta_cfg = cfg.get("extra_metadata", [])
-
-    # Load external parameter manifest if location is "manifest"
-    param_manifest = None
-    if params_cfg.get("location") == "manifest":
-        mpath = params_cfg["manifest"]
-        if not os.path.isabs(mpath):
-            mpath = os.path.join(directory, mpath)
-        if mpath.endswith(".csv"):
-            param_manifest = pd.read_csv(mpath)
-        else:
-            param_manifest = pd.read_parquet(mpath)
-        print(f"  Loaded parameter manifest: {mpath} ({len(param_manifest)} rows)")
 
     # Load existing UIDs for append mode
     existing_uids = set()
@@ -129,33 +109,27 @@ def generate_manifests(yaml_path, output_dir=None, append=False):
             print(f"  Append mode: {len(existing_uids)} existing entities will be skipped")
 
     # Find HDF5 files
-    root = Path(directory)
-    h5_files = sorted(root.glob(file_pattern))
+    root = Path(config.data.directory)
+    h5_files = sorted(root.glob(config.data.file_pattern))
     if not h5_files:
-        h5_files = sorted(root.rglob(file_pattern))
+        h5_files = sorted(root.rglob(config.data.file_pattern))
     if not h5_files:
-        print(f"Error: No HDF5 files matching '{file_pattern}' in {directory}")
+        print(
+            f"Error: No HDF5 files matching '{config.data.file_pattern}' "
+            f"in {config.data.directory}"
+        )
         sys.exit(1)
     print(f"Found {len(h5_files)} HDF5 files")
 
-    if layout == "per_entity":
-        ent_rows, art_rows = _generate_per_entity(
-            h5_files, root, key_prefix, artifacts_cfg, shared_cfg,
-            params_cfg, extra_meta_cfg, cfg, param_manifest, existing_uids,
-        )
-    elif layout == "batched":
-        ent_rows, art_rows = _generate_batched(
-            h5_files, root, key_prefix, artifacts_cfg, shared_cfg,
-            params_cfg, extra_meta_cfg, cfg, param_manifest, existing_uids,
-        )
-    elif layout == "grouped":
-        ent_rows, art_rows = _generate_grouped(
-            h5_files, root, key_prefix, artifacts_cfg, shared_cfg,
-            params_cfg, extra_meta_cfg, cfg, param_manifest, existing_uids,
-        )
-    else:
-        print(f"Error: Unknown layout '{layout}'")
-        sys.exit(1)
+    generators = {
+        Layout.per_entity: _generate_per_entity,
+        Layout.batched: _generate_batched,
+        Layout.grouped: _generate_grouped,
+    }
+    ent_rows, art_rows = generators[layout](
+        h5_files, root, key_prefix, config.artifacts,
+        config.parameters, extra_meta_cfg, existing_uids,
+    )
 
     # Build DataFrames
     ent_df = pd.DataFrame(ent_rows)
@@ -217,111 +191,123 @@ def _warn_mixed_uid_paths(content_count, fallback_count, key_prefix):
         )
 
 
-def _generate_per_entity(h5_files, root, key_prefix, artifacts_cfg,
-                         shared_cfg, params_cfg, extra_meta_cfg, cfg,
-                         param_manifest=None, existing_uids=None):
+# ---------------------------------------------------------------------------
+# Shared row builders — the per_entity / batched / grouped generators below all
+# resolve a UID, then emit one entity row and N artifact rows the same way.
+# ---------------------------------------------------------------------------
+
+def _attrs_params(f):
+    """All root-level HDF5 attributes as native-typed params (sorted by name)."""
+    return {name: _to_python(f.attrs[name]) for name in sorted(f.attrs.keys())}
+
+
+def _scalar_params(group):
+    """All scalar (0-dim) datasets directly under an HDF5 group (sorted by name)."""
+    out = {}
+    for name in sorted(group.keys()):
+        ds = group[name]
+        if isinstance(ds, h5py.Dataset) and ds.ndim == 0:
+            out[name] = _to_python(ds[()])
+    return out
+
+
+def _resolve_uid(entity_params, key_prefix, fallback):
+    """Return (uid, is_content_addressed) for one entity.
+
+    Content-addressed when physical parameters were discovered; otherwise the
+    deterministic positional `fallback` string (see _make_uid).
+    """
+    if entity_params:
+        return _make_uid(entity_params, namespace=key_prefix), True
+    return _make_uid(fallback), False
+
+
+def _entity_row(uid, entity_params, extra=None, source_group=None):
+    """Entity manifest row in canonical column order:
+    uid, [source_group], <params...>, [extra...]."""
+    row = OrderedDict()
+    row["uid"] = uid
+    if source_group is not None:
+        row["source_group"] = source_group
+    row.update(entity_params)
+    if extra:
+        row.update(extra)
+    return row
+
+
+def _artifact_row(uid, art_type, rel_path, dataset, index, fsize, fmtime):
+    """Artifact manifest row (uid matches the parent entity uid)."""
+    row = OrderedDict()
+    row["uid"] = uid
+    row["type"] = art_type
+    row["file"] = rel_path
+    row["dataset"] = dataset
+    row["index"] = index
+    row["file_size"] = fsize
+    row["file_mtime"] = fmtime
+    return row
+
+
+def _generate_per_entity(h5_files, root, key_prefix, artifacts: list[ArtifactSpec],
+                         params: ParametersSection, extra_meta_cfg, existing_uids):
     """One HDF5 file = one entity. Scalars at root are parameters."""
     ent_rows = []
     art_rows = []
     content_count = fallback_count = 0
-    if existing_uids is None:
-        existing_uids = set()
-
-    # Cache file fingerprints to avoid repeated stat calls
-    _fingerprint_cache = {}
+    loc = params.location
 
     for i, h5_path in enumerate(h5_files):
         rel_path = str(h5_path.relative_to(root))
         file_stem = h5_path.stem
-
-        # Read the entity's physical parameters first — the UID is a
-        # content-addressed hash of these, not of file position.
         entity_params = {}
         extra_meta = {}
-        loc = params_cfg.get("location", "root_scalars")
 
-        if loc == "manifest" and param_manifest is not None:
-            first_col = param_manifest.columns[0]
-            match = param_manifest[
-                param_manifest[first_col].astype(str) == file_stem
-            ]
-            if not match.empty:
-                row = match.iloc[0]
-                for col in param_manifest.columns:
-                    if col not in _PARAM_MANIFEST_SKIP_COLS:
-                        val = row[col]
-                        if pd.notna(val):
-                            entity_params[col] = _to_python(val)
-        else:
-            with h5py.File(h5_path, "r") as f:
-                if loc == "root_scalars":
-                    for ds_name in sorted(f.keys()):
-                        ds = f[ds_name]
-                        if isinstance(ds, h5py.Dataset) and ds.ndim == 0:
-                            entity_params[ds_name] = _to_python(ds[()])
-                elif loc == "root_attributes":
-                    for attr_name in sorted(f.attrs.keys()):
-                        entity_params[attr_name] = _to_python(f.attrs[attr_name])
-                elif loc == "group":
-                    group_name = params_cfg["group"].lstrip("/")
-                    if group_name in f:
-                        for pname in sorted(f[group_name].keys()):
-                            ds = f[group_name][pname]
-                            if isinstance(ds, h5py.Dataset):
-                                entity_params[pname] = _to_python(ds[()])
-
-                # Extra metadata (stored per-entity but not part of the UID hash)
-                for extra in extra_meta_cfg:
-                    ds_path = extra["dataset"].lstrip("/")
-                    if ds_path in f:
-                        ds = f[ds_path]
+        with h5py.File(h5_path, "r") as f:
+            # Read the entity's physical parameters first — the UID is a
+            # content-addressed hash of these, not of file position.
+            if loc == ParamLocation.root_scalars:
+                entity_params = _scalar_params(f)
+            elif loc == ParamLocation.root_attributes:
+                entity_params = _attrs_params(f)
+            elif loc == ParamLocation.group:
+                group_name = params.group.lstrip("/")
+                if group_name in f:
+                    for pname in sorted(f[group_name].keys()):
+                        ds = f[group_name][pname]
                         if isinstance(ds, h5py.Dataset):
-                            if ds.ndim == 0:
-                                extra_meta[ds_path] = _to_python(ds[()])
-                            elif ds.ndim == 1 and ds.size <= 10:
-                                extra_meta[ds_path] = ds[:].tolist()
+                            entity_params[pname] = _to_python(ds[()])
 
-        if entity_params:
-            uid = _make_uid(entity_params, namespace=key_prefix)
-            content_count += 1
-        else:
-            uid = _make_uid(f"{key_prefix}_{file_stem}")
-            fallback_count += 1
+            # Extra metadata (stored per-entity but not part of the UID hash)
+            for extra in extra_meta_cfg:
+                ds_path = extra["dataset"].lstrip("/")
+                if ds_path in f:
+                    ds = f[ds_path]
+                    if isinstance(ds, h5py.Dataset):
+                        if ds.ndim == 0:
+                            extra_meta[ds_path] = _to_python(ds[()])
+                        elif ds.ndim == 1 and ds.size <= 10:
+                            extra_meta[ds_path] = ds[:].tolist()
 
-        if uid in existing_uids:
-            continue
+            uid, is_content = _resolve_uid(
+                entity_params, key_prefix, f"{key_prefix}_{file_stem}")
+            if is_content:
+                content_count += 1
+            else:
+                fallback_count += 1
 
-        if rel_path not in _fingerprint_cache:
-            _fingerprint_cache[rel_path] = _file_fingerprint(h5_path)
+            if uid in existing_uids:
+                continue
 
-        entity_row = OrderedDict()
-        entity_row["uid"] = uid
-        entity_row.update(entity_params)
-        entity_row.update(extra_meta)
+            fsize, fmtime = _file_fingerprint(h5_path)
+            ent_rows.append(_entity_row(uid, entity_params, extra=extra_meta))
 
-        ent_rows.append(entity_row)
-
-        # Artifact rows — uid matches entity uid for groupby in bulk_register
-        # Only include artifacts whose datasets exist in this file
-        fsize, fmtime = _fingerprint_cache[rel_path]
-        try:
-            with h5py.File(h5_path, "r") as f:
-                for art in artifacts_cfg:
-                    ds_path = art["dataset"].lstrip("/")
-                    if ds_path not in f:
-                        continue
-                    art_row = OrderedDict()
-                    art_row["uid"] = uid
-                    art_row["type"] = art["type"]
-                    art_row["file"] = rel_path
-                    art_row["dataset"] = art["dataset"]
-                    art_row["index"] = None
-                    art_row["file_size"] = fsize
-                    art_row["file_mtime"] = fmtime
-                    art_rows.append(art_row)
-        except OSError:
-            # File may be locked or corrupted — skip artifacts
-            pass
+            # Artifact rows — only those whose datasets exist in this file.
+            for art in artifacts:
+                if art.dataset.lstrip("/") not in f:
+                    continue
+                art_rows.append(_artifact_row(
+                    uid, art.type, rel_path, art.dataset,
+                    None, fsize, fmtime))
 
         if (i + 1) % 1000 == 0:
             print(f"  Processed {i + 1}/{len(h5_files)} entities...")
@@ -334,16 +320,14 @@ def _generate_per_entity(h5_files, root, key_prefix, artifacts_cfg,
 # Batched layout
 # ---------------------------------------------------------------------------
 
-def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
-                      shared_cfg, params_cfg, extra_meta_cfg, cfg,
-                      param_manifest=None, existing_uids=None):
+def _generate_batched(h5_files, root, key_prefix, artifacts: list[ArtifactSpec],
+                      params: ParametersSection, extra_meta_cfg, existing_uids):
     """Multiple entities stacked along axis-0 in each file."""
     ent_rows = []
     art_rows = []
     content_count = fallback_count = 0
     global_idx = 0
-    if existing_uids is None:
-        existing_uids = set()
+    loc = params.location
 
     for h5_path in h5_files:
         rel_path = str(h5_path.relative_to(root))
@@ -351,29 +335,25 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
 
         with h5py.File(h5_path, "r") as f:
             # Determine batch size from first artifact
-            first_art_ds = artifacts_cfg[0]["dataset"].lstrip("/")
+            first_art_ds = artifacts[0].dataset.lstrip("/")
             batch_size = f[first_art_ds].shape[0]
 
-            # Read all parameters at once
+            # Read all parameters at once. Attributes are scalars — the same
+            # value for every entity in the batch.
             param_arrays = {}
-            loc = params_cfg.get("location", "group")
-            if loc == "group":
-                group_name = params_cfg["group"].lstrip("/")
+            root_attr_params = {}
+            if loc == ParamLocation.group:
+                group_name = params.group.lstrip("/")
                 if group_name in f:
                     for pname in sorted(f[group_name].keys()):
                         param_arrays[pname] = f[group_name][pname][:]
-            elif loc == "root_scalars":
+            elif loc == ParamLocation.root_scalars:
                 for ds_name in sorted(f.keys()):
                     ds = f[ds_name]
                     if isinstance(ds, h5py.Dataset) and ds.ndim == 1 and ds.shape[0] == batch_size:
                         param_arrays[ds_name] = ds[:]
-            elif loc == "root_attributes":
-                # Attributes are scalars — same value for all entities in batch
-                root_attr_params = {
-                    attr_name: _to_python(f.attrs[attr_name])
-                    for attr_name in sorted(f.attrs.keys())
-                }
-            # loc == "manifest" handled below per-entity
+            elif loc == ParamLocation.root_attributes:
+                root_attr_params = _attrs_params(f)
 
             # Read extra metadata arrays
             extra_arrays = {}
@@ -387,58 +367,39 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
             for i in range(batch_size):
                 # Collect the entity's physical parameters FIRST; the UID is
                 # a content-addressed hash of these, not of the global index.
-                entity_params = {}
-                if loc == "manifest" and param_manifest is not None:
-                    pm_idx = global_idx
-                    if pm_idx < len(param_manifest):
-                        row = param_manifest.iloc[pm_idx]
-                        for col in param_manifest.columns:
-                            if col not in _PARAM_MANIFEST_SKIP_COLS:
-                                val = row[col]
-                                if pd.notna(val):
-                                    entity_params[col] = _to_python(val)
-                elif loc == "root_attributes":
+                if loc == ParamLocation.root_attributes:
                     entity_params = dict(root_attr_params)
                 else:
-                    for pname, arr in param_arrays.items():
-                        entity_params[pname] = _to_python(arr[i])
+                    entity_params = {pname: _to_python(arr[i])
+                                     for pname, arr in param_arrays.items()}
 
-                if entity_params:
-                    uid = _make_uid(entity_params, namespace=key_prefix)
+                uid, is_content = _resolve_uid(
+                    entity_params, key_prefix, f"{key_prefix}_{global_idx:06d}")
+                if is_content:
                     content_count += 1
                 else:
-                    uid = _make_uid(f"{key_prefix}_{global_idx:06d}")
                     fallback_count += 1
 
                 if uid in existing_uids:
                     global_idx += 1
                     continue
 
-                entity_row = OrderedDict()
-                entity_row["uid"] = uid
-                entity_row.update(entity_params)
-
                 # Extra metadata (stored per-entity, not part of the UID)
+                extra = OrderedDict()
                 for ds_path, arr in extra_arrays.items():
                     col_name = ds_path.rsplit("/", 1)[-1]
                     if arr.ndim == 1:
-                        entity_row[col_name] = _to_python(arr[i])
+                        extra[col_name] = _to_python(arr[i])
                     elif arr.ndim > 1:
-                        entity_row[col_name] = arr[i].tolist()
+                        extra[col_name] = arr[i].tolist()
 
-                ent_rows.append(entity_row)
+                ent_rows.append(_entity_row(uid, entity_params, extra=extra))
 
                 # Artifact rows — uid matches entity uid
-                for art in artifacts_cfg:
-                    art_row = OrderedDict()
-                    art_row["uid"] = uid
-                    art_row["type"] = art["type"]
-                    art_row["file"] = rel_path
-                    art_row["dataset"] = art["dataset"]
-                    art_row["index"] = i
-                    art_row["file_size"] = fsize
-                    art_row["file_mtime"] = fmtime
-                    art_rows.append(art_row)
+                for art in artifacts:
+                    art_rows.append(_artifact_row(
+                        uid, art.type, rel_path, art.dataset,
+                        i, fsize, fmtime))
 
                 global_idx += 1
 
@@ -452,18 +413,15 @@ def _generate_batched(h5_files, root, key_prefix, artifacts_cfg,
 # Grouped layout
 # ---------------------------------------------------------------------------
 
-def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
-                      shared_cfg, params_cfg, extra_meta_cfg, cfg,
-                      param_manifest=None, existing_uids=None):
+def _generate_grouped(h5_files, root, key_prefix, artifacts: list[ArtifactSpec],
+                      params: ParametersSection, extra_meta_cfg, existing_uids):
     """One HDF5 group per entity inside a file."""
     ent_rows = []
     art_rows = []
     content_count = fallback_count = 0
     global_idx = 0
-    if existing_uids is None:
-        existing_uids = set()
-
-    entity_group = params_cfg.get("entity_group", "samples")
+    entity_group = params.entity_group or "samples"
+    loc = params.location
 
     for h5_path in h5_files:
         rel_path = str(h5_path.relative_to(root))
@@ -484,66 +442,39 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts_cfg,
                 # Read parameters first — UID is a content-addressed hash
                 # of the params, not of the group's position in the file.
                 entity_params = {}
-                loc = params_cfg.get("location", "group_scalars")
-                if loc == "manifest" and param_manifest is not None:
-                    pm_idx = global_idx
-                    if pm_idx < len(param_manifest):
-                        row = param_manifest.iloc[pm_idx]
-                        for col in param_manifest.columns:
-                            if col not in _PARAM_MANIFEST_SKIP_COLS:
-                                val = row[col]
-                                if pd.notna(val):
-                                    entity_params[col] = _to_python(val)
-                elif loc == "group_scalars":
-                    param_group = params_cfg.get("group", "params")
-                    param_path = param_group.lstrip("/")
+                if loc == ParamLocation.group_scalars:
+                    param_path = (params.group or "params").lstrip("/")
                     if param_path in g and isinstance(g[param_path], h5py.Group):
                         for pname in sorted(g[param_path].keys()):
                             ds = g[param_path][pname]
                             if isinstance(ds, h5py.Dataset):
                                 entity_params[pname] = _to_python(ds[()])
                     else:
-                        for ds_name in sorted(g.keys()):
-                            ds = g[ds_name]
-                            if isinstance(ds, h5py.Dataset) and ds.ndim == 0:
-                                entity_params[ds_name] = _to_python(ds[()])
-                elif loc == "root_attributes":
-                    for attr_name in sorted(f.attrs.keys()):
-                        entity_params[attr_name] = _to_python(f.attrs[attr_name])
+                        entity_params = _scalar_params(g)
+                elif loc == ParamLocation.root_attributes:
+                    entity_params = _attrs_params(f)
 
-                if entity_params:
-                    uid = _make_uid(entity_params, namespace=key_prefix)
+                uid, is_content = _resolve_uid(
+                    entity_params, key_prefix, f"{key_prefix}_{global_idx:06d}")
+                if is_content:
                     content_count += 1
                 else:
-                    uid = _make_uid(f"{key_prefix}_{global_idx:06d}")
                     fallback_count += 1
 
                 if uid in existing_uids:
                     global_idx += 1
                     continue
 
-                entity_row = OrderedDict()
-                entity_row["uid"] = uid
-                entity_row["source_group"] = full_group
-                entity_row.update(entity_params)
+                ent_rows.append(_entity_row(
+                    uid, entity_params, source_group=full_group))
 
-                ent_rows.append(entity_row)
-
-                # Artifact rows
-                for art in artifacts_cfg:
-                    art_type = art["type"]
-                    ds_path = art["dataset"].lstrip("/")
+                # Artifact rows — dataset path is resolved within the entity group
+                for art in artifacts:
+                    ds_path = art.dataset.lstrip("/")
                     full_ds_path = f"/{full_group}/{ds_path}"
-
-                    art_row = OrderedDict()
-                    art_row["uid"] = uid
-                    art_row["type"] = art_type
-                    art_row["file"] = rel_path
-                    art_row["dataset"] = full_ds_path
-                    art_row["index"] = None
-                    art_row["file_size"] = fsize
-                    art_row["file_mtime"] = fmtime
-                    art_rows.append(art_row)
+                    art_rows.append(_artifact_row(
+                        uid, art.type, rel_path, full_ds_path,
+                        None, fsize, fmtime))
 
                 global_idx += 1
 
@@ -570,7 +501,6 @@ def _make_uid(params_or_str, namespace=""):
     parameters are discoverable in the data (e.g. per-entity layout
     with parameters only in filenames).
     """
-    import json
     if isinstance(params_or_str, dict):
         canonical = {
             k: round(v, 12) if isinstance(v, float) else v
@@ -602,8 +532,6 @@ def _to_python(val):
 # ---------------------------------------------------------------------------
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Generate Parquet manifests from a dataset YAML contract."
     )

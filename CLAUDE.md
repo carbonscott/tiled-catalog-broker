@@ -40,16 +40,16 @@ tiled-catalog-broker/
 ├── config.yml                 # Tiled server configuration
 ├── src/
 │   └── tiled_catalog_broker/  # Installable Python package
-│       ├── cli.py             # CLI: tcb {inspect,generate,stamp-key,ingest,register}
+│       ├── cli.py             # CLI: tcb {generate,stamp-key,ingest,register,delete}
 │       ├── config.py          # Environment/config loading
 │       ├── bulk_register.py   # Bulk SQL registration (deprecated, local testing only)
 │       ├── http_register.py   # HTTP registration via Tiled client
 │       ├── utils.py           # Shared helpers
 │       ├── adapters/          # Tiled array adapters
 │       ├── tools/             # Data-prep tools
-│       │   ├── inspect.py     # Auto-generate draft YAML from HDF5
+│       │   ├── _models.py     # Pydantic dataset YAML contract (the contract surface)
 │       │   ├── generate.py    # Generate Parquet manifests from YAML
-│       │   └── schema.py      # YAML contract validation
+│       │   └── schema.py      # YAML contract validation + soft vocab checks
 │       └── clients/           # Client-side utilities
 │           ├── tiled_cache.py # Disk-backed cache + PyTorch Dataset
 │           └── query_manifest.py  # Mode A discovery API
@@ -119,8 +119,7 @@ uv run --with pytest pytest tests/ -v
 
 | Document | Description |
 |----------|-------------|
-| `docs/SCHEMA-DESIGN.md` | Data model, hierarchy rationale, ArrayLake comparison |
-| `docs/DESIGN-GENERIC-BROKER.md` | Generic broker architecture |
-| `docs/INGESTION-GUIDE.md` | How to add new datasets |
-| `docs/LOCATOR-AND-MANIFEST-CONTRACT.md` | Manifest contract specification |
-| `docs/LESSONS_LEARNED.md` | Lessons learned |
+| `CONTEXT.md` | Domain language + the implementation-vs-contract principle |
+| `docs/ONBOARDING.md` | How to onboard a dataset (the contract-surface walkthrough) |
+| `docs/adr/` | Architecture Decision Records (frozen layouts, single register route, soft vocab) |
+| `docs/SLICING-EXPLAINER.md` | How batched arrays are served slice-by-slice over Tiled |

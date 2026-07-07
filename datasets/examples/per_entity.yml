@@ -1,0 +1,39 @@
+# Example: per_entity layout
+#
+# One HDF5 file per entity. Each file holds that entity's artifact arrays, and its
+# physics parameters are scalar (0-dim) datasets at the file root.
+#
+#   data/
+#   ├── entity_0001.h5   →  /hisym, /powder, /Ma, ...  +  scalar params (J1, J2, ...)
+#   ├── entity_0002.h5   →  same datasets, this entity's values
+#   └── ...
+#
+# Copy this file, point `data.directory` at your data, and adjust artifacts/parameters.
+# Validate it by running `tcb generate datasets/examples/per_entity.yml`.
+
+key: EXAMPLE_PER_ENTITY     # set by `tcb stamp-key`; shown here so the example is complete
+label: Example Per-Entity
+
+metadata:
+  method: [INS, Magnetization]   # >=1 scientific method (canonical ids; soft-checked)
+  data_type: simulation          # required
+  material: NiPS3                # required
+  producer: sunny_jl             # optional; code that produced the data (simulations)
+  project: MAIQMag               # optional; collaboration/project facet
+
+data:
+  directory: /abs/path/to/per_entity_data
+  file_pattern: "*.h5"           # one file per entity
+  layout: per_entity
+
+parameters:
+  location: root_scalars         # read scalar datasets at each file's root as parameters
+
+artifacts:                       # each `type` becomes an array key under the entity
+  - { type: hisym,  dataset: /hisym }
+  - { type: powder, dataset: /powder }
+  - { type: mag_a,  dataset: /Ma }
+
+shared:                          # 1-D axis arrays shared by every entity; registered once
+  - { type: energies, dataset: /energies }
+  - { type: H,        dataset: /H }

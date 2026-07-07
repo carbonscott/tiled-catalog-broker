@@ -19,21 +19,6 @@ def load_catalog_model():
         return yaml.load(f)
 
 
-def get_allowed_values(model, field_name):
-    """Extract allowed IDs for a vocabulary field from the catalog model.
-
-    Args:
-        model: Parsed catalog model dict.
-        field_name: Key in the model (e.g., "methods", "materials").
-
-    Returns:
-        list[str]: Allowed ID values, or empty list if not found.
-    """
-    if field_name not in model:
-        return []
-    return [entry["id"] for entry in model[field_name]]
-
-
 def get_alias_map(model, field_name):
     """Build a mapping from alias IDs to (canonical_id, implies_dict).
 
@@ -168,7 +153,7 @@ def _validate_vocab(metadata, field, model_key, model, warnings, is_list=False):
     value = getattr(metadata, field, None)
     if value is None:
         return
-    allowed = get_allowed_values(model, model_key)
+    allowed = [entry["id"] for entry in model.get(model_key, [])]
     aliases = get_alias_map(model, model_key)
     if not allowed:
         return

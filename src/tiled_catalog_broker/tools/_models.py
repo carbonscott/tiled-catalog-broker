@@ -103,7 +103,7 @@ class DataSection(BaseModel):
     server_base_dir: str | None = Field(
         default=None,
         description="Base directory the Tiled server resolves each file's data_uri "
-        "against (derived at inspect time).",
+        "against; set when the server sees the data at a different mount than the author.",
     )
 
 

@@ -2,8 +2,9 @@
 *.db
 *.db.bak*
 
-# Claude Code
-.claude/
+# Claude Code — keep local settings/memory private, but share committed skills
+.claude/*
+!.claude/skills/
 
 # Archive directory
 archive/
