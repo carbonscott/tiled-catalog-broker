@@ -9,13 +9,10 @@ so CI never wipes a shared server by accident.
 """
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tiled_catalog_broker.delete import (
     resolve_target, preview_counts, delete_target, delete_all,

@@ -144,16 +144,58 @@ tcb stamp-key datasets/my_dataset.yml
 tcb register datasets/my_dataset.yml
 ```
 
-`tcb register` is the **single registration route** (ADR-0002). Before registering, make sure
-the server's `config.yml` lists your `data.directory` under `readable_storage` so the server
-can resolve each file. If the server sees the data at a different mount than you do (K8s pod,
-reverse proxy), set `data.server_base_dir` to the server-side path.
+`tcb register` is the **single registration route** (ADR-0002). It reads only the manifests —
+each artifact's shape and dtype were captured by `tcb generate`, so registration never opens
+your HDF5 files.
+
+Two consequences worth knowing:
+
+- **Re-run `tcb generate` if the data changes shape or dtype.** The manifest is a snapshot;
+  registration trusts it. The read adapter re-checks both against the file and raises on a
+  mismatch, so stale values surface as HTTP 500 on read rather than as silently wrong data.
+- **A manifest without `shape`/`dtype` is rejected** with a message telling you to
+  regenerate. Regenerating is cheap and idempotent.
 
 Start the server with:
 
 ```bash
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
+
+### Paths: where your view and the server's view differ
+
+The most common registration failure is silent — registration reports success and every
+read then returns **HTTP 500**, because the paths written into the catalog point at
+somewhere the server can't reach. Three settings have to agree, and only two live in your
+dataset YAML:
+
+| Setting | Whose view of the filesystem | What it's for |
+|---|---|---|
+| `data.directory` **(required)** | **yours**, the authoring host | Opening the files: `tcb generate` globs it with `file_pattern` and reads each artifact's shape and dtype |
+| `data.server_base_dir` *(optional)* | **the server's** mount | The `data_uri` stamped into the catalog — the pointer the server follows at read time |
+| `readable_storage` in the server's `config.yml` | **the server's** mount | The server's permission to read that root at all |
+
+**If the server runs on your filesystem, omit `server_base_dir`.** It resolves the same
+absolute paths you do, so `data.directory` is enough.
+
+**If the server mounts the data elsewhere — any remote deployment — you must set it.**
+Registration uses `server_base_dir` for the `data_uri` and falls back to `data.directory`
+when it's unset, so omitting it writes *your* absolute paths into the catalog: dead
+pointers on the server. The swap is mechanical — same trailing structure, different root:
+
+```yaml
+data:
+  directory:       /sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/Zhantao
+  server_base_dir: /prjmaiqmag01/data-source/Zhantao
+```
+
+Note that `readable_storage` must list the **server-side** root (`/prjmaiqmag01/...`), not
+your `data.directory` — copying the wrong one of the two is an easy mistake, and it fails
+the same silent way.
+
+> `server_base_dir` is set by hand. Nothing in the broker derives it, and no environment
+> variable supplies it — if a `.env` file defines `TILED_HOST_DATA_ROOT` or
+> `TILED_SERVER_DATA_ROOT`, they have no effect.
 
 ---
 

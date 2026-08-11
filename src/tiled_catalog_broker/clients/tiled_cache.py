@@ -13,21 +13,21 @@ Usage (library):
 
     client = from_uri("http://localhost:8005", api_key="secret")
     ds = TiledCatalogDataset(
-        client=client["NiPS3_Multimodal"],
-        dataset_key="NiPS3_Multimodal",
-        artifact_keys=["Ax", "Az", "J1a", "J1b", "J2a", "J2b", "J3a", "J3b", "J4"],
+        client=client["BROAD_SIGMA"],
+        dataset_key="BROAD_SIGMA",
+        artifact_keys=["rixs_spectrum"],
         cache_dir="./tiled_cache",
     )
     sample = ds[0]  # {"Ax": np.ndarray, "J1a": np.ndarray, "metadata": {...}}
 
 Usage (CLI):
-    python -m tiled_catalog_broker.tiled_cache \\
-        --dataset VDP \\
-        --artifacts mh_powder_30T ins_12meV \\
+    python -m tiled_catalog_broker.clients.tiled_cache \\
+        --dataset BROAD_SIGMA \\
+        --artifacts rixs_spectrum \\
         --epochs 3 \\
         --cache-dir ./tiled_cache
 
-    python -m tiled_catalog_broker.tiled_cache --clear-cache --cache-dir ./tiled_cache
+    python -m tiled_catalog_broker.clients.tiled_cache --clear-cache --cache-dir ./tiled_cache
 """
 
 import argparse
@@ -66,9 +66,9 @@ class TiledArrayCache:
         """Return cached array or fetch, cache, and return it.
 
         Args:
-            dataset_key: Dataset container key (e.g. ``"VDP"``).
-            ent_key: Entity container key (e.g. ``"H_636ce3e4"``).
-            artifact_key: Artifact key (e.g. ``"mh_powder_30T"``).
+            dataset_key: Dataset container key (e.g. ``"BROAD_SIGMA"``).
+            ent_key: Entity container key (e.g. ``"BROAD_SIGMA_1a2b3c4d5e6f7"``).
+            artifact_key: Artifact key (e.g. ``"rixs_spectrum"``).
             fetch_fn: Zero-argument callable that returns a numpy-compatible
                 array.  Only called on a cache miss.
 
@@ -172,11 +172,11 @@ class TiledCatalogDataset:
 
     Args:
         client: Tiled client node for the dataset container
-            (e.g. ``from_uri(url, api_key=k)["VDP"]``).
+            (e.g. ``from_uri(url, api_key=k)["BROAD_SIGMA"]``).
         dataset_key: Name of the dataset container — used as the top-level
-            cache directory segment (e.g. ``"VDP"``).
+            cache directory segment (e.g. ``"BROAD_SIGMA"``).
         artifact_keys: Ordered list of artifact keys to fetch per entity
-            (e.g. ``["mh_powder_30T", "ins_12meV"]``).  Artifacts missing
+            (e.g. ``["rixs_spectrum", "mag"]``).  Artifacts missing
             from an entity are silently skipped.
         cache_dir: Root directory for ``.npy`` cache files.
             Default: ``"./tiled_cache"``.
@@ -196,9 +196,9 @@ class TiledCatalogDataset:
 
         client = from_uri("http://localhost:8005", api_key="secret")
         ds = TiledCatalogDataset(
-            client=client["NiPS3_Multimodal"],
-            dataset_key="NiPS3_Multimodal",
-            artifact_keys=["Ax"],
+            client=client["BROAD_SIGMA"],
+            dataset_key="BROAD_SIGMA",
+            artifact_keys=["rixs_spectrum"],
             cache_dir="./tiled_cache",
         )
 
@@ -307,16 +307,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--dataset",
-        default="VDP",
+        required=True,
         metavar="KEY",
-        help="Dataset container key to iterate (default: VDP)",
+        help="Dataset container key to iterate (e.g. BROAD_SIGMA)",
     )
     p.add_argument(
         "--artifacts",
         nargs="+",
-        default=["mh_powder_30T"],
+        required=True,
         metavar="KEY",
-        help="Artifact keys to fetch per entity (default: mh_powder_30T)",
+        help="Artifact keys to fetch per entity (e.g. rixs_spectrum)",
     )
     p.add_argument(
         "--cache-dir",

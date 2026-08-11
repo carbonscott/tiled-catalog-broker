@@ -27,16 +27,12 @@ Run with:
 """
 
 import os
-import sys
 from pathlib import Path
 
 import pytest
 import numpy as np
 import h5py
 from ruamel.yaml import YAML
-
-# Add tiled_poc directory to path for broker package imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def _load_base_dirs():
