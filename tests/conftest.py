@@ -21,13 +21,9 @@ Usage:
 """
 
 import os
-import sys
 from pathlib import Path
 
 import pytest
-
-# Add tiled_poc directory to path for broker package imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 @pytest.fixture(scope="session")
@@ -63,12 +59,6 @@ def mh_dataset_client(tiled_client):
         if ents and "path_mh_powder_30T" in dict(dataset[ents[0]].metadata):
             return dataset
     pytest.skip("No dataset with mh_powder_30T artifacts found in catalog")
-
-
-@pytest.fixture
-def temp_catalog_db(tmp_path):
-    """Temporary database for bulk registration tests."""
-    return str(tmp_path / "test_catalog.db")
 
 
 @pytest.fixture(scope="session")

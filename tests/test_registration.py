@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.12"
 # dependencies = [
 #     "pytest",
 #     "tiled[server]",
@@ -7,18 +7,18 @@
 #     "h5py",
 #     "numpy",
 #     "ruamel.yaml",
-#     "sqlalchemy",
 # ]
 # ///
 """
 Integration tests for data registration.
 
-Tests both registration methods:
-- HTTP-based registration (register_catalog.py)
-- Bulk SQLAlchemy registration (bulk_register.py)
+Covers manifest loading (unit) and the registered result on a live server
+(integration) for the single registration route, `tcb register` (ADR-0002).
+What registration *sends* is covered without a server in
+`tests/test_generic_registration.py`.
 
 Prerequisites:
-    # For HTTP registration tests, start server first:
+    # For the integration tests, start a server with data registered:
     uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 
 Run with:
@@ -26,14 +26,10 @@ Run with:
 """
 
 import os
-import sys
 from pathlib import Path
 
 import pytest
 import pandas as pd
-
-# Add tiled_poc directory to path for broker package imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Synthetic test manifests ship with the repo. After the generic-registration
 # refactor (commit 30400b2) there is no single "latest manifest" -- each dataset
@@ -123,69 +119,3 @@ class TestHttpRegistration:
             arr = h["mh_powder_30T"][:]
             assert arr.ndim == 1
             assert len(arr) == 200  # M(H) has 200 points
-
-
-@pytest.mark.integration
-class TestBulkRegistration:
-    """Integration tests for bulk SQLAlchemy registration.
-
-    These tests create a temporary database and verify the bulk
-    registration creates correct schema and data.
-    """
-
-    def test_init_database_creates_tables(self, temp_catalog_db):
-        """Test that init_database creates required tables."""
-        from sqlalchemy import create_engine, text, inspect
-
-        # Create engine and init
-        engine = create_engine(f"sqlite:///{temp_catalog_db}")
-
-        # Run the init SQL from tiled's schema
-        with engine.connect() as conn:
-            # Create minimal schema for testing
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS nodes (
-                    id INTEGER PRIMARY KEY,
-                    key TEXT,
-                    parent INTEGER,
-                    structure_family TEXT,
-                    metadata_json TEXT
-                )
-            """))
-            conn.commit()
-
-        # Verify table exists
-        inspector = inspect(engine)
-        assert "nodes" in inspector.get_table_names()
-
-    def test_bulk_registration_creates_nodes(self, temp_catalog_db):
-        """Test that bulk registration creates node entries."""
-        from sqlalchemy import create_engine, text
-
-        # Load small subset of manifests from bundled testdata
-        ent_df = pd.read_parquet(VDP_ENTITIES_PARQUET).head(3)
-
-        # Create simple test database
-        engine = create_engine(f"sqlite:///{temp_catalog_db}")
-        with engine.connect() as conn:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS nodes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    key TEXT NOT NULL,
-                    parent INTEGER DEFAULT 0,
-                    structure_family TEXT DEFAULT 'container'
-                )
-            """))
-
-            # Insert test nodes (synthesize key from uid for this SQL fixture)
-            for _, row in ent_df.iterrows():
-                ent_key = f"TEST_{str(row['uid'])[:13]}"
-                conn.execute(
-                    text("INSERT INTO nodes (key, parent) VALUES (:key, 0)"),
-                    {"key": ent_key}
-                )
-            conn.commit()
-
-            # Verify nodes created
-            count = conn.execute(text("SELECT COUNT(*) FROM nodes")).scalar()
-            assert count == 3
