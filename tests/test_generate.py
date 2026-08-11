@@ -23,8 +23,9 @@ Run with:
 """
 
 import os
-import sys
 from pathlib import Path
+
+import json
 
 import h5py
 import numpy as np
@@ -33,8 +34,6 @@ import pytest
 from ruamel.yaml import YAML
 
 # Add project root to path for package imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from tiled_catalog_broker.tools.generate import generate_manifests, load_yaml, _make_uid
 from pydantic import ValidationError
 
@@ -212,6 +211,13 @@ class TestGenerateBatched:
         ent_df = pd.read_parquet(ent_path)
         art_df = pd.read_parquet(art_path)
 
+        # Batched artifacts register per-entity: the leading (entity) axis is
+        # already dropped in the manifest, so registration needs no adjustment.
+        with h5py.File(next(data_dir.glob("*.h5"))) as f:
+            on_disk = f[art_df.loc[0, "dataset"]]
+            assert json.loads(art_df.loc[0, "shape"]) == list(on_disk.shape[1:])
+            assert art_df.loc[0, "dtype"] == str(on_disk.dtype)
+
         # 3 entities from batch size of 3
         assert len(ent_df) == 3
         # 3 entities x 1 artifact type = 3 artifact rows
@@ -385,6 +391,40 @@ class TestGenerateGrouped:
         assert "alpha" in ent_df.columns
         # Artifact dataset paths are resolved within each entity's group
         assert "/samples/sample_000/spectrum" in set(art_df["dataset"])
+        # Shape/dtype are captured here so registration never reopens the file
+        assert json.loads(art_df.loc[0, "shape"]) == [5]
+        assert art_df.loc[0, "dtype"] == "float64"
+
+    def test_grouped_missing_dataset_fails_loudly(self, tmp_path):
+        """A dataset path that isn't inside the entity group errors at generate time.
+
+        Catching it here keeps unreachable paths out of the manifest, where they
+        would otherwise surface only as an HTTP 500 on first read.
+        """
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        with h5py.File(data_dir / "file.h5", "w") as f:
+            g = f.create_group("samples").create_group("sample_000")
+            g.create_group("params").create_dataset("alpha", data=1.0)
+            g.create_dataset("spectrum", data=np.arange(5.0))
+
+        cfg = {
+            "label": "test_grouped_bad", "key": "TEST_SIM_GROUPED_BAD",
+            "data": {"directory": str(data_dir), "layout": "grouped",
+                     "file_pattern": "*.h5"},
+            # absolute path — the classic mistake; it is resolved *within* the group
+            "artifacts": [{"type": "spectrum", "dataset": "/samples/sample_000/spectrum"}],
+            "parameters": {"location": "group_scalars",
+                           "entity_group": "samples", "group": "params"},
+            "metadata": {"method": ["RIXS"], "data_type": "simulation",
+                         "material": "NiPS3", "producer": "edrixs"},
+        }
+        yaml_path = tmp_path / "grouped_bad.yml"
+        _write_yaml(yaml_path, cfg)
+
+        with pytest.raises(KeyError, match="relative to the group"):
+            generate_manifests(str(yaml_path),
+                               output_dir=str(tmp_path / "manifests" / "gb"))
 
 
 class TestLoadYaml:

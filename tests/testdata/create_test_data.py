@@ -13,6 +13,8 @@ Usage:
 import os
 from pathlib import Path
 
+import json
+
 import h5py
 import numpy as np
 import pandas as pd
@@ -67,6 +69,8 @@ def create_vdp_data():
                 "type": spec["type"],
                 "file": rel_path,
                 "dataset": spec["dataset"],
+                "shape": json.dumps(list(spec["shape"])),
+                "dtype": str(data.dtype),
             })
 
     art_df = pd.DataFrame(art_rows)
@@ -117,6 +121,8 @@ def create_nips3_data():
             "file": batch_file,
             "dataset": "/RIXS",
             "index": i,
+            "shape": json.dumps(list(rixs_shape[1:])),
+            "dtype": "float64",
         })
         art_rows.append({
             "uid": uid,
@@ -124,6 +130,8 @@ def create_nips3_data():
             "file": batch_file,
             "dataset": "/MAG",
             "index": i,
+            "shape": json.dumps(list(mag_shape[1:])),
+            "dtype": "float64",
         })
 
     art_df = pd.DataFrame(art_rows)

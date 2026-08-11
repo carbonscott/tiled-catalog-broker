@@ -6,7 +6,12 @@ Reads a finalized YAML contract and produces Parquet manifests
 
 The output manifests follow the broker standard:
   Entity manifest:  uid, key, <param_1>, <param_2>, ...
-  Artifact manifest: uid (= entity uid), type, file, dataset, [index]
+  Artifact manifest: uid (= entity uid), type, file, dataset, [index], shape, dtype
+
+`shape` and `dtype` are read from the HDF5 here, at generate time, so that
+registration never has to open the files (ADR-0002 keeps one registration route;
+this keeps that route free of HDF5 I/O). For batched layouts `shape` is the
+per-entity shape — the leading axis is already dropped.
 
 Handles three layout patterns:
   - per_entity: one HDF5 file per entity, scalars are parameters
@@ -20,8 +25,8 @@ Supports four parameter locations:
   - group_scalars: scalars inside entity groups (grouped layout)
 
 Usage:
-    dcs generate datasets/edrixs_sbi.yml
-    dcs generate datasets/edrixs_sbi.yml --append
+    tcb generate datasets/edrixs_sbi.yml
+    tcb generate datasets/edrixs_sbi.yml --append
 """
 
 import os
@@ -235,8 +240,15 @@ def _entity_row(uid, entity_params, extra=None, source_group=None):
     return row
 
 
-def _artifact_row(uid, art_type, rel_path, dataset, index, fsize, fmtime):
-    """Artifact manifest row (uid matches the parent entity uid)."""
+def _artifact_row(uid, art_type, rel_path, dataset, index, fsize, fmtime,
+                  shape, dtype):
+    """Artifact manifest row (uid matches the parent entity uid).
+
+    `shape` is the shape of the artifact *as registered* — for batched layouts the
+    leading (entity) axis is already dropped, so it is what Tiled stores, not what
+    the HDF5 dataset reports. It is JSON-encoded so it round-trips through Parquet
+    exactly; `dtype` is the numpy dtype string (e.g. "float32").
+    """
     row = OrderedDict()
     row["uid"] = uid
     row["type"] = art_type
@@ -245,6 +257,8 @@ def _artifact_row(uid, art_type, rel_path, dataset, index, fsize, fmtime):
     row["index"] = index
     row["file_size"] = fsize
     row["file_mtime"] = fmtime
+    row["shape"] = json.dumps(list(shape))
+    row["dtype"] = dtype
     return row
 
 
@@ -302,12 +316,14 @@ def _generate_per_entity(h5_files, root, key_prefix, artifacts: list[ArtifactSpe
             ent_rows.append(_entity_row(uid, entity_params, extra=extra_meta))
 
             # Artifact rows — only those whose datasets exist in this file.
+            # Shape and dtype are captured here so registration never opens HDF5.
             for art in artifacts:
                 if art.dataset.lstrip("/") not in f:
                     continue
+                ds = f[art.dataset.lstrip("/")]
                 art_rows.append(_artifact_row(
                     uid, art.type, rel_path, art.dataset,
-                    None, fsize, fmtime))
+                    None, fsize, fmtime, ds.shape, str(ds.dtype)))
 
         if (i + 1) % 1000 == 0:
             print(f"  Processed {i + 1}/{len(h5_files)} entities...")
@@ -337,6 +353,13 @@ def _generate_batched(h5_files, root, key_prefix, artifacts: list[ArtifactSpec],
             # Determine batch size from first artifact
             first_art_ds = artifacts[0].dataset.lstrip("/")
             batch_size = f[first_art_ds].shape[0]
+
+            # Per-entity shape/dtype, read once per file rather than per entity.
+            # Entity i is row i, so the registered shape drops the leading axis.
+            art_info = {}
+            for art in artifacts:
+                ds = f[art.dataset.lstrip("/")]
+                art_info[art.type] = (ds.shape[1:], str(ds.dtype))
 
             # Read all parameters at once. Attributes are scalars — the same
             # value for every entity in the batch.
@@ -397,9 +420,10 @@ def _generate_batched(h5_files, root, key_prefix, artifacts: list[ArtifactSpec],
 
                 # Artifact rows — uid matches entity uid
                 for art in artifacts:
+                    shape, dtype = art_info[art.type]
                     art_rows.append(_artifact_row(
                         uid, art.type, rel_path, art.dataset,
-                        i, fsize, fmtime))
+                        i, fsize, fmtime, shape, dtype))
 
                 global_idx += 1
 
@@ -472,9 +496,18 @@ def _generate_grouped(h5_files, root, key_prefix, artifacts: list[ArtifactSpec],
                 for art in artifacts:
                     ds_path = art.dataset.lstrip("/")
                     full_ds_path = f"/{full_group}/{ds_path}"
+                    if full_ds_path not in f:
+                        raise KeyError(
+                            f"{h5_path}: artifact type={art.type!r} dataset "
+                            f"{full_ds_path!r} not found. In a grouped layout, "
+                            f"'dataset' is resolved within each entity group — write "
+                            f"it relative to the group (e.g. 'spectrum', not "
+                            f"'/samples/sample_000/spectrum')."
+                        )
+                    ds = f[full_ds_path]
                     art_rows.append(_artifact_row(
                         uid, art.type, rel_path, full_ds_path,
-                        None, fsize, fmtime))
+                        None, fsize, fmtime, ds.shape, str(ds.dtype)))
 
                 global_idx += 1
 

@@ -4,10 +4,8 @@ Shared Utilities.
 Common functions used across registration scripts.
 """
 
-import os
 import re
 
-import h5py
 import numpy as np
 import pandas as pd
 
@@ -32,7 +30,10 @@ def slugify_key(label):
 
 # Standard columns in the artifact manifest that are NOT stored as metadata.
 # Everything else becomes artifact-level metadata dynamically.
-ARTIFACT_STANDARD_COLS = {"uid", "type", "file", "dataset", "index"}
+# `shape`/`dtype` are here because registration re-emits them in structured form
+# (a list of ints and a dtype string) — copying the manifest's JSON-encoded
+# `shape` through as well would overwrite that with a raw string.
+ARTIFACT_STANDARD_COLS = {"uid", "type", "file", "dataset", "index", "shape", "dtype"}
 
 
 def to_json_safe(value):
@@ -50,27 +51,6 @@ def to_json_safe(value):
     if pd.isna(value):
         return None
     return value
-
-
-def get_artifact_info(base_dir, file_path, dataset_path, index=None, _cache={}):
-    """Read artifact shape and dtype from HDF5, cached by (base_dir, file_path, dataset_path).
-
-    Returns:
-        tuple: (shape, dtype_str, kind, itemsize) where shape is a list of ints,
-            dtype_str is the numpy dtype string (e.g. "float64"), kind is the
-            single-char numpy kind code (e.g. "f", "i", "c"), and itemsize is
-            the number of bytes per element.
-    """
-    cache_key = (base_dir, file_path, dataset_path)
-    if cache_key not in _cache:
-        full_path = os.path.join(base_dir, file_path)
-        with h5py.File(full_path, "r") as f:
-            ds = f[dataset_path]
-            _cache[cache_key] = (ds.shape, str(ds.dtype), ds.dtype.kind, ds.dtype.itemsize)
-    full_shape, dtype_str, kind, itemsize = _cache[cache_key]
-    if index is not None:
-        return list(full_shape[1:]), dtype_str, kind, itemsize
-    return list(full_shape), dtype_str, kind, itemsize
 
 
 def check_server(url=None, api_key=None):
@@ -125,26 +105,10 @@ def make_entity_key(ent_row, dataset_key):
     return f"{dataset_key}_{str(ent_row['uid'])[:13]}"
 
 
-def make_artifact_key(art_row, prefix=""):
-    """Generate key for artifact from its type.
+def make_artifact_key(art_row):
+    """The Tiled node key for an artifact: its manifest ``type`` verbatim.
 
-    In the generic manifest standard, the ``type`` column already contains
-    the unique artifact key (e.g., ``mh_powder_30T``, ``rixs``).  The
-    manifest generator is responsible for producing unique type values
-    per entity.
-
-    Args:
-        art_row: DataFrame row or dict with at least a ``type`` field.
-        prefix: Optional prefix (e.g., ``"path_"`` for metadata keys).
-
-    Returns:
-        str: The artifact key, optionally prefixed.
-
-    Examples:
-        >>> make_artifact_key({"type": "mh_powder_30T"})
-        'mh_powder_30T'
-        >>> make_artifact_key({"type": "rixs"}, prefix="path_")
-        'path_rixs'
+    `tcb generate` is responsible for producing unique type values per entity,
+    so the type is already the key (e.g. ``mh_powder_30T``, ``rixs``).
     """
-    key = art_row["type"]
-    return f"{prefix}{key}" if prefix else key
+    return art_row["type"]
