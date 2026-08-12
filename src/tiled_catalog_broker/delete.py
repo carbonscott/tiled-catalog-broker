@@ -7,13 +7,23 @@ Four granularities mirroring the Dataset -> Entity -> Artifact hierarchy:
   - delete_target on an artifact node: drops one artifact array
   - delete_all:                        wipes every top-level container on the server
 
-All operations use ``external_only=True`` so only catalog pointers are
-removed -- the underlying HDF5 files on disk are untouched.
+What deletion removes depends on the dataset's ``storage`` marker (stamped
+at registration): external datasets lose only their catalog pointers -- the
+HDF5 files on disk are untouched -- while uploaded datasets also lose the
+array bytes the server holds in its writable storage (there is no other
+copy of them server-side, and orphaned storage would accumulate otherwise).
 """
 
 from __future__ import annotations
 
 from tiled.client.utils import ClientError
+
+from .utils import STORAGE_KEY, STORAGE_UPLOADED
+
+
+def is_uploaded(node):
+    """True if a dataset node was registered with ``storage: uploaded``."""
+    return dict(node.metadata).get(STORAGE_KEY) == STORAGE_UPLOADED
 
 
 def resolve_target(client, dataset, entity=None, artifact=None):
@@ -81,12 +91,17 @@ def delete_target(node, *, external_only=True):
     node.delete(recursive=True, external_only=external_only)
 
 
-def delete_all(client, *, external_only=True):
+def delete_all(client, *, external_only=None):
     """Iterate every top-level container and delete each in turn.
 
     Partial failures are collected rather than raised so the caller can
     report per-key status. Tiled HTTP has no transactional semantics, so
     there is no rollback to attempt.
+
+    Args:
+        external_only: If None (default), decided per container from its
+            ``storage`` marker -- uploaded datasets delete their stored
+            bytes, external ones leave the HDF5 files untouched.
 
     Returns:
         (successful_keys, failures) where failures is a list of
@@ -96,7 +111,11 @@ def delete_all(client, *, external_only=True):
     failures = []
     for k in list(client):
         try:
-            client[k].delete(recursive=True, external_only=external_only)
+            node = client[k]
+            ext = external_only
+            if ext is None:
+                ext = not is_uploaded(node)
+            node.delete(recursive=True, external_only=ext)
             successes.append(k)
         except ClientError as e:
             failures.append((k, str(e)))

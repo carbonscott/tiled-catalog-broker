@@ -70,6 +70,7 @@ uv run tcb --help
 tcb generate datasets/my_dataset.yml
 tcb stamp-key datasets/my_dataset.yml
 tcb register datasets/my_dataset.yml     # needs a running server (TILED_URL, TILED_API_KEY)
+tcb register --upload datasets/my_dataset.yml  # stream arrays into server storage (server can't see the files)
 
 # Serve
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
@@ -120,5 +121,6 @@ server — `list(from_uri(url, api_key=key))`.
 | `CONTEXT.md` | Domain language + the implementation-vs-contract principle |
 | `docs/ONBOARDING.md` | How to onboard a dataset (the contract-surface walkthrough) |
 | `docs/using-the-catalog.md` | How to *read* a registered dataset (Mode A + Mode B) |
+| `docs/remote-onboarding.md` | Registering data the server cannot see (`tcb register --upload`) |
 | `docs/adr/` | Architecture Decision Records (frozen layouts, single register route, soft vocab, hierarchical containers) |
 | `docs/SLICING-EXPLAINER.md` | How batched arrays are served slice-by-slice over Tiled |

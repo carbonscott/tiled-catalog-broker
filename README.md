@@ -151,8 +151,8 @@ dataset YAML  -->  tcb generate  -->  tcb stamp-key  -->  tcb register  -->  til
 |------------|---------|----------------|
 | `tcb generate` | Generate Parquet manifests from a dataset YAML | No |
 | `tcb stamp-key` | Write the derived catalog key into the YAML | No |
-| `tcb register` | Register manifests into a running server (HTTP) | Yes |
-| `tcb delete` | Remove registered data from a running server (catalog only; HDF5 files untouched) | Yes |
+| `tcb register` | Register manifests into a running server (HTTP); `--upload` streams the arrays into server storage | Yes |
+| `tcb delete` | Remove registered data from a running server (external HDF5 files untouched; uploaded arrays removed) | Yes |
 
 ---
 
@@ -172,6 +172,23 @@ tcb register datasets/mydata.yml -n 5
 # Register multiple datasets at once
 tcb register datasets/vdp.yml datasets/edrixs.yml
 ```
+
+### Registering data the server cannot see (`--upload`)
+
+Pointer registration requires the server to read your HDF5 files from its
+own filesystem. When it can't — you're at another institution, the data is
+on your laptop — add `--upload`: the arrays are read from your local files
+and written through the server into its writable storage, where they
+persist. Same YAML, same manifests, different transport. The dataset is
+stamped `storage: uploaded`, and a dataset cannot mix uploaded and pointer
+entities.
+
+```bash
+tcb register --upload datasets/mydata.yml
+```
+
+Full walkthrough (including the server-side setup, `config.demo.yml`):
+`docs/remote-onboarding.md`.
 
 ### Switching between test and prod servers
 
@@ -197,9 +214,11 @@ tcb register datasets/mydata.yml
 
 ## Deleting Registered Data
 
-`tcb delete` removes catalog pointers from the server. External HDF5 files
-on disk are never touched. Granularity is inferred from the number of
-positional arguments:
+`tcb delete` removes registered data from the server. External HDF5 files
+on disk are never touched; for datasets registered with `--upload`, the
+arrays the server stores are deleted along with the catalog entries (the
+catalog is their only server-side home). Granularity is inferred from the
+number of positional arguments:
 
 ```bash
 tcb delete <DATASET>                       # dataset + everything under it

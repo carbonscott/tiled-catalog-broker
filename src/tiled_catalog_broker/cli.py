@@ -183,6 +183,10 @@ def register_main():
     Reads dataset config files (YAML), loads corresponding Parquet manifests
     from manifests/, and registers into a running Tiled server via HTTP.
     Incremental: skips entities that already exist.
+
+    With --upload, artifact arrays are read from local HDF5 and written
+    through the server into its writable storage (for data the server
+    cannot read from its own filesystem).
     """
     parser = argparse.ArgumentParser(
         description="Register datasets into a running Tiled server via HTTP."
@@ -202,6 +206,14 @@ def register_main():
         metavar="N",
         help="Concurrent registration workers "
              "(default: TCB_MAX_WORKERS env var, or 8)",
+    )
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload artifact arrays through the server into its writable "
+             "storage, instead of registering pointers to HDF5 files the "
+             "server reads from disk. Use when the server cannot see your "
+             "data's filesystem (e.g. registering from another institution).",
     )
     args = parser.parse_args()
 
@@ -251,6 +263,16 @@ def register_main():
         base_dir = config.get("data", {}).get("directory")
         server_base_dir = config.get("data", {}).get("server_base_dir") or None
 
+        if args.upload:
+            if not base_dir or not os.path.isdir(base_dir):
+                print(f"\nERROR: {config_path}: data.directory '{base_dir}' "
+                      "not found locally. Upload mode reads artifact arrays "
+                      "from your local HDF5 files.", file=sys.stderr)
+                sys.exit(1)
+            if server_base_dir:
+                print("NOTE: data.server_base_dir is ignored with --upload "
+                      "(the server never reads your files).")
+
         ent_path, art_path = _find_manifests(config_path, label)
         if ent_path is None or art_path is None:
             print(f"\nERROR: manifests not found for '{label}'. Looked in:")
@@ -272,11 +294,16 @@ def register_main():
         if max_workers is not None:
             kwargs["max_workers"] = max_workers
 
-        register_dataset_http(client, ent_df, art_df, base_dir, label,
-                              dataset_key=dataset_key,
-                              dataset_metadata=dataset_metadata,
-                              server_base_dir=server_base_dir,
-                              **kwargs)
+        try:
+            register_dataset_http(client, ent_df, art_df, base_dir, label,
+                                  dataset_key=dataset_key,
+                                  dataset_metadata=dataset_metadata,
+                                  server_base_dir=server_base_dir,
+                                  upload=args.upload,
+                                  **kwargs)
+        except ValueError as e:
+            print(f"\nERROR: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Verify
     verify_registration_http(client)
@@ -322,7 +349,9 @@ def delete_main():
       The 'all' form requires retyping the TILED_URL (bypass with
       --confirm <URL>, which must match exactly).
 
-    External HDF5 files are never removed -- only catalog pointers.
+    External HDF5 files are never removed -- only catalog pointers. For
+    datasets registered with --upload, the arrays the server stores are
+    deleted along with the nodes (the catalog is their only home).
     """
     parser = argparse.ArgumentParser(
         prog="tcb delete",
@@ -354,7 +383,7 @@ def delete_main():
     from tiled_catalog_broker.utils import check_server
     from tiled_catalog_broker.config import get_tiled_url, get_api_key
     from tiled_catalog_broker.delete import (
-        resolve_target, preview_counts, delete_target, delete_all,
+        resolve_target, preview_counts, delete_target, delete_all, is_uploaded,
     )
 
     targets = args.targets
@@ -388,6 +417,7 @@ def delete_main():
     client = from_uri(tiled_url, api_key=api_key)
 
     # Resolve target and build preview
+    uploaded = False
     if is_all:
         granularity = "all"
         path = "(every top-level container)"
@@ -399,6 +429,9 @@ def delete_main():
             print(f"\nERROR: {e}")
             sys.exit(1)
         counts = preview_counts(node, granularity)
+        # The storage marker lives on the dataset container (targets[0]),
+        # whichever granularity below it is being deleted.
+        uploaded = is_uploaded(client[targets[0]])
 
     print(f"\nTarget:      {tiled_url}/{path}")
     print(f"Granularity: {granularity}")
@@ -412,7 +445,14 @@ def delete_main():
         print(f"Counts:      1 array")
     else:
         print(f"Counts:      {counts['n_children']} child nodes")
-    print("Note:        External HDF5 files are NOT removed; only catalog entries.")
+    if is_all:
+        print("Note:        External datasets keep their HDF5 files; uploaded "
+              "datasets lose their server-stored arrays.")
+    elif uploaded:
+        print("Note:        Uploaded dataset — the arrays stored on the server "
+              "WILL be deleted.")
+    else:
+        print("Note:        External HDF5 files are NOT removed; only catalog entries.")
 
     if args.dry_run:
         print("\n[--dry-run] No changes made.")
@@ -458,7 +498,7 @@ def delete_main():
         sys.exit(1 if failures else 0)
     else:
         try:
-            delete_target(node)
+            delete_target(node, external_only=not uploaded)
         except ClientError as e:
             print(f"  FAILED:  {path}")
             print(f"\nERROR: {e}")
