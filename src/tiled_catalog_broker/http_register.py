@@ -94,7 +94,9 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
             `data.server_base_dir:` field when host and server mounts differ.
 
     Returns:
-        Tuple of (DataSource, data_shape, data_dtype).
+        The DataSource. Shape and dtype are read from the manifest row, so
+        callers that need them read the same columns rather than taking them
+        back out of here.
     """
     h5_rel_path = art_row["file"]
     dataset_path = art_row["dataset"]
@@ -154,7 +156,7 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
         management=Management.external,
     )
 
-    return data_source, data_shape, data_dtype
+    return data_source
 
 
 def read_artifact_array(art_row, base_dir):
@@ -252,7 +254,7 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
                         data, key=art_key, metadata=art_metadata,
                     )
                 else:
-                    data_source, _, _ = create_data_source(
+                    data_source = create_data_source(
                         art_row, base_dir=base_dir,
                         server_base_dir=server_base_dir,
                     )
