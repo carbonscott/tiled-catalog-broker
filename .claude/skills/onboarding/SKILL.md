@@ -4,14 +4,14 @@ description: >-
   Onboard a new HDF5 dataset into the Tiled catalog. Reads the contract surface
   (docs/ONBOARDING.md, the pydantic dataset models, the semantic vocabulary, and the
   example YAMLs), then explores the user's data + codebase to draft a first-pass dataset
-  YAML for them to review, and runs tcb generate → stamp-key → register. Use when the user
+  YAML for them to review, and runs tcb stamp-key → generate → register. Use when the user
   wants to onboard, register, or add a new dataset, or asks to "get ready to onboard a dataset".
 ---
 
 # Onboarding a dataset
 
 Goal: take a producer's HDF5 dataset and register it into the catalog by authoring **one
-dataset YAML** against the contract surface, then running `tcb generate → stamp-key →
+dataset YAML** against the contract surface, then running `tcb stamp-key → generate →
 register`. You onboard by reading the *contract*, never broker *implementation*.
 
 ## Step 0 — Read the contract surface (do this first, do not skip)

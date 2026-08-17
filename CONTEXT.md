@@ -31,7 +31,7 @@ dataset-agnostic (ADR-0004).
 **Onboarding**:
 The end-to-end process of taking a producer's HDF5 dataset and registering it into the
 catalog: author a dataset YAML (agent or human, against the contract surface) →
-`tcb generate` (manifests) → `tcb stamp-key` (key into the YAML) → `tcb register`.
+`tcb stamp-key` (key into the YAML) → `tcb generate` (manifests) → `tcb register`.
 Registration has exactly one route, HTTP `tcb register` (ADR-0002); learning what a valid
 dataset looks like is the contract surface's job (see below), not a command's.
 _Avoid_: ingest, inspect.

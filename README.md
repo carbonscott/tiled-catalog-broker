@@ -39,15 +39,7 @@ field list is `src/tiled_catalog_broker/tools/_models.py`.
 > Using Claude Code? Run **`/onboarding`** to have an agent read the contract surface and
 > walk you through authoring the YAML and running the pipeline.
 
-### Step 2: Generate Manifests
-
-Generate Parquet manifests from the YAML (this also validates it against the contract):
-
-```bash
-tcb generate datasets/mydata.yml
-```
-
-### Step 3: Stamp the catalog key
+### Step 2: Stamp the catalog key
 
 Derive the YAML's `key:` field from `label` (this is the dataset's
 container key in Tiled). Run once per YAML; idempotent on re-run.
@@ -56,8 +48,16 @@ container key in Tiled). Run once per YAML; idempotent on re-run.
 tcb stamp-key datasets/mydata.yml
 ```
 
-`tcb register` is read-only over the YAML and will error with a hint if
-`key` is missing.
+`tcb generate` and `tcb register` are read-only over the YAML and will
+error with a hint if `key` is missing.
+
+### Step 3: Generate Manifests
+
+Generate Parquet manifests from the YAML (this also validates it against the contract):
+
+```bash
+tcb generate datasets/mydata.yml
+```
 
 ### Step 4: Start the Tiled Server
 
@@ -143,7 +143,7 @@ See [docs/using-the-catalog.md](docs/using-the-catalog.md) for the full read-sid
 The `tcb` CLI subcommands form a pipeline:
 
 ```
-dataset YAML  -->  tcb generate  -->  tcb stamp-key  -->  tcb register  -->  tiled serve
+dataset YAML  -->  tcb stamp-key  -->  tcb generate  -->  tcb register  -->  tiled serve
 (the contract)     (manifests)        (key in YAML)       (HTTP)             (queries)
 ```
 

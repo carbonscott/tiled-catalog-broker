@@ -8,7 +8,7 @@ loaded through the catalog. You do it by **authoring one dataset YAML** against 
 *contract surface*, then running three commands:
 
 ```
-author dataset YAML  -->  tcb generate  -->  tcb stamp-key  -->  tcb register
+author dataset YAML  -->  tcb stamp-key  -->  tcb generate  -->  tcb register
    (the contract)         (manifests)        (key in YAML)       (into a server)
 ```
 
@@ -132,12 +132,13 @@ everyone else's; that consistency is the whole point. Field **presence** of `met
 ## 5. Run the pipeline
 
 ```bash
-# 1. Generate the Parquet manifests (entities.parquet + artifacts.parquet).
-#    Validates the YAML against the contract; prints vocab warnings (non-fatal).
-tcb generate datasets/my_dataset.yml
-
-# 2. Stamp the catalog key derived from the label (slug). One-time; re-running is a no-op.
+# 1. Stamp the catalog key derived from the label (slug). One-time; re-running is a no-op.
 tcb stamp-key datasets/my_dataset.yml
+
+# 2. Generate the Parquet manifests (entities.parquet + artifacts.parquet).
+#    Validates the YAML against the contract (the key must be stamped first);
+#    prints vocab warnings (non-fatal).
+tcb generate datasets/my_dataset.yml
 
 # 3. Register into a running Tiled server (HTTP). Incremental — existing entities skip.
 #    Server URL/key come from TILED_URL / TILED_API_KEY.

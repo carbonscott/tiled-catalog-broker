@@ -42,25 +42,33 @@ no server-side mount to describe.
 ```yaml
 # datasets/mydata.yml (abridged — see ONBOARDING.md for the full contract)
 label: My Dataset
+metadata:
+  method: [INS]
+  data_type: experimental
+  material: NiPS3
 data:
   directory: /home/me/experiments/run42   # local to YOU
   layout: per_entity
   file_pattern: "*.h5"
+parameters:
+  location: root_scalars
 artifacts:
   - type: spectrum
     dataset: /spectrum
 ```
 
-## 3. Generate manifests and stamp the key
+## 3. Stamp the key and generate manifests
 
 ```bash
-tcb generate datasets/mydata.yml
 tcb stamp-key datasets/mydata.yml
+tcb generate datasets/mydata.yml
 ```
 
-`tcb generate` opens your HDF5 files locally and records each artifact's
-path, shape, and dtype in Parquet manifests. Nothing has touched the
-network yet.
+`tcb stamp-key` writes the catalog key (derived from `label`) into the
+YAML; `tcb generate` validates the contract — it refuses to run before the
+key is stamped — then opens your HDF5 files locally and records each
+artifact's path, shape, and dtype in Parquet manifests. Nothing has
+touched the network yet.
 
 ## 4. Point at the server and upload
 
@@ -130,6 +138,10 @@ minimal example:
 ```bash
 uv run --with 'tiled[server]' tiled serve config config.demo.yml --api-key <API_KEY>
 ```
+
+Tiled requires the API key to be strictly alphanumeric (generate one with
+`openssl rand -hex 32`) — a key with hyphens or other punctuation makes
+the server exit at startup.
 
 No `readable_storage` and no admin path-allowlisting — the server never
 reads registrants' files, so there is nothing to allowlist. Hand

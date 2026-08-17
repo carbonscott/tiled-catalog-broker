@@ -66,9 +66,9 @@ uv pip install -e .
 # Or run directly with uv
 uv run tcb --help
 
-# Pipeline: author YAML → generate → stamp-key → register
-tcb generate datasets/my_dataset.yml
+# Pipeline: author YAML → stamp-key → generate → register
 tcb stamp-key datasets/my_dataset.yml
+tcb generate datasets/my_dataset.yml
 tcb register datasets/my_dataset.yml     # needs a running server (TILED_URL, TILED_API_KEY)
 tcb register --upload datasets/my_dataset.yml  # stream arrays into server storage (server can't see the files)
 
