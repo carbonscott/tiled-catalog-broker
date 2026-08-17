@@ -79,8 +79,8 @@ move on.
 ## Step 5 — Run the pipeline
 
 ```bash
-tcb generate datasets/<name>.yml     # validates + writes entities/artifacts manifests
 tcb stamp-key datasets/<name>.yml    # writes key = slug(label)
+tcb generate datasets/<name>.yml     # validates (requires the key) + writes entities/artifacts manifests
 tcb register datasets/<name>.yml     # registers over HTTP (the single route)
 ```
 
