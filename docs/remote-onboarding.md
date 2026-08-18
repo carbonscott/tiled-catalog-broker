@@ -21,7 +21,10 @@ YAML contract, same manifests. Only the transport differs.
 
 ## 1. Install
 
-You need Python ≥ 3.12 and [uv](https://docs.astral.sh/uv/).
+You need Python ≥ 3.12. Either toolchain below leaves you with an
+activated environment and a working `tcb`.
+
+**With [uv](https://docs.astral.sh/uv/):**
 
 ```bash
 git clone https://github.com/carbonscott/tiled-catalog-broker
@@ -30,6 +33,38 @@ uv venv && source .venv/bin/activate
 uv pip install -e .
 tcb --help
 ```
+
+**With the standard library (`venv` + `pip`):**
+
+```bash
+git clone https://github.com/carbonscott/tiled-catalog-broker
+cd tiled-catalog-broker
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .
+tcb --help
+```
+
+Name whichever interpreter is ≥ 3.12 on your machine — `python3.12`,
+`python3.13`, or a `module load`ed one on a cluster. If `python3 -m venv`
+reports that `ensurepip` is unavailable, your distribution ships `venv`
+separately (`apt install python3.12-venv` on Debian/Ubuntu); `pip install
+virtualenv && virtualenv -p python3.12 .venv` works without root.
+
+Re-activate with `source .venv/bin/activate` in each new shell.
+
+### Reading the data back in a notebook
+
+`examples/demo_query.py` is a [marimo](https://marimo.io) notebook that walks
+the catalog. It talks to the server over HTTP and does not import this
+package, so it needs neither an editable install nor Python 3.12:
+
+```bash
+pip install 'tiled[client]' marimo pandas h5py numpy matplotlib
+marimo edit examples/demo_query.py
+```
+
+Point it at your dataset with `TILED_URL`, `TILED_API_KEY`, and
+`TCB_DEMO_DATASET=<YOUR_KEY>`.
 
 ## 2. Author the dataset YAML
 

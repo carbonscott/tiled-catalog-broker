@@ -65,7 +65,7 @@ def _(mo):
 
     | Mode | How | When to use |
     |------|-----|-------------|
-    | **A (Expert)** | Read locator metadata → open HDF5 with h5py | Fast bulk access when you can see the original files |
+    | **A (Expert)** | Ask the catalog for the file location → open with h5py | Fast bulk access, when the files are reachable from where you run |
     | **B (Visualizer)** | `entity["rixs_spectrum"][:]` via HTTP | Works from anywhere the server is reachable; the only mode for uploaded datasets |
     """)
     return
@@ -75,16 +75,10 @@ def _(mo):
 def _():
     import os
 
-    # The dataset this demo walks through, and where its HDF5 files live for
-    # Mode A (direct h5py) access. The base dir must be the `data.directory`
-    # the dataset was registered from (its `path_*` locators are relative to
-    # it). Override either via environment.
+    # The only thing this notebook is told. Everything else -- including
+    # where the HDF5 files live -- is read back out of the catalog.
     DATASET_KEY = os.environ.get("TCB_DEMO_DATASET", "BROAD_SIGMA")
-    MODE_A_BASE_DIR = os.environ.get(
-        "TCB_DEMO_DATA_DIR",
-        "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/sam/initial_data_proper",
-    )
-    return DATASET_KEY, MODE_A_BASE_DIR, os
+    return DATASET_KEY, os
 
 
 @app.cell
@@ -261,9 +255,13 @@ def _(locators, mo):
         f"| `{_k}` | `{_v}` |" for _k, _v in sorted(locators.items())
     )
     mo.md(f"""
-    ### Artifact locators (Mode A)
+    ### Artifact locators (provenance, and queryable)
 
-    These metadata fields let you open the HDF5 file directly:
+    Recorded so you can *search* on provenance -- which file an entity came
+    from, which HDF5 dataset, which row -- and so the trail survives even
+    for uploaded datasets whose bytes now live server-side. They are
+    relative paths, so they are not what you open a file with; the next
+    section gets the absolute location from the catalog instead.
 
     | Key | Value |
     |-----|-------|
@@ -277,45 +275,83 @@ def _(mo):
     mo.md(r"""
     ## Level 3: Artifact (array data)
 
-    **Mode A** — read directly from HDF5 using the locator metadata. Fast,
-    but requires the original files to be visible from where you run.
+    **Mode A** — open the HDF5 file directly, for bulk or custom analysis.
+    You do not assemble the path: Tiled recorded it at registration, so ask
+    the catalog where the file is and open what it names.
     """)
     return
 
 
 @app.cell
-def _(MODE_A_BASE_DIR, ent_meta, mo, os):
+def _(entity, mo, os):
     import h5py
+    from urllib.parse import urlparse
 
-    _h5_rel = ent_meta["path_rixs_spectrum"]
-    _ds_path = ent_meta["dataset_rixs_spectrum"]
-    _batch_idx = ent_meta.get("index_rixs_spectrum")
+    # An externally-registered artifact carries a DataSource, and that
+    # DataSource is self-describing: its asset `data_uri` is the absolute
+    # path, and its `parameters` hold the HDF5 dataset path and (for batched
+    # layouts) the row. So there is no base directory to configure per
+    # machine and no path to join by hand -- ask, then open.
+    #
+    # Mode A can be unavailable for two reasons, and both are detected here
+    # rather than assumed:
+    #   1. the dataset was registered with `tcb register --upload`, so Tiled
+    #      owns the bytes and no external file exists to open;
+    #   2. the file exists, but is not mounted where this notebook runs.
+    # Mode B below always works, which is the reason it exists.
+    _external = [
+        _s for _s in (entity["rixs_spectrum"].data_sources() or [])
+        if _s.management == "external"
+    ]
 
-    _full_path = os.path.join(MODE_A_BASE_DIR, _h5_rel)
+    spectrum_a = None
+    if not _external:
+        _status = (
+            "**Mode A unavailable** — no external data source. This dataset "
+            "was registered with `--upload`, so Tiled holds the array itself "
+            "and there is no HDF5 file to open. Use Mode B."
+        )
+    else:
+        _source = _external[0]
+        _uri = _source.assets[0].data_uri
+        _path = urlparse(_uri).path
+        _ds_path = _source.parameters["dataset"]
+        _row = _source.parameters.get("slice")
 
-    with h5py.File(_full_path, "r") as _f:
-        if _batch_idx is not None:
-            spectrum = _f[_ds_path][int(_batch_idx)]
+        if not os.path.exists(_path):
+            _status = (
+                f"**Mode A unavailable here** — the catalog points at "
+                f"`{_path}`, which is not mounted on this machine. Run the "
+                f"notebook where the data lives, or use Mode B, which does "
+                f"not care."
+            )
         else:
-            spectrum = _f[_ds_path][:]
+            with h5py.File(_path, "r") as _f:
+                spectrum_a = (
+                    _f[_ds_path][int(_row)] if _row is not None
+                    else _f[_ds_path][:]
+                )
+            _status = f"""
+    The catalog said where to look — none of this was constructed by hand:
 
-    mo.md(f"""
-    **Mode A read:**
+    | From the DataSource | Value |
+    |---|---|
+    | asset `data_uri` | `{_uri}` |
+    | `parameters["dataset"]` | `{_ds_path}` |
+    | `parameters["slice"]` | `{_row}` |
+
     ```python
-    # From entity metadata:
-    path  = "{_h5_rel}"
-    dataset = "{_ds_path}"
-    index = {_batch_idx}
-
-    with h5py.File(base_dir + "/" + path) as f:
-        spectrum = f["{_ds_path}"][{_batch_idx}]
+    src = entity["rixs_spectrum"].data_sources()[0]
+    with h5py.File(urlparse(src.assets[0].data_uri).path) as f:
+        spectrum = f[src.parameters["dataset"]][int(src.parameters["slice"])]
     ```
 
-    Shape: `{spectrum.shape}` (energy_loss x incident_energy)
+    Shape: `{spectrum_a.shape}` (energy_loss x incident_energy) ·
+    range [{spectrum_a.min():.2e}, {spectrum_a.max():.2e}]
+    """
 
-    Range: [{spectrum.min():.2e}, {spectrum.max():.2e}]
-    """)
-    return (spectrum,)
+    mo.md(_status)
+    return (spectrum_a,)
 
 
 @app.cell(hide_code=True)
@@ -328,11 +364,20 @@ def _(mo):
 
 
 @app.cell
-def _(ds, entity, mo, spectrum):
+def _(ds, entity, mo, spectrum_a):
     import numpy as np
 
-    spectrum_http = entity["rixs_spectrum"][:]
+    # Mode B needs nothing but the server, so this is what the plot below
+    # uses -- the notebook renders the same figure whether or not the
+    # original files are reachable from here.
+    spectrum = entity["rixs_spectrum"][:]
     eloss = ds["eloss"][:]
+
+    _agreement = (
+        "_Mode A did not run here, so there is nothing to compare against._"
+        if spectrum_a is None else
+        f"Identical to the Mode A read: `{np.array_equal(spectrum, spectrum_a)}`"
+    )
 
     mo.md(f"""
     **Mode B read:**
@@ -341,13 +386,12 @@ def _(ds, entity, mo, spectrum):
     eloss = ds["eloss"][:]                  # shared axis, dataset-level child
     ```
 
-    Shape: `{spectrum_http.shape}`, identical to the Mode A read:
-    `{np.array_equal(spectrum_http, spectrum)}`
+    Shape: `{spectrum.shape}`. {_agreement}
 
     Energy-loss axis: {len(eloss)} points,
     [{eloss.min():.2f}, {eloss.max():.2f}]
     """)
-    return
+    return (spectrum,)
 
 
 @app.cell

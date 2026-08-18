@@ -133,6 +133,16 @@ uv run --with marimo --with matplotlib \
   marimo edit examples/demo_query.py
 ```
 
+The notebook reads the catalog over HTTP and does not import this package,
+so it also runs standalone in any Python ≥ 3.10 environment:
+
+```bash
+pip install 'tiled[client]' marimo pandas h5py numpy matplotlib
+marimo edit examples/demo_query.py
+```
+
+Set `TCB_DEMO_DATASET` to walk a dataset other than `BROAD_SIGMA`.
+
 See [docs/using-the-catalog.md](docs/using-the-catalog.md) for the full read-side reference
 (both access modes, copy-pasteable).
 
