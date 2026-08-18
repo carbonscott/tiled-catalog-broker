@@ -1,454 +1,448 @@
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.12"
 # dependencies = [
 #     "pytest",
 #     "pandas",
 #     "pyarrow",
 #     "h5py",
 #     "numpy",
-#     "ruamel.yaml",
-#     "canonicaljson",
+#     "tiled[server]",
 # ]
 # ///
 """
-Tests for generic registration with both VDP and NiPS3 datasets.
+Tests that HTTP registration is genuinely dataset-agnostic.
 
-Verifies that prepare_node_data() produces correct metadata, locators,
-and artifact structures for any dataset -- no hardcoded parameter names.
+Drives ``_register_one_entity`` (the single registration route, ADR-0002) against a
+mock Tiled parent container and inspects what it *would* send: the entity key, its
+metadata, and each artifact's key, metadata, and DataSource. Two synthetic datasets
+with disjoint parameter names — VDP-style (one file per entity) and NiPS3-style
+(batched, entity i is row i) — prove no parameter name, artifact type, or file layout
+is hardcoded.
 
 Uses synthetic test data from tests/testdata/. No running Tiled server needed.
 
 Run with:
     uv run --with pytest --with pandas --with pyarrow --with h5py \
-      --with 'ruamel.yaml' --with canonicaljson \
-      pytest tests/test_generic_registration.py -v
+      --with 'tiled[server]' pytest tests/test_generic_registration.py -v
 """
 
-import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
-
-# Add tiled_poc directory to path for broker package imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 TESTDATA_DIR = Path(__file__).parent / "testdata"
 
 
 @pytest.fixture
 def vdp_manifests():
-    """Load VDP synthetic test manifests."""
+    """VDP-style synthetic manifests: one HDF5 file per entity, 3 artifacts each."""
     vdp_dir = TESTDATA_DIR / "vdp"
     ent_df = pd.read_parquet(vdp_dir / "vdp_entities.parquet")
     art_df = pd.read_parquet(vdp_dir / "vdp_artifacts.parquet")
-    base_dir = str(vdp_dir)
-    return ent_df, art_df, base_dir
+    return ent_df, art_df, str(vdp_dir)
 
 
 @pytest.fixture
 def nips3_manifests():
-    """Load NiPS3 synthetic test manifests."""
+    """NiPS3-style synthetic manifests: batched, 2 artifacts per entity."""
     nips3_dir = TESTDATA_DIR / "nips3"
     ent_df = pd.read_parquet(nips3_dir / "nips3_entities.parquet")
     art_df = pd.read_parquet(nips3_dir / "nips3_artifacts.parquet")
-    base_dir = str(nips3_dir)
-    return ent_df, art_df, base_dir
+    return ent_df, art_df, str(nips3_dir)
 
 
-@pytest.fixture(autouse=True)
-def clear_shape_cache():
-    """Clear the HDF5 shape cache between tests."""
-    from tiled_catalog_broker.utils import get_artifact_info
-    get_artifact_info.__defaults__[-1].clear()
-    yield
-    get_artifact_info.__defaults__[-1].clear()
+def register_entity(manifests, row=0, dataset_key="TEST_KEY",
+                    server_base_dir=None, inherited=None, upload=False):
+    """Register one entity against a mock parent; return what it sent to Tiled.
+
+    Returns a namespace with ``result`` (the counter tuple), the entity's ``key`` and
+    ``metadata``, and ``artifacts``: ``{artifact_key: kwargs-passed-to-.new()}``, where
+    those kwargs carry ``metadata``, ``data_sources``, and ``structure_family``.
+    In upload mode ``uploads`` maps artifact keys to ``(array, metadata)`` as
+    passed to ``write_array``.
+    """
+    from tiled_catalog_broker.http_register import _register_one_entity
+
+    ent_df, art_df, base_dir = manifests
+    parent = MagicMock()
+    parent.__contains__.return_value = False       # nothing registered yet
+    ent_container = parent.create_container.return_value
+
+    result = _register_one_entity(
+        ent_df.iloc[row], list(ent_df.columns),
+        art_df.groupby("uid"), list(art_df.columns),
+        parent, base_dir=base_dir, server_base_dir=server_base_dir,
+        dataset_key=dataset_key, inherited=inherited or {},
+        upload=upload,
+    )
+
+    ent_kwargs = parent.create_container.call_args.kwargs
+    return SimpleNamespace(
+        result=result,
+        key=ent_kwargs["key"],
+        metadata=ent_kwargs["metadata"],
+        artifacts={c.kwargs["key"]: c.kwargs
+                   for c in ent_container.new.call_args_list},
+        uploads={c.kwargs["key"]: (c.args[0], c.kwargs["metadata"])
+                 for c in ent_container.write_array.call_args_list},
+    )
 
 
-# ─── VDP Tests ───────────────────────────────────────────────────────────────
+# ─── VDP-style: one file per entity ──────────────────────────────────────────
 
 
 class TestVDPRegistration:
-    """Test generic registration with VDP-style data."""
+    """Registration of per-entity-file data."""
 
-    def test_correct_node_counts(self, vdp_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
-
-        ent_nodes, art_nodes, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        assert len(ent_nodes) == 5
-        assert len(art_nodes) == 15  # 3 artifacts per entity
-        assert len(art_ds) == 15
+    def test_registers_entity_and_all_its_artifacts(self, vdp_manifests):
+        reg = register_entity(vdp_manifests)
+        assert reg.result == (1, 3, 0, 0)          # 1 entity, 3 artifacts, 0 skipped, 0 failed
+        assert len(reg.artifacts) == 3
 
     def test_entity_key_derived_from_uid(self, vdp_manifests):
         """Entity keys are derived from dataset_key + uid at registration time."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
-
-        ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        for i, node in enumerate(ent_nodes):
+        ent_df, _, _ = vdp_manifests
+        for i in range(len(ent_df)):
+            reg = register_entity(vdp_manifests, row=i)
             uid = str(ent_df.iloc[i]["uid"])
-            assert node["key"] == f"TEST_KEY_{uid[:13]}"
+            assert reg.key == f"TEST_KEY_{uid[:13]}"
 
     def test_entity_metadata_has_vdp_params(self, vdp_manifests):
-        """VDP metadata should have Ja_meV, Jb_meV, etc. (read dynamically)."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
-
-        ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        meta = ent_nodes[0]["metadata"]
+        """VDP metadata carries Ja_meV, Jb_meV, ... — read dynamically from the manifest."""
+        meta = register_entity(vdp_manifests).metadata
         assert "uid" in meta
-        assert "Ja_meV" in meta
-        assert "Jb_meV" in meta
-        assert "Jc_meV" in meta
-        assert "Dc_meV" in meta
-        assert "spin_s" in meta
-        assert "g_factor" in meta
+        for param in ("Ja_meV", "Jb_meV", "Jc_meV", "Dc_meV", "spin_s", "g_factor"):
+            assert param in meta
 
     def test_entity_metadata_has_locators(self, vdp_manifests):
         """Locators (path_, dataset_) stored in entity metadata for Mode A."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
+        meta = register_entity(vdp_manifests).metadata
+        for art_type in ("mh_powder_30T", "gs_state", "ins_12meV"):
+            assert f"path_{art_type}" in meta
+            assert f"dataset_{art_type}" in meta
 
-        ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        meta = ent_nodes[0]["metadata"]
-
-        # VDP has 3 artifact types
-        assert "path_mh_powder_30T" in meta
-        assert "path_gs_state" in meta
-        assert "path_ins_12meV" in meta
-
-        assert "dataset_mh_powder_30T" in meta
-        assert "dataset_gs_state" in meta
-        assert "dataset_ins_12meV" in meta
-
-        # VDP has no index (single-entity files)
-        index_keys = [k for k in meta if k.startswith("index_")]
-        assert len(index_keys) == 0
+        # Per-entity files carry no index — that's a batched-layout locator.
+        assert [k for k in meta if k.startswith("index_")] == []
 
     def test_artifact_keys_match_types(self, vdp_manifests):
-        """Artifact keys come directly from the type column."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
+        """Artifact keys come directly from the manifest's type column."""
+        reg = register_entity(vdp_manifests)
+        assert set(reg.artifacts) == {"mh_powder_30T", "gs_state", "ins_12meV"}
 
-        _, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        keys = {node["key"] for node in art_nodes}
-        assert keys == {"mh_powder_30T", "gs_state", "ins_12meV"}
-
-    def test_artifact_shapes_from_hdf5(self, vdp_manifests):
-        """Shapes are read from actual HDF5 files, not hardcoded."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
-
-        _, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        shapes = {node["key"]: node["metadata"]["shape"] for node in art_nodes}
+    def test_artifact_shapes_read_from_hdf5(self, vdp_manifests):
+        """Shapes are read from the actual HDF5 files, not hardcoded."""
+        reg = register_entity(vdp_manifests)
+        shapes = {k: v["metadata"]["shape"] for k, v in reg.artifacts.items()}
         assert shapes["mh_powder_30T"] == [10]
         assert shapes["gs_state"] == [3, 4]
         assert shapes["ins_12meV"] == [6, 5]
 
-    def test_data_source_parameters(self, vdp_manifests):
-        """Data sources carry dataset path from manifest."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
+    def test_data_source_carries_dataset_path(self, vdp_manifests):
+        """Each DataSource carries the HDF5 path from the manifest."""
+        reg = register_entity(vdp_manifests)
+        params = {k: v["data_sources"][0].parameters
+                  for k, v in reg.artifacts.items()}
+        assert params["mh_powder_30T"]["dataset"] == "/curve/M_parallel"
+        assert params["gs_state"]["dataset"] == "/gs/spin_dir"
+        assert params["ins_12meV"]["dataset"] == "/ins/broadened"
 
-        _, _, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
+    def test_per_entity_files_have_no_slice(self, vdp_manifests):
+        """`slice` is a batched-layout parameter; per-entity files omit it."""
+        reg = register_entity(vdp_manifests)
+        for kwargs in reg.artifacts.values():
+            assert "slice" not in kwargs["data_sources"][0].parameters
+
+    def test_existing_entity_is_skipped(self, vdp_manifests):
+        """Registration is incremental: an entity already on the server is skipped."""
+        from tiled_catalog_broker.http_register import _register_one_entity
+
+        ent_df, art_df, base_dir = vdp_manifests
+        parent = MagicMock()
+        parent.__contains__.return_value = True    # already registered
+
+        result = _register_one_entity(
+            ent_df.iloc[0], list(ent_df.columns),
+            art_df.groupby("uid"), list(art_df.columns),
+            parent, base_dir=base_dir, server_base_dir=None,
+            dataset_key="TEST_KEY",
         )
 
-        ds_by_key = {ds["art_key"]: ds for ds in art_ds}
-        assert ds_by_key["mh_powder_30T"]["parameters"]["dataset"] == "/curve/M_parallel"
-        assert ds_by_key["gs_state"]["parameters"]["dataset"] == "/gs/spin_dir"
-        assert ds_by_key["ins_12meV"]["parameters"]["dataset"] == "/ins/broadened"
-
-    def test_max_entities_limit(self, vdp_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
-
-        ent_nodes, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=2, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        assert len(ent_nodes) == 2
-        assert len(art_nodes) == 6  # 3 per entity
+        assert result == (0, 0, 1, 0)              # counted as skipped
+        parent.create_container.assert_not_called()
 
 
-# ─── NiPS3 Tests ─────────────────────────────────────────────────────────────
+# ─── NiPS3-style: batched files ──────────────────────────────────────────────
 
 
 class TestNiPS3Registration:
-    """Test generic registration with NiPS3-style data (batched files)."""
+    """Registration of batched data — entity i is row i of a shared dataset."""
 
-    def test_correct_node_counts(self, nips3_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = nips3_manifests
-
-        ent_nodes, art_nodes, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        assert len(ent_nodes) == 5
-        assert len(art_nodes) == 10  # 2 artifacts per entity
-        assert len(art_ds) == 10
+    def test_registers_entity_and_all_its_artifacts(self, nips3_manifests):
+        reg = register_entity(nips3_manifests)
+        assert reg.result == (1, 2, 0, 0)
+        assert set(reg.artifacts) == {"rixs", "mag"}
 
     def test_entity_metadata_has_nips3_params(self, nips3_manifests):
-        """NiPS3 metadata should have F2_dd, F2_dp, etc. (read dynamically)."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = nips3_manifests
-
-        ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        meta = ent_nodes[0]["metadata"]
+        """NiPS3 metadata carries its own parameter names — and none of VDP's."""
+        meta = register_entity(nips3_manifests).metadata
         assert "uid" in meta
-        assert "F2_dd" in meta
-        assert "F2_dp" in meta
-        assert "F4_dd" in meta
-        assert "G1_dp" in meta
-        assert "G3_dp" in meta
-
-        # Should NOT have VDP params
+        for param in ("F2_dd", "F2_dp", "F4_dd", "G1_dp", "G3_dp"):
+            assert param in meta
         assert "Ja_meV" not in meta
         assert "Jb_meV" not in meta
 
     def test_entity_metadata_has_index_locators(self, nips3_manifests):
-        """NiPS3 locators should include index for batched files."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = nips3_manifests
+        """Batched layouts add an index_ locator — the row on axis 0."""
+        meta = register_entity(nips3_manifests).metadata
+        for art_type in ("rixs", "mag"):
+            assert f"path_{art_type}" in meta
+            assert f"dataset_{art_type}" in meta
+            assert f"index_{art_type}" in meta
+        assert meta["index_rixs"] == 0             # first entity
 
-        ent_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
+    def test_batched_shapes_drop_the_batch_dimension(self, nips3_manifests):
+        """A batched artifact registers its per-entity shape, not the stacked one."""
+        reg = register_entity(nips3_manifests)
+        shapes = {k: v["metadata"]["shape"] for k, v in reg.artifacts.items()}
+        assert shapes["rixs"] == [6, 5]            # (5, 6, 5) -> (6, 5) per entity
+        assert shapes["mag"] == [10]               # (5, 10)   -> (10,) per entity
 
-        meta = ent_nodes[0]["metadata"]
+    def test_data_source_slice_tracks_the_entity_row(self, nips3_manifests):
+        """Each entity's DataSource slices its own row out of the shared dataset."""
+        for row, expected in [(0, "0"), (1, "1")]:
+            reg = register_entity(nips3_manifests, row=row)
+            for kwargs in reg.artifacts.values():
+                assert kwargs["data_sources"][0].parameters["slice"] == expected
 
-        # NiPS3 has 2 artifact types
-        assert "path_rixs" in meta
-        assert "path_mag" in meta
-        assert "dataset_rixs" in meta
-        assert "dataset_mag" in meta
-
-        # NiPS3 is batched, so index should be present
-        assert "index_rixs" in meta
-        assert "index_mag" in meta
-        assert meta["index_rixs"] == 0  # First entity
-
-    def test_artifact_keys_match_types(self, nips3_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = nips3_manifests
-
-        _, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        keys = {node["key"] for node in art_nodes}
-        assert keys == {"rixs", "mag"}
-
-    def test_batched_shapes_skip_batch_dimension(self, nips3_manifests):
-        """For batched files, shape should be per-entity (batch dim removed)."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = nips3_manifests
-
-        _, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        shapes = {node["key"]: node["metadata"]["shape"] for node in art_nodes}
-        assert shapes["rixs"] == [6, 5]  # (5, 6, 5) -> (6, 5) per entity
-        assert shapes["mag"] == [10]  # (5, 10) -> (10,) per entity
-
-    def test_data_source_has_slice_parameter(self, nips3_manifests):
-        """Data sources for batched files include slice in parameters."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = nips3_manifests
-
-        _, _, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=2, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        for ds in art_ds:
-            assert "slice" in ds["parameters"]
-
-        # First entity's artifacts should have slice="0"
-        first_ent_ds = [ds for ds in art_ds if ds["parent_uid"] == "rank0000_0000"]
-        for ds in first_ent_ds:
-            assert ds["parameters"]["slice"] == "0"
-
-        # Second entity's artifacts should have slice="1"
-        second_ent_ds = [ds for ds in art_ds if ds["parent_uid"] == "rank0000_0001"]
-        for ds in second_ent_ds:
-            assert ds["parameters"]["slice"] == "1"
-
-    def test_shared_assets_for_batched_files(self, nips3_manifests):
-        """Batched files: multiple artifacts share the same HDF5 file."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = nips3_manifests
-
-        _, _, art_ds = prepare_node_data(
-            ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        # All RIXS artifacts point to the same file
-        rixs_files = {ds["h5_path"] for ds in art_ds if ds["art_key"] == "rixs"}
-        assert len(rixs_files) == 1  # All share one batched file
+    def test_entities_share_one_asset_file(self, nips3_manifests):
+        """Batched entities all point at the same HDF5 file (one asset, many slices)."""
+        uris = set()
+        for row in range(3):
+            reg = register_entity(nips3_manifests, row=row)
+            for kwargs in reg.artifacts.values():
+                uris.update(a.data_uri for a in kwargs["data_sources"][0].assets)
+        assert len(uris) == 1
 
 
-# ─── Cross-Dataset Tests ─────────────────────────────────────────────────────
+# ─── Cross-dataset: the dataset-agnostic guarantee ───────────────────────────
 
 
 class TestGenericBehavior:
-    """Tests that verify the broker is truly dataset-agnostic."""
+    """The broker hardcodes no parameter name, artifact type, or file layout."""
 
     def test_no_hardcoded_param_names_in_metadata(self, vdp_manifests, nips3_manifests):
-        """Metadata keys come from manifests, not from hardcoded lists."""
-        from tiled_catalog_broker.bulk_register import prepare_node_data
+        """Two datasets, disjoint parameters — only `uid` is common."""
+        def params_of(manifests):
+            meta = register_entity(manifests).metadata
+            return {k for k in meta
+                    if not k.startswith(("path_", "dataset_", "index_"))}
 
-        # VDP
-        ent_df, art_df, base_dir = vdp_manifests
-        vdp_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-        vdp_meta = vdp_nodes[0]["metadata"]
+        # `uid` is the one standard column kept in metadata; the entity key is
+        # derived from (dataset_key, uid) rather than stored.
+        assert params_of(vdp_manifests) & params_of(nips3_manifests) == {"uid"}
 
-        # NiPS3
-        ent_df, art_df, base_dir = nips3_manifests
-        nips3_nodes, _, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-        nips3_meta = nips3_nodes[0]["metadata"]
-
-        # Both should have uid
-        assert "uid" in vdp_meta
-        assert "uid" in nips3_meta
-
-        # But different physics params (all from manifest, not hardcoded)
-        vdp_params = {k for k in vdp_meta if not k.startswith(("path_", "dataset_", "index_"))}
-        nips3_params = {k for k in nips3_meta if not k.startswith(("path_", "dataset_", "index_"))}
-
-        # Only "uid" is shared (the one standard column kept in metadata;
-        # the entity key is derived from (dataset_key, uid), not stored).
-        shared = vdp_params & nips3_params
-        assert shared == {"uid"}
-
-    def test_structure_family_correct(self, vdp_manifests):
-        from tiled_catalog_broker.bulk_register import prepare_node_data
-        ent_df, art_df, base_dir = vdp_manifests
-
-        ent_nodes, art_nodes, _ = prepare_node_data(
-            ent_df, art_df, max_entities=1, base_dir=base_dir, dataset_key="TEST_KEY"
-        )
-
-        for node in ent_nodes:
-            assert node["structure_family"] == "container"
-        for node in art_nodes:
-            assert node["structure_family"] == "array"
+    def test_structure_family_is_array(self, vdp_manifests):
+        from tiled.structures.core import StructureFamily
+        reg = register_entity(vdp_manifests)
+        for kwargs in reg.artifacts.values():
+            assert kwargs["structure_family"] == StructureFamily.array
 
     def test_all_metadata_values_json_safe(self, vdp_manifests, nips3_manifests):
-        """All metadata values must be JSON-serializable."""
+        """Everything sent to Tiled must survive JSON serialization."""
         import json
-        from tiled_catalog_broker.bulk_register import prepare_node_data
 
-        for manifests in [vdp_manifests, nips3_manifests]:
-            ent_df, art_df, base_dir = manifests
-            ent_nodes, art_nodes, _ = prepare_node_data(
-                ent_df, art_df, max_entities=5, base_dir=base_dir, dataset_key="TEST_KEY"
-            )
-            for node in ent_nodes + art_nodes:
-                # Should not raise
-                json.dumps(node["metadata"])
+        for manifests in (vdp_manifests, nips3_manifests):
+            ent_df, _, _ = manifests
+            for row in range(len(ent_df)):
+                reg = register_entity(manifests, row=row)
+                json.dumps(reg.metadata)           # should not raise
+                for kwargs in reg.artifacts.values():
+                    json.dumps(kwargs["metadata"])
+
+    @pytest.mark.parametrize("dtype", ["float32", "int32", "float64"])
+    def test_dtype_survives_generate_to_register(self, tmp_path, dtype):
+        """dtype is captured from the file at generate time and carried through.
+
+        End-to-end because that is now the whole guarantee: registration never
+        opens HDF5, so if `tcb generate` doesn't record the real dtype nothing
+        downstream can recover it. The read adapter re-validates dtype against
+        the file and raises on a mismatch, so a wrong value registers cleanly
+        and then fails *every* read — a failure mode no float64 fixture catches.
+        """
+        import h5py
+        import numpy as np
+        from ruamel.yaml import YAML
+        from tiled_catalog_broker.tools.generate import generate_manifests
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        with h5py.File(data_dir / "e0.h5", "w") as f:
+            f.create_dataset("spectrum", data=np.ones((4, 3), dtype=dtype))
+            f.create_dataset("sigma", data=0.04)
+
+        yaml_path = tmp_path / "ds.yml"
+        with open(yaml_path, "w") as fh:
+            YAML().dump({
+                "label": "Dtype Probe",
+                "key": "DTYPE_PROBE",
+                "metadata": {"method": ["RIXS"], "data_type": "simulation",
+                             "material": "NiPS3", "producer": "edrixs"},
+                "data": {"directory": str(data_dir), "layout": "per_entity",
+                         "file_pattern": "*.h5"},
+                "artifacts": [{"type": "spectrum", "dataset": "/spectrum"}],
+                "parameters": {"location": "root_scalars"},
+            }, fh)
+
+        ent_path, art_path = generate_manifests(
+            str(yaml_path), output_dir=str(tmp_path / "manifests"))
+
+        art_df = pd.read_parquet(art_path)
+        assert art_df.loc[0, "dtype"] == dtype          # captured at generate time
+
+        reg = register_entity(
+            (pd.read_parquet(ent_path), art_df, str(data_dir)))
+        art = reg.artifacts["spectrum"]
+
+        assert art["metadata"]["dtype"] == dtype        # ...and carried through
+        assert art["metadata"]["shape"] == [4, 3]
+        registered = art["data_sources"][0].structure.data_type.to_numpy_dtype()
+        assert registered == np.dtype(dtype)
+
+    def test_manifest_without_shape_dtype_is_rejected(self, vdp_manifests):
+        """A manifest predating shape/dtype capture fails loudly, not silently."""
+        from tiled_catalog_broker.http_register import require_shape_dtype
+
+        _, art_df, _ = vdp_manifests
+        require_shape_dtype(art_df)                     # current manifests are fine
+
+        with pytest.raises(ValueError, match="tcb generate"):
+            require_shape_dtype(art_df.drop(columns=["shape", "dtype"]))
+
+    def test_server_base_dir_overrides_asset_uri(self, vdp_manifests):
+        """When the server mounts the data elsewhere, the asset URI follows it."""
+        reg = register_entity(vdp_manifests, server_base_dir="/mnt/server-view")
+        for kwargs in reg.artifacts.values():
+            for asset in kwargs["data_sources"][0].assets:
+                assert asset.data_uri.startswith("file://localhost/mnt/server-view/")
 
 
-# ─── INHERITED_KEYS propagation (HTTP path) ──────────────────────────────────
+# ─── INHERITED_KEYS propagation ──────────────────────────────────────────────
 
 
-class TestInheritedKeysHTTP:
+class TestInheritedKeys:
     """Inherited dataset keys land on every entity and artifact node."""
 
-    def test_inherited_keys_propagate_to_entity_and_artifact(self, monkeypatch):
-        from unittest.mock import MagicMock
-        from tiled_catalog_broker import http_register
-        from tiled_catalog_broker.http_register import _register_one_entity
+    def test_inherited_keys_propagate_to_entity_and_artifact(self, vdp_manifests):
+        reg = register_entity(vdp_manifests, inherited={"amsc_public": True})
+        assert reg.metadata["amsc_public"] is True
+        for kwargs in reg.artifacts.values():
+            assert kwargs["metadata"]["amsc_public"] is True
 
-        monkeypatch.setattr(
-            http_register, "create_data_source",
-            lambda *a, **kw: (MagicMock(), (10,), "float64"),
-        )
+    def test_manifest_value_wins_over_inherited(self, vdp_manifests):
+        """setdefault semantics — a manifest column of the same name wins."""
+        ent_df, art_df, base_dir = vdp_manifests
+        ent_df = ent_df.assign(amsc_public=False)
 
-        ent_df = pd.DataFrame([{"uid": "e0001abc1234567", "Ja_meV": 1.0}])
-        art_df = pd.DataFrame([{
-            "uid": "e0001abc1234567",
-            "type": "rixs",
-            "file": "f.h5",
-            "dataset": "/x",
-        }])
-        art_grouped = art_df.groupby("uid")
+        reg = register_entity(
+            (ent_df, art_df, base_dir), inherited={"amsc_public": True})
+        assert reg.metadata["amsc_public"] is False
 
-        parent_client = MagicMock()
-        parent_client.__contains__.return_value = False
-        ent_container = parent_client.create_container.return_value
 
-        result = _register_one_entity(
-            ent_df.iloc[0], list(ent_df.columns),
-            art_grouped, list(art_df.columns),
-            parent_client, base_dir="/tmp", server_base_dir=None,
-            dataset_key="TEST", inherited={"amsc_public": True},
-        )
+# ─── Upload mode: arrays written through the server ──────────────────────────
 
-        assert result == (1, 1, 0, 0)
 
-        ent_meta = parent_client.create_container.call_args.kwargs["metadata"]
-        assert ent_meta["amsc_public"] is True
+class TestUploadMode:
+    """``upload=True`` writes the actual arrays instead of registering pointers."""
 
-        art_meta = ent_container.new.call_args.kwargs["metadata"]
-        assert art_meta["amsc_public"] is True
+    def test_uploads_every_artifact_with_file_contents(self, vdp_manifests):
+        import h5py
+        import numpy as np
 
-    def test_manifest_value_wins_over_inherited(self, monkeypatch):
-        """setdefault semantics — manifest column with the same name wins."""
-        from unittest.mock import MagicMock
-        from tiled_catalog_broker import http_register
-        from tiled_catalog_broker.http_register import _register_one_entity
+        reg = register_entity(vdp_manifests, upload=True)
+        assert not reg.artifacts                    # the DataSource route is idle
+        assert reg.result == (1, 3, 0, 0)
 
-        monkeypatch.setattr(
-            http_register, "create_data_source",
-            lambda *a, **kw: (MagicMock(), (10,), "float64"),
-        )
+        ent_df, art_df, base_dir = vdp_manifests
+        uid = str(ent_df.iloc[0]["uid"])
+        for _, art_row in art_df[art_df["uid"] == uid].iterrows():
+            data, metadata = reg.uploads[art_row["type"]]
+            with h5py.File(Path(base_dir) / art_row["file"], "r") as f:
+                np.testing.assert_array_equal(data, f[art_row["dataset"]][()])
+            assert metadata["shape"] == list(data.shape)
+            assert metadata["dtype"] == str(data.dtype)
 
-        ent_df = pd.DataFrame([{"uid": "e0002abc1234567", "amsc_public": False}])
-        art_df = pd.DataFrame([{
-            "uid": "e0002abc1234567",
-            "type": "rixs",
-            "file": "f.h5",
-            "dataset": "/x",
-        }])
-        art_grouped = art_df.groupby("uid")
+    def test_locators_still_present_in_upload_mode(self, vdp_manifests):
+        """Path provenance is kept even though the server owns the bytes."""
+        reg = register_entity(vdp_manifests, upload=True)
+        assert any(k.startswith("path_") for k in reg.metadata)
 
-        parent_client = MagicMock()
-        parent_client.__contains__.return_value = False
+    def test_batched_upload_writes_the_entity_row(self, nips3_manifests):
+        import h5py
+        import numpy as np
 
-        _register_one_entity(
-            ent_df.iloc[0], list(ent_df.columns),
-            art_grouped, list(art_df.columns),
-            parent_client, base_dir="/tmp", server_base_dir=None,
-            dataset_key="TEST", inherited={"amsc_public": True},
-        )
+        reg = register_entity(nips3_manifests, row=1, upload=True)
+        ent_df, art_df, base_dir = nips3_manifests
+        uid = str(ent_df.iloc[1]["uid"])
+        for _, art_row in art_df[art_df["uid"] == uid].iterrows():
+            data, _ = reg.uploads[art_row["type"]]
+            with h5py.File(Path(base_dir) / art_row["file"], "r") as f:
+                np.testing.assert_array_equal(
+                    data, f[art_row["dataset"]][int(art_row["index"])])
 
-        ent_meta = parent_client.create_container.call_args.kwargs["metadata"]
-        assert ent_meta["amsc_public"] is False
+    def test_shape_mismatch_is_a_counted_failure(self, vdp_manifests):
+        """A manifest that disagrees with the file must not upload silently."""
+        ent_df, art_df, base_dir = vdp_manifests
+        art_df = art_df.copy()
+        art_df["shape"] = "[9, 9]"
+
+        reg = register_entity((ent_df, art_df, base_dir), upload=True)
+        assert not reg.uploads
+        n_arts = (art_df["uid"] == str(ent_df.iloc[0]["uid"])).sum()
+        assert reg.result == (1, 0, 0, n_arts)
+
+
+# ─── Storage marker: which transport owns the bytes ──────────────────────────
+
+
+class TestStorageMarker:
+    """The dataset container records whether its bytes are external or uploaded."""
+
+    def _drive(self, manifests, *, existing_metadata=None, upload=False):
+        from tiled_catalog_broker.http_register import register_dataset_http
+
+        ent_df, art_df, base_dir = manifests
+        client = MagicMock()
+        if existing_metadata is None:
+            client.__contains__.return_value = False
+        else:
+            client.__contains__.return_value = True
+            client.__getitem__.return_value.metadata = existing_metadata
+        register_dataset_http(
+            client, ent_df.head(0), art_df, base_dir, "T", dataset_key="T",
+            dataset_metadata={}, upload=upload, max_workers=1)
+        return client
+
+    def test_new_dataset_stamped_external(self, vdp_manifests):
+        client = self._drive(vdp_manifests)
+        meta = client.create_container.call_args.kwargs["metadata"]
+        assert meta["storage"] == "external"
+
+    def test_new_dataset_stamped_uploaded(self, vdp_manifests):
+        client = self._drive(vdp_manifests, upload=True)
+        meta = client.create_container.call_args.kwargs["metadata"]
+        assert meta["storage"] == "uploaded"
+
+    def test_transport_mismatch_refused(self, vdp_manifests):
+        with pytest.raises(ValueError, match="storage='external'"):
+            self._drive(vdp_manifests,
+                        existing_metadata={"storage": "external"}, upload=True)
+
+    def test_premarker_dataset_counts_as_external(self, vdp_manifests):
+        """Datasets registered before the marker existed carry no `storage` key."""
+        with pytest.raises(ValueError, match="storage='external'"):
+            self._drive(vdp_manifests, existing_metadata={}, upload=True)
+        # ...but re-registering them externally still works.
+        self._drive(vdp_manifests, existing_metadata={}, upload=False)

@@ -72,7 +72,7 @@ This is stored in Tiled's catalog database. The user never sees it.
 ### What happens at query time
 
 ```
-User request:     client["H_edx00042"]["rixs"][:]
+User request:     client["EDRIXS"]["EDRIXS_636ce3e41ea05"]["rixs"][:]
                          |
 Tiled server:     Opens HDF5 -> loads spectra as dask array (10000, 151, 40)
                          |
@@ -84,6 +84,20 @@ Returns:          numpy array, shape (151, 40) -- one spectrum
 The user gets back exactly their spectrum. They don't know (or need to
 know) it came from row 42 of a batched file.
 
+### How the keys are named
+
+Access is three levels — `client[DATASET][ENTITY][ARTIFACT]` — and every
+key is human-readable, derived deterministically (no opaque UUIDs in the path):
+
+- **Dataset key**: `slugify_key(label)` — the dataset's `label` upper-snake-cased
+  (`"EDRIXS RIXS"` -> `EDRIXS_RIXS`), written into the YAML by `tcb stamp-key`.
+- **Entity key**: `{dataset_key}_{uid[:13]}`, where `uid` is the content hash of the
+  entity's parameters (e.g. `EDRIXS_636ce3e41ea05`).
+- **Artifact key**: the artifact's `type` from the manifest (e.g. `rixs`).
+
+See [ONBOARDING.md](ONBOARDING.md) for how `label`, parameters, and artifact `type`
+are declared in the dataset YAML.
+
 ## 4. Two Ways to Access the Data
 
 We provide two modes because different users have different needs:
@@ -93,7 +107,7 @@ We provide two modes because different users have different needs:
 Read the locator from metadata, load with h5py yourself:
 
 ```python
-h = client["H_edx00042"]
+h = client["EDRIXS"]["EDRIXS_636ce3e41ea05"]
 meta = h.metadata
 
 # The locator: (file, dataset, index)
@@ -113,7 +127,7 @@ loading thousands of spectra in a training loop.
 Just ask Tiled for the data:
 
 ```python
-h = client["H_edx00042"]
+h = client["EDRIXS"]["EDRIXS_636ce3e41ea05"]
 spectrum = h["rixs"][:]            # shape (151, 40), ~300ms
 ```
 
@@ -134,25 +148,28 @@ Good for interactive exploration in notebooks.
 The manifest is a Parquet file -- one row per entity-artifact pair:
 
 ```
-uid            | type | file                 | dataset  | index
----------------|------|----------------------|----------|------
-edx00000       | rixs | NiPS3_combined_2.h5  | spectra  | 0
-edx00001       | rixs | NiPS3_combined_2.h5  | spectra  | 1
-edx00002       | rixs | NiPS3_combined_2.h5  | spectra  | 2
-...            | ...  | ...                  | ...      | ...
-edx09999       | rixs | NiPS3_combined_2.h5  | spectra  | 9999
+uid               | type | file                 | dataset  | index
+------------------|------|----------------------|----------|------
+636ce3e41ea05f0f  | rixs | NiPS3_combined_2.h5  | spectra  | 0
+a1b2c3d4e5f60718  | rixs | NiPS3_combined_2.h5  | spectra  | 1
+0f1e2d3c4b5a6978  | rixs | NiPS3_combined_2.h5  | spectra  | 2
+...               | ...  | ...                  | ...      | ...
+9f8e7d6c5b4a3210  | rixs | NiPS3_combined_2.h5  | spectra  | 9999
 ```
 
 This is the **interface boundary**. The data provider fills in the
 manifest; the broker reads it generically. The broker doesn't need to
 know what "rixs" means or what shape the data is -- it reads everything
-dynamically.
+dynamically. The `uid` is the content hash of the entity's parameters;
+the human-readable entity key (`EDRIXS_636ce3e41ea05`) is derived from it
+plus the dataset key at registration time.
 
 ## 6. Scale
 
-We registered all 10,000 entities in **6.4 seconds** using bulk SQL
-insertion. The catalog database is ~5 MB. All 10K artifacts share one
-HDF5 file (3.6 GB) and one structure definition.
+All 10,000 entities register over HTTP via `tcb register` (the single
+registration route). The catalog database is ~5 MB. All 10K artifacts
+share one HDF5 file (3.6 GB) and one structure definition — registration
+stores only the locator (file, dataset, index) per entity, never the array data.
 
 ## 7. Summary
 

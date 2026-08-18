@@ -15,14 +15,10 @@ Run with:
     uv run --with pytest --with 'ruamel.yaml' pytest tests/test_utils.py -v
 """
 
-import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
-
-# Add tiled_poc directory to path for broker package imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tiled_catalog_broker.utils import make_artifact_key, make_entity_key, to_json_safe
 
@@ -64,18 +60,6 @@ class TestMakeArtifactKey:
     def test_nips3_mag(self):
         row = {"type": "mag"}
         assert make_artifact_key(row) == "mag"
-
-    def test_with_prefix_path(self):
-        row = {"type": "mh_powder_30T"}
-        assert make_artifact_key(row, prefix="path_") == "path_mh_powder_30T"
-
-    def test_with_prefix_dataset(self):
-        row = {"type": "rixs"}
-        assert make_artifact_key(row, prefix="dataset_") == "dataset_rixs"
-
-    def test_with_prefix_empty(self):
-        row = {"type": "gs_state"}
-        assert make_artifact_key(row, prefix="") == "gs_state"
 
     def test_accepts_any_type_string(self):
         """Generic: any string is a valid type."""

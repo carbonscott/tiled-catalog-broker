@@ -9,16 +9,13 @@ so CI never wipes a shared server by accident.
 """
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from tiled_catalog_broker.delete import (
-    resolve_target, preview_counts, delete_target, delete_all,
+    resolve_target, preview_counts, delete_target, delete_all, is_uploaded,
 )
 
 
@@ -154,6 +151,37 @@ class TestDeleteAll:
         client = _mock_container(["a"], lambda k: m)
         with pytest.raises(RuntimeError):
             delete_all(client)
+
+
+class TestUploadedDeletion:
+    """Uploaded datasets delete their server-stored bytes; external ones don't."""
+
+    def test_is_uploaded_reads_the_storage_marker(self):
+        node = MagicMock()
+        node.metadata = {"storage": "uploaded"}
+        assert is_uploaded(node)
+        node.metadata = {"storage": "external"}
+        assert not is_uploaded(node)
+        node.metadata = {}                          # pre-marker dataset
+        assert not is_uploaded(node)
+
+    def test_delete_target_can_include_stored_bytes(self):
+        node = MagicMock()
+        delete_target(node, external_only=False)
+        node.delete.assert_called_once_with(recursive=True, external_only=False)
+
+    def test_delete_all_decides_per_container(self):
+        uploaded, external = MagicMock(), MagicMock()
+        uploaded.metadata = {"storage": "uploaded"}
+        external.metadata = {"label": "x"}
+        children = {"UP": uploaded, "EXT": external}
+        client = _mock_container(list(children), lambda k: children[k])
+
+        successes, failures = delete_all(client)
+        assert successes == ["UP", "EXT"]
+        assert failures == []
+        uploaded.delete.assert_called_once_with(recursive=True, external_only=False)
+        external.delete.assert_called_once_with(recursive=True, external_only=True)
 
 
 # ── integration tests (server required) ──────────────────────

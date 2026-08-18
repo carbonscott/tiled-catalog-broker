@@ -105,7 +105,10 @@ producers:
     description: Exact-diagonalization RIXS simulation library (Python)
 
 # --- Dataset metadata fields ---
-# Defines which fields are required/optional on dataset container metadata.
+# Advisory reference: which metadata fields exist and which vocabulary each draws from.
+# NOTE: the validator does NOT hard-require these — unknown/missing values produce
+# warnings, not errors (see docs/adr/0003). The required/optional split here drives draft
+# hints and documentation, not enforcement.
 dataset_fields:
   required:
     - name: data_type
@@ -116,15 +119,15 @@ dataset_fields:
       type: list
       enum_ref: methods
       description: Scientific methods/observables (list)
+    - name: material
+      type: string
+      enum_ref: materials
+      description: Target material or system
   optional:
     - name: project
       type: string
       enum_ref: projects
       description: Scientific project or collaboration
-    - name: material
-      type: string
-      enum_ref: materials
-      description: Target material or system
     - name: producer
       type: string
       enum_ref: producers

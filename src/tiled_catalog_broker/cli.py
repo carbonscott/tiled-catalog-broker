@@ -1,11 +1,9 @@
 """
 CLI entry points for tiled-catalog-broker.
 
-Provides five commands:
-  - tcb inspect:        Scan HDF5 data, generate draft YAML contract
+Provides four commands:
   - tcb generate:       Generate Parquet manifests from finalized YAML
   - tcb stamp-key:      Write the derived catalog key into a YAML
-  - tcb ingest:         Bulk SQL registration (local testing, deprecated)
   - tcb register:       HTTP registration against a running Tiled server
   - tcb delete:         Delete registered data from a Tiled server
 """
@@ -14,10 +12,6 @@ import os
 import sys
 import argparse
 from pathlib import Path
-
-DB_PATH = Path("catalog.db")
-MANIFESTS_DIR = Path("manifests")
-STORAGE_DIR = Path("storage")
 
 
 def _load_config(config_path):
@@ -32,7 +26,7 @@ def _load_config(config_path):
 def _require_key(config, config_path):
     """Read the catalog key from a config; print + exit if missing or drifted.
 
-    register/ingest are read-only with respect to the YAML; if the key is
+    `tcb register` is read-only with respect to the YAML; if the key is
     missing, the user runs `tcb stamp-key` to fill it in.
     """
     from .utils import slugify_key
@@ -82,56 +76,32 @@ def _build_dataset_metadata(config, label):
     return dataset_metadata
 
 
-def _find_manifests(config_path, label, name):
-    """Find entity and artifact Parquet manifests for a dataset config.
+def _manifest_dirs(config_path, label):
+    """Directories that may hold a dataset's manifests, in search order.
 
-    Searches in order:
-      1. Next to the YAML file: <yaml_dir>/manifests/<label>/
-      2. CWD manifests: manifests/<label>/
-      3. Same as 1-2 but with underscores instead of spaces
-      4. Legacy CWD: manifests/<name>_entities.parquet
+    `tcb generate` writes to `<yaml_dir>/manifests/<label>/`; the same path under
+    the working directory is also accepted. Labels containing spaces are matched
+    both verbatim and underscore-normalized.
+    """
+    labels = [label]
+    if (normalized := label.replace(" ", "_")) != label:
+        labels.append(normalized)
+    return [root / "manifests" / lbl
+            for lbl in labels
+            for root in (Path(config_path).parent, Path.cwd())]
+
+
+def _find_manifests(config_path, label):
+    """Locate a dataset's entity and artifact Parquet manifests.
 
     Returns:
         (Path, Path) or (None, None)
     """
-    yaml_dir = Path(config_path).parent
-    # Try both exact label and underscore-normalized version
-    label_variants = [label]
-    normalized = label.replace(" ", "_")
-    if normalized != label:
-        label_variants.append(normalized)
-
-    candidates = []
-    for lbl in label_variants:
-        candidates.append((yaml_dir / "manifests" / lbl, "next to YAML"))
-        candidates.append((MANIFESTS_DIR / lbl, f"in {MANIFESTS_DIR}/"))
-
-    for cand_dir, desc in candidates:
-        ep = cand_dir / "entities.parquet"
-        ap = cand_dir / "artifacts.parquet"
+    for d in _manifest_dirs(config_path, label):
+        ep, ap = d / "entities.parquet", d / "artifacts.parquet"
         if ep.exists() and ap.exists():
             return ep, ap
-
-    # Legacy fallback
-    ep = MANIFESTS_DIR / f"{name}_entities.parquet"
-    ap = MANIFESTS_DIR / f"{name}_artifacts.parquet"
-    if ep.exists() and ap.exists():
-        return ep, ap
-
     return None, None
-
-
-# ── tcb inspect ───────────────────────────────────────────────
-
-def inspect_main():
-    """Scan an HDF5 data directory and generate a draft YAML contract.
-
-    The inspector auto-detects layout (per_entity, batched, grouped),
-    classifies datasets, checks consistency, and emits a YAML with
-    TODO markers for fields requiring human judgment.
-    """
-    from tiled_catalog_broker.tools.inspect import main as _inspect_main
-    _inspect_main()
 
 
 # ── tcb generate ─────────────────────────────────────────────
@@ -139,9 +109,9 @@ def inspect_main():
 def generate_yaml_main():
     """Generate Parquet manifests from a finalized YAML contract.
 
-    Reads a YAML config (produced by `tcb inspect` and finalized by user),
-    scans the HDF5 files, and produces entities.parquet + artifacts.parquet
-    compatible with `tcb ingest`.
+    Reads a dataset YAML config (authored against the contract surface —
+    see docs/ONBOARDING.md), scans the HDF5 files, and produces
+    entities.parquet + artifacts.parquet for `tcb register`.
     """
     from tiled_catalog_broker.tools.generate import main as _generate_main
     _generate_main()
@@ -152,8 +122,8 @@ def generate_yaml_main():
 def stamp_key_main():
     """Write the derived catalog key into a YAML's `key:` field.
 
-    Run this once after authoring a YAML so subsequent `tcb register` and
-    `tcb ingest` calls have a key to use. The key is `slugify_key(label)`;
+    Run this once after authoring a YAML so subsequent `tcb register` calls
+    have a key to use. The key is `slugify_key(label)`;
     re-running on an already-correct YAML is a no-op. Mismatch between an
     existing key and slug(label) is an error.
     """
@@ -205,104 +175,6 @@ def stamp_key_main():
         print(f"{config_path}: stamped key '{expected}' (slug of label '{label}')")
 
 
-# ── tcb ingest ────────────────────────────────────────────────
-
-def ingest_main():
-    """Bulk SQL registration (from ingest.py).
-
-    Reads dataset config files (YAML), loads corresponding Parquet manifests
-    from manifests/, and bulk-registers into catalog.db.
-    """
-    parser = argparse.ArgumentParser(description="Ingest datasets from config files.")
-    parser.add_argument("configs", nargs="+", help="Dataset config YAML files")
-    args = parser.parse_args()
-
-    import pandas as pd
-    from sqlalchemy import create_engine
-    from tiled_catalog_broker.bulk_register import prepare_node_data, bulk_register, verify_registration
-    from tiled_catalog_broker.utils import get_artifact_info
-
-    print("=" * 50)
-    print("Ingest")
-    print("=" * 50)
-    print(f"Configs: {args.configs}")
-    print(f"Database: {DB_PATH.resolve()}")
-
-    # Collect base_dirs from all configs for readable_storage
-    configs = []
-    for config_path in args.configs:
-        if not Path(config_path).exists():
-            print(f"\nERROR: Config not found: {config_path}")
-            sys.exit(1)
-        config = _load_config(config_path)
-        name = Path(config_path).stem
-        configs.append((name, config))
-
-    readable_storage = []
-    for _, c in configs:
-        if "base_dir" in c:
-            readable_storage.append(c["base_dir"])
-        elif "data" in c and "directory" in c["data"]:
-            readable_storage.append(c["data"]["directory"])
-
-    # Ensure catalog exists
-    STORAGE_DIR.mkdir(exist_ok=True)
-    uri = f"sqlite:///{DB_PATH}"
-    if not DB_PATH.exists():
-        from tiled.catalog import from_uri as catalog_from_uri
-        print(f"  Creating new catalog: {DB_PATH}")
-        catalog_from_uri(
-            uri,
-            writable_storage=str(STORAGE_DIR),
-            readable_storage=readable_storage,
-            init_if_not_exists=True,
-        )
-    else:
-        print(f"  Using existing catalog: {DB_PATH}")
-    engine = create_engine(uri)
-
-    # Register each dataset
-    for config_path, (name, config) in zip(args.configs, configs):
-        label = config.get("label", name)
-        dataset_key = _require_key(config, config_path)
-        base_dir = config.get("base_dir")
-        if base_dir is None and "data" in config:
-            base_dir = config["data"].get("directory")
-        server_base_dir = config.get("data", {}).get("server_base_dir") or None
-
-        # Clear shape cache between datasets
-        get_artifact_info.__defaults__[-1].clear()
-
-        ent_path, art_path = _find_manifests(config_path, label, name)
-        if ent_path is None or art_path is None:
-            print(f"\nERROR: Parquet files not found for '{name}'.")
-            print(f"  Run `tcb generate` first.")
-            sys.exit(1)
-
-        ent_df = pd.read_parquet(ent_path)
-        art_df = pd.read_parquet(art_path)
-        print(f"  Loaded manifests from: {ent_path.parent}")
-
-        n = len(ent_df)
-        print(f"\n--- Registering {label} ({n} entities) ---")
-
-        dataset_metadata = _build_dataset_metadata(config, label)
-
-        ent_nodes, art_nodes, art_data_sources = prepare_node_data(
-            ent_df, art_df, max_entities=n, base_dir=base_dir,
-            dataset_key=dataset_key,
-            server_base_dir=server_base_dir,
-        )
-        bulk_register(engine, ent_nodes, art_nodes, art_data_sources,
-                      dataset_key=dataset_key, dataset_metadata=dataset_metadata)
-
-    # Verify
-    print()
-    verify_registration(str(DB_PATH))
-
-    print("\nDone!")
-
-
 # ── tcb register ──────────────────────────────────────────────
 
 def register_main():
@@ -311,6 +183,10 @@ def register_main():
     Reads dataset config files (YAML), loads corresponding Parquet manifests
     from manifests/, and registers into a running Tiled server via HTTP.
     Incremental: skips entities that already exist.
+
+    With --upload, artifact arrays are read from local HDF5 and written
+    through the server into its writable storage (for data the server
+    cannot read from its own filesystem).
     """
     parser = argparse.ArgumentParser(
         description="Register datasets into a running Tiled server via HTTP."
@@ -331,6 +207,14 @@ def register_main():
         help="Concurrent registration workers "
              "(default: TCB_MAX_WORKERS env var, or 8)",
     )
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload artifact arrays through the server into its writable "
+             "storage, instead of registering pointers to HDF5 files the "
+             "server reads from disk. Use when the server cannot see your "
+             "data's filesystem (e.g. registering from another institution).",
+    )
     args = parser.parse_args()
 
     max_workers = args.max_workers
@@ -340,7 +224,7 @@ def register_main():
             max_workers = int(env_val)
 
     import pandas as pd
-    from tiled_catalog_broker.utils import check_server, get_artifact_info
+    from tiled_catalog_broker.utils import check_server
     from tiled_catalog_broker.http_register import register_dataset_http, verify_registration_http
     from tiled_catalog_broker.config import get_tiled_url, get_api_key
 
@@ -373,18 +257,28 @@ def register_main():
             sys.exit(1)
 
         config = _load_config(config_path)
-        name = Path(config_path).stem
-        label = config.get("label", name)
+        label = config.get("label", Path(config_path).stem)
         dataset_key = _require_key(config, config_path)
-        base_dir = config.get("base_dir")
-        if base_dir is None and "data" in config:
-            base_dir = config["data"].get("directory")
+        # `data.directory` is the contract (_models.py).
+        base_dir = config.get("data", {}).get("directory")
         server_base_dir = config.get("data", {}).get("server_base_dir") or None
 
-        ent_path, art_path = _find_manifests(config_path, label, name)
+        if args.upload:
+            if not base_dir or not os.path.isdir(base_dir):
+                print(f"\nERROR: {config_path}: data.directory '{base_dir}' "
+                      "not found locally. Upload mode reads artifact arrays "
+                      "from your local HDF5 files.", file=sys.stderr)
+                sys.exit(1)
+            if server_base_dir:
+                print("NOTE: data.server_base_dir is ignored with --upload "
+                      "(the server never reads your files).")
+
+        ent_path, art_path = _find_manifests(config_path, label)
         if ent_path is None or art_path is None:
-            print(f"\nERROR: Parquet files not found for '{name}'.")
-            print(f"  Run `tcb generate` first.")
+            print(f"\nERROR: manifests not found for '{label}'. Looked in:")
+            for d in _manifest_dirs(config_path, label):
+                print(f"    {d}")
+            print(f"  Run `tcb generate {config_path}` to create them.")
             sys.exit(1)
 
         ent_df = pd.read_parquet(ent_path)
@@ -394,20 +288,22 @@ def register_main():
         if args.max_entities is not None:
             ent_df = ent_df.head(args.max_entities)
 
-        # Clear shape cache between datasets
-        get_artifact_info.__defaults__[-1].clear()
-
         dataset_metadata = _build_dataset_metadata(config, label)
 
         kwargs = {}
         if max_workers is not None:
             kwargs["max_workers"] = max_workers
 
-        register_dataset_http(client, ent_df, art_df, base_dir, label,
-                              dataset_key=dataset_key,
-                              dataset_metadata=dataset_metadata,
-                              server_base_dir=server_base_dir,
-                              **kwargs)
+        try:
+            register_dataset_http(client, ent_df, art_df, base_dir, label,
+                                  dataset_key=dataset_key,
+                                  dataset_metadata=dataset_metadata,
+                                  server_base_dir=server_base_dir,
+                                  upload=args.upload,
+                                  **kwargs)
+        except ValueError as e:
+            print(f"\nERROR: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Verify
     verify_registration_http(client)
@@ -453,7 +349,9 @@ def delete_main():
       The 'all' form requires retyping the TILED_URL (bypass with
       --confirm <URL>, which must match exactly).
 
-    External HDF5 files are never removed -- only catalog pointers.
+    External HDF5 files are never removed -- only catalog pointers. For
+    datasets registered with --upload, the arrays the server stores are
+    deleted along with the nodes (the catalog is their only home).
     """
     parser = argparse.ArgumentParser(
         prog="tcb delete",
@@ -485,7 +383,7 @@ def delete_main():
     from tiled_catalog_broker.utils import check_server
     from tiled_catalog_broker.config import get_tiled_url, get_api_key
     from tiled_catalog_broker.delete import (
-        resolve_target, preview_counts, delete_target, delete_all,
+        resolve_target, preview_counts, delete_target, delete_all, is_uploaded,
     )
 
     targets = args.targets
@@ -519,6 +417,7 @@ def delete_main():
     client = from_uri(tiled_url, api_key=api_key)
 
     # Resolve target and build preview
+    uploaded = False
     if is_all:
         granularity = "all"
         path = "(every top-level container)"
@@ -530,6 +429,9 @@ def delete_main():
             print(f"\nERROR: {e}")
             sys.exit(1)
         counts = preview_counts(node, granularity)
+        # The storage marker lives on the dataset container (targets[0]),
+        # whichever granularity below it is being deleted.
+        uploaded = is_uploaded(client[targets[0]])
 
     print(f"\nTarget:      {tiled_url}/{path}")
     print(f"Granularity: {granularity}")
@@ -543,7 +445,14 @@ def delete_main():
         print(f"Counts:      1 array")
     else:
         print(f"Counts:      {counts['n_children']} child nodes")
-    print("Note:        External HDF5 files are NOT removed; only catalog entries.")
+    if is_all:
+        print("Note:        External datasets keep their HDF5 files; uploaded "
+              "datasets lose their server-stored arrays.")
+    elif uploaded:
+        print("Note:        Uploaded dataset — the arrays stored on the server "
+              "WILL be deleted.")
+    else:
+        print("Note:        External HDF5 files are NOT removed; only catalog entries.")
 
     if args.dry_run:
         print("\n[--dry-run] No changes made.")
@@ -589,7 +498,7 @@ def delete_main():
         sys.exit(1 if failures else 0)
     else:
         try:
-            delete_target(node)
+            delete_target(node, external_only=not uploaded)
         except ClientError as e:
             print(f"  FAILED:  {path}")
             print(f"\nERROR: {e}")
@@ -603,10 +512,8 @@ def delete_main():
 def main():
     """Main entry point: tcb <command> [args]."""
     commands = {
-        "inspect": inspect_main,
         "generate": generate_yaml_main,
         "stamp-key": stamp_key_main,
-        "ingest": ingest_main,
         "register": register_main,
         "delete": delete_main,
     }
@@ -614,10 +521,8 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("usage: tcb <command> [args]\n")
         print("commands:")
-        print("  inspect     Scan HDF5 data directory, generate draft YAML contract")
         print("  generate    Generate Parquet manifests from a finalized YAML contract")
         print("  stamp-key   Write the derived catalog key into a YAML")
-        print("  ingest      Bulk SQL registration from Parquet manifests")
         print("  register    HTTP registration against a running Tiled server")
         print("  delete      Delete registered data from a running Tiled server")
         sys.exit(0)

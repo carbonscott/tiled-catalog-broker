@@ -2,8 +2,9 @@
 *.db
 *.db.bak*
 
-# Claude Code
-.claude/
+# Claude Code — keep local settings/memory private, but share committed skills
+.claude/*
+!.claude/skills/
 
 # Archive directory
 archive/
@@ -248,3 +249,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Personal knowledge capture for talks/notes — not part of the package
+knowledge/
