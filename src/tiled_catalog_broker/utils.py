@@ -28,6 +28,16 @@ def slugify_key(label):
     return re.sub(r"[^A-Z0-9]+", "_", str(label).upper()).strip("_")
 
 
+# Dataset-container metadata marker recording where artifact bytes live.
+# "external": array children point at HDF5 files the server reads from its
+# own filesystem (`readable_storage`). "uploaded": arrays were written
+# through the server into its writable storage — the server owns the bytes,
+# and deleting the nodes deletes them.
+STORAGE_KEY = "storage"
+STORAGE_EXTERNAL = "external"
+STORAGE_UPLOADED = "uploaded"
+
+
 # Standard columns in the artifact manifest that are NOT stored as metadata.
 # Everything else becomes artifact-level metadata dynamically.
 # `shape`/`dtype` are here because registration re-emits them in structured form

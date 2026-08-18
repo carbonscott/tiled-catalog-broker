@@ -55,12 +55,14 @@ def nips3_manifests():
 
 
 def register_entity(manifests, row=0, dataset_key="TEST_KEY",
-                    server_base_dir=None, inherited=None):
+                    server_base_dir=None, inherited=None, upload=False):
     """Register one entity against a mock parent; return what it sent to Tiled.
 
     Returns a namespace with ``result`` (the counter tuple), the entity's ``key`` and
     ``metadata``, and ``artifacts``: ``{artifact_key: kwargs-passed-to-.new()}``, where
     those kwargs carry ``metadata``, ``data_sources``, and ``structure_family``.
+    In upload mode ``uploads`` maps artifact keys to ``(array, metadata)`` as
+    passed to ``write_array``.
     """
     from tiled_catalog_broker.http_register import _register_one_entity
 
@@ -74,6 +76,7 @@ def register_entity(manifests, row=0, dataset_key="TEST_KEY",
         art_df.groupby("uid"), list(art_df.columns),
         parent, base_dir=base_dir, server_base_dir=server_base_dir,
         dataset_key=dataset_key, inherited=inherited or {},
+        upload=upload,
     )
 
     ent_kwargs = parent.create_container.call_args.kwargs
@@ -83,6 +86,8 @@ def register_entity(manifests, row=0, dataset_key="TEST_KEY",
         metadata=ent_kwargs["metadata"],
         artifacts={c.kwargs["key"]: c.kwargs
                    for c in ent_container.new.call_args_list},
+        uploads={c.kwargs["key"]: (c.args[0], c.kwargs["metadata"])
+                 for c in ent_container.write_array.call_args_list},
     )
 
 
@@ -344,3 +349,100 @@ class TestInheritedKeys:
         reg = register_entity(
             (ent_df, art_df, base_dir), inherited={"amsc_public": True})
         assert reg.metadata["amsc_public"] is False
+
+
+# ─── Upload mode: arrays written through the server ──────────────────────────
+
+
+class TestUploadMode:
+    """``upload=True`` writes the actual arrays instead of registering pointers."""
+
+    def test_uploads_every_artifact_with_file_contents(self, vdp_manifests):
+        import h5py
+        import numpy as np
+
+        reg = register_entity(vdp_manifests, upload=True)
+        assert not reg.artifacts                    # the DataSource route is idle
+        assert reg.result == (1, 3, 0, 0)
+
+        ent_df, art_df, base_dir = vdp_manifests
+        uid = str(ent_df.iloc[0]["uid"])
+        for _, art_row in art_df[art_df["uid"] == uid].iterrows():
+            data, metadata = reg.uploads[art_row["type"]]
+            with h5py.File(Path(base_dir) / art_row["file"], "r") as f:
+                np.testing.assert_array_equal(data, f[art_row["dataset"]][()])
+            assert metadata["shape"] == list(data.shape)
+            assert metadata["dtype"] == str(data.dtype)
+
+    def test_locators_still_present_in_upload_mode(self, vdp_manifests):
+        """Path provenance is kept even though the server owns the bytes."""
+        reg = register_entity(vdp_manifests, upload=True)
+        assert any(k.startswith("path_") for k in reg.metadata)
+
+    def test_batched_upload_writes_the_entity_row(self, nips3_manifests):
+        import h5py
+        import numpy as np
+
+        reg = register_entity(nips3_manifests, row=1, upload=True)
+        ent_df, art_df, base_dir = nips3_manifests
+        uid = str(ent_df.iloc[1]["uid"])
+        for _, art_row in art_df[art_df["uid"] == uid].iterrows():
+            data, _ = reg.uploads[art_row["type"]]
+            with h5py.File(Path(base_dir) / art_row["file"], "r") as f:
+                np.testing.assert_array_equal(
+                    data, f[art_row["dataset"]][int(art_row["index"])])
+
+    def test_shape_mismatch_is_a_counted_failure(self, vdp_manifests):
+        """A manifest that disagrees with the file must not upload silently."""
+        ent_df, art_df, base_dir = vdp_manifests
+        art_df = art_df.copy()
+        art_df["shape"] = "[9, 9]"
+
+        reg = register_entity((ent_df, art_df, base_dir), upload=True)
+        assert not reg.uploads
+        n_arts = (art_df["uid"] == str(ent_df.iloc[0]["uid"])).sum()
+        assert reg.result == (1, 0, 0, n_arts)
+
+
+# ─── Storage marker: which transport owns the bytes ──────────────────────────
+
+
+class TestStorageMarker:
+    """The dataset container records whether its bytes are external or uploaded."""
+
+    def _drive(self, manifests, *, existing_metadata=None, upload=False):
+        from tiled_catalog_broker.http_register import register_dataset_http
+
+        ent_df, art_df, base_dir = manifests
+        client = MagicMock()
+        if existing_metadata is None:
+            client.__contains__.return_value = False
+        else:
+            client.__contains__.return_value = True
+            client.__getitem__.return_value.metadata = existing_metadata
+        register_dataset_http(
+            client, ent_df.head(0), art_df, base_dir, "T", dataset_key="T",
+            dataset_metadata={}, upload=upload, max_workers=1)
+        return client
+
+    def test_new_dataset_stamped_external(self, vdp_manifests):
+        client = self._drive(vdp_manifests)
+        meta = client.create_container.call_args.kwargs["metadata"]
+        assert meta["storage"] == "external"
+
+    def test_new_dataset_stamped_uploaded(self, vdp_manifests):
+        client = self._drive(vdp_manifests, upload=True)
+        meta = client.create_container.call_args.kwargs["metadata"]
+        assert meta["storage"] == "uploaded"
+
+    def test_transport_mismatch_refused(self, vdp_manifests):
+        with pytest.raises(ValueError, match="storage='external'"):
+            self._drive(vdp_manifests,
+                        existing_metadata={"storage": "external"}, upload=True)
+
+    def test_premarker_dataset_counts_as_external(self, vdp_manifests):
+        """Datasets registered before the marker existed carry no `storage` key."""
+        with pytest.raises(ValueError, match="storage='external'"):
+            self._drive(vdp_manifests, existing_metadata={}, upload=True)
+        # ...but re-registering them externally still works.
+        self._drive(vdp_manifests, existing_metadata={}, upload=False)

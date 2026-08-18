@@ -1,0 +1,25 @@
+# Tiled server configuration for hosting UPLOADED datasets
+# (`tcb register --upload` — see docs/remote-onboarding.md).
+#
+# Registrants stream their arrays through the server, which stores them
+# under `writable_storage`. The server never reads registrants' files from
+# disk, so no `readable_storage` allowlist is needed.
+#
+# Start with:
+#   uv run --with 'tiled[server]' tiled serve config config.demo.yml --api-key <API_KEY>
+#
+# Hand participants the resulting URL and the API key; they export them as
+# TILED_URL / TILED_API_KEY.
+uvicorn:
+  host: "0.0.0.0"   # reachable from outside — demo users are remote
+  port: 8005
+
+trees:
+  - path: /
+    tree: catalog
+    args:
+      uri: "sqlite:///demo_catalog.db"
+      init_if_not_exists: true
+      # Where uploaded array bytes live. Size it for the sum of what
+      # participants will upload; `tcb delete` reclaims space.
+      writable_storage: "demo_storage"

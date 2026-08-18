@@ -7,13 +7,20 @@ Registers entities with BOTH:
 
 Dataset-agnostic: reads all metadata columns dynamically from manifests.
 The manifest is the contract -- no hardcoded parameter names or artifact types.
-That includes each artifact's shape and dtype, captured by `tcb generate`, so
-this module never opens HDF5.
 
-This is the single registration route (ADR-0002) -- it handles both incremental
-updates and initial bulk loads. Registration is incremental by default: an entity
-already present on the server is skipped, so a re-run resumes rather than
-duplicates. Per-entity work runs on a ThreadPoolExecutor (see _DEFAULT_MAX_WORKERS).
+This is the single registration route (ADR-0002), with two transports for the
+artifact bytes:
+
+- external (default): each artifact is a DataSource pointing at an HDF5 file
+  the server reads from its own filesystem. Shape and dtype come from the
+  manifest (captured by `tcb generate`), so this path never opens HDF5.
+- upload (`upload=True`): each artifact's array is read from the *local* HDF5
+  file and written through the server into its writable storage. For data the
+  server cannot see on disk (e.g. remote users registering their own data).
+
+Registration is incremental in both modes: an entity already present on the
+server is skipped, so a re-run resumes rather than duplicates. Per-entity work
+runs on a ThreadPoolExecutor (see _DEFAULT_MAX_WORKERS).
 """
 
 import json
@@ -21,6 +28,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import h5py
 import numpy as np
 import pandas as pd
 from dask.array.core import normalize_chunks
@@ -33,6 +41,9 @@ from .utils import (
     make_entity_key,
     to_json_safe,
     ARTIFACT_STANDARD_COLS,
+    STORAGE_KEY,
+    STORAGE_EXTERNAL,
+    STORAGE_UPLOADED,
 )
 
 # Default size of the per-entity ThreadPoolExecutor.  Each entity does
@@ -83,7 +94,9 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
             `data.server_base_dir:` field when host and server mounts differ.
 
     Returns:
-        Tuple of (DataSource, data_shape, data_dtype).
+        The DataSource. Shape and dtype are read from the manifest row, so
+        callers that need them read the same columns rather than taking them
+        back out of here.
     """
     h5_rel_path = art_row["file"]
     dataset_path = art_row["dataset"]
@@ -143,12 +156,27 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
         management=Management.external,
     )
 
-    return data_source, data_shape, data_dtype
+    return data_source
+
+
+def read_artifact_array(art_row, base_dir):
+    """Read one artifact's array from a local HDF5 file (upload mode).
+
+    For batched layouts the manifest ``index`` selects the entity's row, so
+    the returned array matches the per-entity ``shape`` the manifest records
+    (leading axis already dropped).
+    """
+    path = os.path.join(base_dir, art_row["file"])
+    with h5py.File(path, "r") as f:
+        ds = f[art_row["dataset"]]
+        if "index" in art_row.index and pd.notna(art_row.get("index")):
+            return ds[int(art_row["index"])]
+        return ds[()]
 
 
 def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
                          parent_client, base_dir, server_base_dir,
-                         dataset_key, inherited=None):
+                         dataset_key, inherited=None, upload=False):
     """Register a single entity container and its artifact children.
 
     Designed to be called from worker threads. Returns counter deltas so
@@ -199,10 +227,8 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
         for _, art_row in artifacts.iterrows():
             art_key = make_artifact_key(art_row)
             try:
-                data_source, data_shape, data_dtype = create_data_source(
-                    art_row, base_dir=base_dir,
-                    server_base_dir=server_base_dir,
-                )
+                data_shape = json.loads(art_row["shape"])
+                data_dtype = np.dtype(art_row["dtype"])
 
                 art_metadata = {
                     "type": art_row["type"],
@@ -216,12 +242,28 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
                 for k, v in inherited.items():
                     art_metadata.setdefault(k, v)
 
-                ent_container.new(
-                    structure_family=StructureFamily.array,
-                    data_sources=[data_source],
-                    key=art_key,
-                    metadata=art_metadata,
-                )
+                if upload:
+                    data = read_artifact_array(art_row, base_dir)
+                    if list(data.shape) != list(data_shape) or data.dtype != data_dtype:
+                        raise ValueError(
+                            f"manifest records shape={data_shape} dtype={data_dtype} "
+                            f"but the file holds shape={list(data.shape)} "
+                            f"dtype={data.dtype}; re-run `tcb generate`"
+                        )
+                    ent_container.write_array(
+                        data, key=art_key, metadata=art_metadata,
+                    )
+                else:
+                    data_source = create_data_source(
+                        art_row, base_dir=base_dir,
+                        server_base_dir=server_base_dir,
+                    )
+                    ent_container.new(
+                        structure_family=StructureFamily.array,
+                        data_sources=[data_source],
+                        key=art_key,
+                        metadata=art_metadata,
+                    )
                 art_added += 1
 
             except Exception as e:
@@ -234,11 +276,12 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
                           dataset_key, dataset_metadata,
                           server_base_dir=None,
-                          max_workers=_DEFAULT_MAX_WORKERS):
+                          max_workers=_DEFAULT_MAX_WORKERS,
+                          upload=False):
     """Register one dataset via HTTP through a running Tiled server.
 
     Creates a dataset container, then entity containers with locator
-    metadata (Mode A) and array children via DataSource adapters (Mode B).
+    metadata (Mode A) and array children (Mode B).
 
     Args:
         client: Tiled client connected to a running server.
@@ -250,9 +293,14 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         dataset_metadata: Metadata dict for the dataset container.
         server_base_dir: If provided, used for asset data_uri instead of
             base_dir.  Needed when the server sees the filesystem at a
-            different mount point.
+            different mount point. Ignored in upload mode.
         max_workers: Size of the ThreadPoolExecutor for per-entity work.
             Defaults to ``_DEFAULT_MAX_WORKERS``; tune for server capacity.
+        upload: If True, read each artifact's array from local HDF5 and
+            write it through the server into its writable storage, instead
+            of registering a DataSource pointing at the file. The dataset
+            container is stamped ``storage: uploaded`` (vs ``external``);
+            a dataset cannot mix the two.
 
     Returns:
         bool: True if any entities were registered.
@@ -263,16 +311,28 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     skip_count = 0
     art_fail_count = 0
 
+    storage = STORAGE_UPLOADED if upload else STORAGE_EXTERNAL
+
     # Create or reuse dataset container
     if dataset_key in client:
         parent_client = client[dataset_key]
+        # Incremental re-runs must keep one transport per dataset: mixing
+        # external pointers and uploaded arrays would make delete semantics
+        # (which bytes does the server own?) ambiguous per-entity.
+        existing = dict(parent_client.metadata).get(STORAGE_KEY, STORAGE_EXTERNAL)
+        if existing != storage:
+            raise ValueError(
+                f"dataset '{dataset_key}' exists with storage='{existing}' but "
+                f"this run would register storage='{storage}'. Delete the "
+                f"dataset first (tcb delete {dataset_key}) or use a new label."
+            )
         print(f"Using existing dataset container '{dataset_key}'")
     else:
         parent_client = client.create_container(
             key=dataset_key,
-            metadata=dataset_metadata,
+            metadata={**dataset_metadata, STORAGE_KEY: storage},
         )
-        print(f"Created dataset container '{dataset_key}'")
+        print(f"Created dataset container '{dataset_key}' (storage: {storage})")
 
     # Pre-group artifacts by uid for O(1) lookup
     require_shape_dtype(art_df)
@@ -281,7 +341,8 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     art_grouped = art_df.groupby("uid")
 
     n = len(ent_df)
-    print(f"\n--- Registering {label} ({n} entities via HTTP, "
+    mode = "upload" if upload else "external"
+    print(f"\n--- Registering {label} ({n} entities via HTTP, {mode}, "
           f"pool={max_workers}) ---")
 
     ent_columns = list(ent_df.columns)
@@ -295,7 +356,7 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
                 _register_one_entity,
                 ent_row, ent_columns, art_grouped, art_columns,
                 parent_client, base_dir, server_base_dir, dataset_key,
-                inherited,
+                inherited, upload,
             )
             for _, ent_row in ent_df.iterrows()
         ]

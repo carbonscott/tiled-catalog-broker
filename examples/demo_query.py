@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.24.0"
 app = marimo.App(width="medium")
 
 
@@ -21,7 +21,7 @@ def _(mo):
     ## Data model
 
     ```
-    RIXS_SIM_BROAD_SIGMA/                             ← Dataset container
+    BROAD_SIGMA/                                      ← Dataset container (key = slug of label)
     │ metadata:
     │   method: [RIXS]                                   searchable
     │   data_type: simulation                            searchable
@@ -35,30 +35,38 @@ def _(mo):
     │   shared_dataset_eloss: /eloss                     shared axis pointer
     │   shared_dataset_omega_bounds: /omega_bounds       shared axis pointer
     │
-    ├── H_626a88ae/                                    ← Entity container
+    ├── eloss         (151,) float64                   ← Shared axis (array child)
+    ├── omega_bounds  (2,)   float64                   ← Shared axis (array child)
+    │
+    ├── BROAD_SIGMA_23e67506d910b/                    ← Entity container
     │   │ metadata:
     │   │   F2_dd: 3.42                                  ┐
     │   │   tenDq: 1.87                                  │ physics parameters
     │   │   sigma: 0.15                                  │ (queryable)
     │   │   ...12 total                                  ┘
-    │   │   path_rixs_spectrum: round_0/simulations.h5   ┐
-    │   │   dataset_rixs_spectrum: /spectra               │ Mode A locators
-    │   │   index_rixs_spectrum: 0                        ┘
+    │   │   path_rixs_spectrum: batch_0/simulations.h5   ┐
+    │   │   dataset_rixs_spectrum: /spectra              │ Mode A locators
+    │   │   index_rixs_spectrum: 0                       ┘
     │   │
     │   └── rixs_spectrum  (151, 40) float64           ← Artifact (array)
     │
-    ├── H_1c2f046d/
+    ├── BROAD_SIGMA_1a6e32f95230c/
     │   └── rixs_spectrum  (151, 40) float64
     │
     └── ... (10,000 entities total)
     ```
 
+    The dataset key is the slug of the YAML's `label` (written by
+    `tcb stamp-key`); entity keys are `{DATASET_KEY}_{uid}`. Shared axis
+    arrays (energy grids, etc.) are registered once as direct children of
+    the dataset container, alongside the entities.
+
     ## Two access modes
 
     | Mode | How | When to use |
     |------|-----|-------------|
-    | **A (Expert)** | Read locator metadata → open HDF5 with h5py | Fast, local access, custom analysis |
-    | **B (Visualizer)** | `entity["rixs_spectrum"].read()` via HTTP | Chunked remote access (needs server filesystem access) |
+    | **A (Expert)** | Ask the catalog for the file location → open with h5py | Fast bulk access, when the files are reachable from where you run |
+    | **B (Visualizer)** | `entity[artifact][:]` via HTTP | Works from anywhere the server is reachable; the only mode for uploaded datasets |
     """)
     return
 
@@ -66,18 +74,51 @@ def _(mo):
 @app.cell
 def _():
     import os
+
+    # ---------------------------------------------------------------
+    # Replace with your dataset here.
+    #
+    # DATASET_KEY   the key `tcb stamp-key` wrote into your YAML
+    # ARTIFACT_KEY  the artifact to read -- one of your YAML's
+    #               `artifacts:` `type:` values. Leave it None to use
+    #               whichever artifact the first entity carries.
+    #
+    # Everything else the notebook needs -- parameters, shared axes,
+    # even where the HDF5 files live -- is read back out of the catalog,
+    # so these two names are the whole configuration.
+    # ---------------------------------------------------------------
+    DATASET_KEY = os.environ.get("TCB_DEMO_DATASET", "BROAD_SIGMA")
+    ARTIFACT_KEY = os.environ.get("TCB_DEMO_ARTIFACT") or None
+    return ARTIFACT_KEY, DATASET_KEY, os
+
+
+@app.cell
+def _(os):
     from tiled.client import from_uri
     from tiled.queries import Key, Contains
 
     url = os.environ.get(
         "TILED_URL",
-        "https://lcls-data-portal.slac.stanford.edu/tiled-dev",
+        "https://lcls-data-portal.slac.stanford.edu/tiled-test",
     )
-    api_key = os.environ.get("TILED_API_KEY", os.environ.get("TILED_KEY", ""))
+    api_key = os.environ.get("TILED_API_KEY") or os.environ.get("TILED_KEY")
+
+    # This kernel inherits the environment of the shell that launched
+    # `marimo edit`, captured at launch. 
+    if not api_key:
+        raise RuntimeError(
+            "TILED_API_KEY is not set in this kernel's environment.\n"
+            "  1. In the shell you launch marimo from, run "
+            "`env | grep TILED_API_KEY`. Unlike `echo`, that shows only "
+            "exported variables -- if it prints nothing, re-run as "
+            "`export TILED_API_KEY=<key>`.\n"
+            "  2. Restart `marimo edit`. A server that was already running "
+            "does not see variables exported afterwards."
+        )
 
     client = from_uri(url, api_key=api_key)
     print(f"Connected to {url} ({len(client)} containers)")
-    return Contains, Key, client, os
+    return Contains, Key, client
 
 
 @app.cell(hide_code=True)
@@ -85,19 +126,20 @@ def _(mo):
     mo.md(r"""
     ## Level 1: Dataset container
 
-    Access via the key convention: `{METHOD}_{SIM|EXP}_{DISTINGUISHING_FEATURE}`
+    Direct access by key — the slug of the dataset's `label`
+    (`"Broad Sigma"` → `BROAD_SIGMA`), stamped into the YAML by
+    `tcb stamp-key`.
     """)
     return
 
 
 @app.cell
-def _(client, mo):
-    # Direct access via key convention
-    ds = client["RIXS_SIM_BROAD_SIGMA"]
+def _(DATASET_KEY, client, mo):
+    ds = client[DATASET_KEY]
     ds_meta = dict(ds.metadata)
 
     # Separate user-facing metadata from internal tracking fields
-    public_fields = [
+    _public_fields = [
         ("method", "Scientific method"),
         ("data_type", "Simulation or experimental"),
         ("material", "Target material"),
@@ -109,38 +151,42 @@ def _(client, mo):
         ("code_commit", "Producer git commit"),
     ]
 
-    meta_rows = "\n    ".join(
-        f"| {label} | `{ds_meta.get(key, '—')}` |"
-        for key, label in public_fields
+    _meta_rows = "\n    ".join(
+        f"| {_label} | `{ds_meta.get(_key, '—')}` |"
+        for _key, _label in _public_fields
     )
 
-    # Shared axes stored in dataset metadata
-    shared_keys = [k for k in ds_meta if k.startswith("shared_dataset_")]
-    shared_rows = "\n    ".join(
-        f"| `{k.replace('shared_dataset_', '')}` | `{ds_meta[k]}` |"
-        for k in shared_keys
+    # Shared axes: pointers in dataset metadata, arrays as direct children
+    shared_axes = {
+        _k.replace("shared_dataset_", ""): ds_meta[_k]
+        for _k in ds_meta
+        if _k.startswith("shared_dataset_")
+    }
+    _shared_rows = "\n    ".join(
+        f"| `{_ax}` | `{_src}` |" for _ax, _src in shared_axes.items()
     )
 
     mo.md(f"""
-    **Key:** `RIXS_SIM_BROAD_SIGMA`
+    **Key:** `{DATASET_KEY}`
 
-    **Entities:** {len(ds):,}
+    **Children:** {len(ds):,} (entities + {len(shared_axes)} shared axis arrays)
 
     ### Metadata
 
     | Field | Value |
     |-------|-------|
-    {meta_rows}
+    {_meta_rows}
 
     ### Shared axes
 
-    These HDF5 datasets are the same across all entities (energy grids, etc.):
+    These HDF5 datasets are the same across all entities (energy grids, etc.)
+    and are registered once as array children of the dataset container:
 
-    | Axis | HDF5 dataset |
-    |------|-------------|
-    {shared_rows}
+    | Axis | Source HDF5 dataset |
+    |------|---------------------|
+    {_shared_rows}
     """)
-    return (ds,)
+    return ds, shared_axes
 
 
 @app.cell(hide_code=True)
@@ -174,28 +220,40 @@ def _(mo):
     ## Level 2: Entity container
 
     Each entity has physics parameters as queryable metadata,
-    plus **locator fields** for Mode A access.
+    plus **locator fields** for Mode A access. Shared axis arrays live at
+    the dataset level, so skip them when iterating entities.
     """)
     return
 
 
 @app.cell
-def _(ds, mo):
-    first_key = list(ds)[:1][0]
+def _(ARTIFACT_KEY, ds, mo, shared_axes):
+    # First child that is an entity (shared axes are array children, not entities)
+    first_key = next(_k for _k in ds if _k not in shared_axes)
     entity = ds[first_key]
     ent_meta = dict(entity.metadata)
+
+    # Resolve the artifact to read. Left unset, take the entity's first
+    # child -- the catalog knows its own artifact names, so a notebook
+    # pointed at an unfamiliar dataset still has something to show.
+    artifact_key = ARTIFACT_KEY or next(iter(entity))
+    if artifact_key not in entity:
+        raise KeyError(
+            f"entity '{first_key}' has no artifact '{artifact_key}'. "
+            f"Available: {list(entity)}"
+        )
 
     # Split metadata into categories
     physics_params = {}
     locators = {}
-    internal = {}
-    for k, v in ent_meta.items():
-        if k.startswith(("path_", "dataset_", "index_")):
-            locators[k] = v
-        elif k in ("key", "uid"):
-            internal[k] = v
+    _internal = {}
+    for _k, _v in ent_meta.items():
+        if _k.startswith(("path_", "dataset_", "index_")):
+            locators[_k] = _v
+        elif _k in ("key", "uid", "amsc_public"):
+            _internal[_k] = _v
         else:
-            physics_params[k] = v
+            physics_params[_k] = _v
 
     mo.md(f"""
     ### Entity: `{first_key}`
@@ -205,9 +263,9 @@ def _(ds, mo):
     **Metadata categories:**
     - Physics parameters: {len(physics_params)} fields
     - Artifact locators: {len(locators)} fields (Mode A)
-    - Internal: {len(internal)} fields (key, uid)
+    - Internal: {len(_internal)} fields
     """)
-    return ent_meta, locators, physics_params
+    return artifact_key, entity, locators, physics_params
 
 
 @app.cell
@@ -227,17 +285,21 @@ def _(params_df):
 
 @app.cell
 def _(locators, mo):
-    loc_rows = "\n    ".join(
-        f"| `{k}` | `{v}` |" for k, v in sorted(locators.items())
+    _loc_rows = "\n    ".join(
+        f"| `{_k}` | `{_v}` |" for _k, _v in sorted(locators.items())
     )
     mo.md(f"""
-    ### Artifact locators (Mode A)
+    ### Artifact locators (provenance, and queryable)
 
-    These metadata fields let you open the HDF5 file directly:
+    Recorded so you can *search* on provenance -- which file an entity came
+    from, which HDF5 dataset, which row -- and so the trail survives even
+    for uploaded datasets whose bytes now live server-side. They are
+    relative paths, so they are not what you open a file with; the next
+    section gets the absolute location from the catalog instead.
 
     | Key | Value |
     |-----|-------|
-    {loc_rows}
+    {_loc_rows}
     """)
     return
 
@@ -247,69 +309,157 @@ def _(mo):
     mo.md(r"""
     ## Level 3: Artifact (array data)
 
-    Load the spectrum using Mode A — read directly from HDF5 using the locator metadata.
+    **Mode A** — open the HDF5 file directly, for bulk or custom analysis.
+    You do not assemble the path: Tiled recorded it at registration, so ask
+    the catalog where the file is and open what it names.
     """)
     return
 
 
 @app.cell
-def _(ent_meta, mo, os):
+def _(artifact_key, entity, mo, os):
     import h5py
+    from urllib.parse import urlparse
 
-    h5_rel = ent_meta["path_rixs_spectrum"]
-    ds_path = ent_meta["dataset_rixs_spectrum"]
-    batch_idx = ent_meta.get("index_rixs_spectrum")
+    # An externally-registered artifact carries a DataSource, and that
+    # DataSource is self-describing: its asset `data_uri` is the absolute
+    # path, and its `parameters` hold the HDF5 dataset path and (for batched
+    # layouts) the row. So there is no base directory to configure per
+    # machine and no path to join by hand -- ask, then open.
+    #
+    # Mode A can be unavailable for two reasons, and both are detected here
+    # rather than assumed:
+    #   1. the dataset was registered with `tcb register --upload`, so Tiled
+    #      owns the bytes and no external file exists to open;
+    #   2. the file exists, but is not mounted where this notebook runs.
+    # Mode B below always works, which is the reason it exists.
+    _external = [
+        _s for _s in (entity[artifact_key].data_sources() or [])
+        if _s.management == "external"
+    ]
 
-    base_dir = "/sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper"
-    full_path = os.path.join(base_dir, h5_rel)
+    spectrum_a = None
+    if not _external:
+        _status = (
+            "**Mode A unavailable** — no external data source. This dataset "
+            "was registered with `--upload`, so Tiled holds the array itself "
+            "and there is no HDF5 file to open. Use Mode B."
+        )
+    else:
+        _source = _external[0]
+        _uri = _source.assets[0].data_uri
+        _path = urlparse(_uri).path
+        _ds_path = _source.parameters["dataset"]
+        _row = _source.parameters.get("slice")
 
-    with h5py.File(full_path, "r") as f:
-        if batch_idx is not None:
-            spectrum = f[ds_path][int(batch_idx)]
+        if not os.path.exists(_path):
+            _status = (
+                f"**Mode A unavailable here** — the catalog points at "
+                f"`{_path}`, which is not mounted on this machine. Run the "
+                f"notebook where the data lives, or use Mode B, which does "
+                f"not care."
+            )
         else:
-            spectrum = f[ds_path][:]
+            with h5py.File(_path, "r") as _f:
+                spectrum_a = (
+                    _f[_ds_path][int(_row)] if _row is not None
+                    else _f[_ds_path][:]
+                )
+            _status = f"""
+    The catalog said where to look — none of this was constructed by hand:
 
-    mo.md(f"""
-    **Mode A read:**
+    | From the DataSource | Value |
+    |---|---|
+    | asset `data_uri` | `{_uri}` |
+    | `parameters["dataset"]` | `{_ds_path}` |
+    | `parameters["slice"]` | `{_row}` |
+
     ```python
-    # From entity metadata:
-    path  = "{h5_rel}"
-    dataset = "{ds_path}"
-    index = {batch_idx}
-
-    with h5py.File(base_dir + "/" + path) as f:
-        spectrum = f["{ds_path}"][{batch_idx}]
+    src = entity[artifact_key].data_sources()[0]
+    with h5py.File(urlparse(src.assets[0].data_uri).path) as f:
+        spectrum = f[src.parameters["dataset"]][int(src.parameters["slice"])]
     ```
 
-    Shape: `{spectrum.shape}` (energy_loss x incident_energy)
+    Shape: `{spectrum_a.shape}` (energy_loss x incident_energy) ·
+    range [{spectrum_a.min():.2e}, {spectrum_a.max():.2e}]
+    """
 
-    Range: [{spectrum.min():.2e}, {spectrum.max():.2e}]
+    mo.md(_status)
+    return (spectrum_a,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    **Mode B** — the same array served over HTTP by Tiled. No filesystem
+    access needed; this is also how shared axes are read.
+    """)
+    return
+
+
+@app.cell
+def _(artifact_key, ds, entity, mo, shared_axes, spectrum_a):
+    import numpy as np
+
+    # Mode B needs nothing but the server, so this is what the plot below
+    # uses -- the notebook renders the same figure whether or not the
+    # original files are reachable from here.
+    spectrum = entity[artifact_key][:]
+
+    _agreement = (
+        "_Mode A did not run here, so there is nothing to compare against._"
+        if spectrum_a is None else
+        f"Identical to the Mode A read: `{np.array_equal(spectrum, spectrum_a)}`"
+    )
+
+    # Shared axes are optional in the contract, so read one only if this
+    # dataset declared any.
+    _axis_note = "_This dataset declares no shared axes._"
+    if shared_axes:
+        _axis_name = next(iter(shared_axes))
+        _axis = ds[_axis_name][:]
+        _axis_note = (
+            f"Shared axis `{_axis_name}`: {len(_axis)} points, "
+            f"range [{_axis.min():.2f}, {_axis.max():.2f}]"
+        )
+
+    mo.md(f"""
+    **Mode B read:**
+    ```python
+    spectrum = entity["{artifact_key}"][:]   # served by Tiled over HTTP
+    axis = ds["<shared axis>"][:]            # shared axis, dataset-level child
+    ```
+
+    Shape: `{spectrum.shape}`. {_agreement}
+
+    {_axis_note}
     """)
     return (spectrum,)
 
 
 @app.cell
-def _(mo, spectrum):
+def _(artifact_key, mo, spectrum):
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    im = ax.imshow(
-        spectrum,
-        aspect="auto",
-        origin="lower",
-        cmap="viridis",
-    )
-    ax.set_xlabel("Incident energy index")
-    ax.set_ylabel("Energy loss index")
-    ax.set_title("RIXS spectrum")
-    fig.colorbar(im, ax=ax, label="Intensity")
+    # Shape varies by dataset, so pick a rendering from the array itself.
+    _fig, _ax = plt.subplots(figsize=(8, 4))
+    if spectrum.ndim == 1:
+        _ax.plot(spectrum)
+        _ax.set_xlabel("Index")
+        _ax.set_ylabel("Value")
+    elif spectrum.ndim == 2:
+        # For BROAD_SIGMA axis 0 is energy loss, axis 1 incident energy.
+        _im = _ax.imshow(spectrum, aspect="auto", origin="lower", cmap="viridis")
+        _ax.set_xlabel("Axis 1 index")
+        _ax.set_ylabel("Axis 0 index")
+        _fig.colorbar(_im, ax=_ax, label="Intensity")
+    else:
+        _ax.text(0.5, 0.5, f"{spectrum.ndim}-D array — slice it to plot",
+                 ha="center", va="center")
+        _ax.set_axis_off()
+    _ax.set_title(artifact_key)
     plt.tight_layout()
-    mo.mpl.interactive(fig)
-    return
-
-
-@app.cell
-def _():
+    mo.mpl.interactive(_fig)
     return
 
 
