@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.24.0"
 app = marimo.App(width="medium")
 
 
@@ -99,9 +99,26 @@ def _(os):
 
     url = os.environ.get(
         "TILED_URL",
-        "https://lcls-data-portal.slac.stanford.edu/tiled-dev",
+        "https://lcls-data-portal.slac.stanford.edu/tiled-test",
     )
-    api_key = os.environ.get("TILED_API_KEY", os.environ.get("TILED_KEY", ""))
+    api_key = os.environ.get("TILED_API_KEY") or os.environ.get("TILED_KEY")
+
+    # This kernel inherits the environment of the shell that launched
+    # `marimo edit`, captured at launch. Two ways a key you can `echo` in
+    # that shell is still invisible here: it was assigned without `export`
+    # (so no child process sees it), or it was exported after the marimo
+    # server was already running. Say which, rather than handing an empty
+    # key to from_uri and surfacing it as an authentication failure.
+    if not api_key:
+        raise RuntimeError(
+            "TILED_API_KEY is not set in this kernel's environment.\n"
+            "  1. In the shell you launch marimo from, run "
+            "`env | grep TILED_API_KEY`. Unlike `echo`, that shows only "
+            "exported variables -- if it prints nothing, re-run as "
+            "`export TILED_API_KEY=<key>`.\n"
+            "  2. Restart `marimo edit`. A server that was already running "
+            "does not see variables exported afterwards."
+        )
 
     client = from_uri(url, api_key=api_key)
     print(f"Connected to {url} ({len(client)} containers)")
@@ -252,7 +269,7 @@ def _(ARTIFACT_KEY, ds, mo, shared_axes):
     - Artifact locators: {len(locators)} fields (Mode A)
     - Internal: {len(_internal)} fields
     """)
-    return artifact_key, ent_meta, entity, locators, physics_params
+    return artifact_key, entity, locators, physics_params
 
 
 @app.cell

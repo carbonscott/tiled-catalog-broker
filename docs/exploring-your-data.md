@@ -126,6 +126,7 @@ where an entity came from; they are not how you open a file.
 
 | Symptom | Cause |
 |---|---|
+| `TILED_API_KEY is not set in this kernel's environment` | The key reached your shell but not marimo. `echo $VAR` prints variables that were merely assigned; only *exported* ones reach child processes — check with `env \| grep TILED_API_KEY`, and re-run as `export TILED_API_KEY=<key>`. A marimo server that was already running will not see a variable exported afterwards; restart it. |
 | `KeyError: '<YOUR_KEY>'` | `TCB_DEMO_DATASET` is not the stamped key. `list(client)` shows what the server has. |
 | Entity count lower than expected | An interrupted upload. Re-run the same `tcb register --upload`; it skips what is already there. |
 | Parameters missing from entity metadata | `parameters:` in the YAML did not match the file layout. Check `tcb generate` output and re-register. |
