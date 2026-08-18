@@ -122,5 +122,6 @@ server — `list(from_uri(url, api_key=key))`.
 | `docs/ONBOARDING.md` | How to onboard a dataset (the contract-surface walkthrough) |
 | `docs/using-the-catalog.md` | How to *read* a registered dataset (Mode A + Mode B) |
 | `docs/remote-onboarding.md` | Registering data the server cannot see (`tcb register --upload`) |
+| `docs/exploring-your-data.md` | Reading back an uploaded dataset in the marimo notebook (the read-side companion) |
 | `docs/adr/` | Architecture Decision Records (frozen layouts, single register route, soft vocab, hierarchical containers) |
 | `docs/SLICING-EXPLAINER.md` | How batched arrays are served slice-by-slice over Tiled |

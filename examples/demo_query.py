@@ -66,7 +66,7 @@ def _(mo):
     | Mode | How | When to use |
     |------|-----|-------------|
     | **A (Expert)** | Ask the catalog for the file location → open with h5py | Fast bulk access, when the files are reachable from where you run |
-    | **B (Visualizer)** | `entity["rixs_spectrum"][:]` via HTTP | Works from anywhere the server is reachable; the only mode for uploaded datasets |
+    | **B (Visualizer)** | `entity[artifact][:]` via HTTP | Works from anywhere the server is reachable; the only mode for uploaded datasets |
     """)
     return
 
@@ -75,10 +75,21 @@ def _(mo):
 def _():
     import os
 
-    # The only thing this notebook is told. Everything else -- including
-    # where the HDF5 files live -- is read back out of the catalog.
+    # ---------------------------------------------------------------
+    # Replace with your dataset here.
+    #
+    # DATASET_KEY   the key `tcb stamp-key` wrote into your YAML
+    # ARTIFACT_KEY  the artifact to read -- one of your YAML's
+    #               `artifacts:` `type:` values. Leave it None to use
+    #               whichever artifact the first entity carries.
+    #
+    # Everything else the notebook needs -- parameters, shared axes,
+    # even where the HDF5 files live -- is read back out of the catalog,
+    # so these two names are the whole configuration.
+    # ---------------------------------------------------------------
     DATASET_KEY = os.environ.get("TCB_DEMO_DATASET", "BROAD_SIGMA")
-    return DATASET_KEY, os
+    ARTIFACT_KEY = os.environ.get("TCB_DEMO_ARTIFACT") or None
+    return ARTIFACT_KEY, DATASET_KEY, os
 
 
 @app.cell
@@ -203,11 +214,21 @@ def _(mo):
 
 
 @app.cell
-def _(ds, mo, shared_axes):
+def _(ARTIFACT_KEY, ds, mo, shared_axes):
     # First child that is an entity (shared axes are array children, not entities)
     first_key = next(_k for _k in ds if _k not in shared_axes)
     entity = ds[first_key]
     ent_meta = dict(entity.metadata)
+
+    # Resolve the artifact to read. Left unset, take the entity's first
+    # child -- the catalog knows its own artifact names, so a notebook
+    # pointed at an unfamiliar dataset still has something to show.
+    artifact_key = ARTIFACT_KEY or next(iter(entity))
+    if artifact_key not in entity:
+        raise KeyError(
+            f"entity '{first_key}' has no artifact '{artifact_key}'. "
+            f"Available: {list(entity)}"
+        )
 
     # Split metadata into categories
     physics_params = {}
@@ -231,7 +252,7 @@ def _(ds, mo, shared_axes):
     - Artifact locators: {len(locators)} fields (Mode A)
     - Internal: {len(_internal)} fields
     """)
-    return ent_meta, entity, locators, physics_params
+    return artifact_key, ent_meta, entity, locators, physics_params
 
 
 @app.cell
@@ -283,7 +304,7 @@ def _(mo):
 
 
 @app.cell
-def _(entity, mo, os):
+def _(artifact_key, entity, mo, os):
     import h5py
     from urllib.parse import urlparse
 
@@ -300,7 +321,7 @@ def _(entity, mo, os):
     #   2. the file exists, but is not mounted where this notebook runs.
     # Mode B below always works, which is the reason it exists.
     _external = [
-        _s for _s in (entity["rixs_spectrum"].data_sources() or [])
+        _s for _s in (entity[artifact_key].data_sources() or [])
         if _s.management == "external"
     ]
 
@@ -341,7 +362,7 @@ def _(entity, mo, os):
     | `parameters["slice"]` | `{_row}` |
 
     ```python
-    src = entity["rixs_spectrum"].data_sources()[0]
+    src = entity[artifact_key].data_sources()[0]
     with h5py.File(urlparse(src.assets[0].data_uri).path) as f:
         spectrum = f[src.parameters["dataset"]][int(src.parameters["slice"])]
     ```
@@ -364,14 +385,13 @@ def _(mo):
 
 
 @app.cell
-def _(ds, entity, mo, spectrum_a):
+def _(artifact_key, ds, entity, mo, shared_axes, spectrum_a):
     import numpy as np
 
     # Mode B needs nothing but the server, so this is what the plot below
     # uses -- the notebook renders the same figure whether or not the
     # original files are reachable from here.
-    spectrum = entity["rixs_spectrum"][:]
-    eloss = ds["eloss"][:]
+    spectrum = entity[artifact_key][:]
 
     _agreement = (
         "_Mode A did not run here, so there is nothing to compare against._"
@@ -379,36 +399,52 @@ def _(ds, entity, mo, spectrum_a):
         f"Identical to the Mode A read: `{np.array_equal(spectrum, spectrum_a)}`"
     )
 
+    # Shared axes are optional in the contract, so read one only if this
+    # dataset declared any.
+    _axis_note = "_This dataset declares no shared axes._"
+    if shared_axes:
+        _axis_name = next(iter(shared_axes))
+        _axis = ds[_axis_name][:]
+        _axis_note = (
+            f"Shared axis `{_axis_name}`: {len(_axis)} points, "
+            f"range [{_axis.min():.2f}, {_axis.max():.2f}]"
+        )
+
     mo.md(f"""
     **Mode B read:**
     ```python
-    spectrum = entity["rixs_spectrum"][:]   # served by Tiled over HTTP
-    eloss = ds["eloss"][:]                  # shared axis, dataset-level child
+    spectrum = entity["{artifact_key}"][:]   # served by Tiled over HTTP
+    axis = ds["<shared axis>"][:]            # shared axis, dataset-level child
     ```
 
     Shape: `{spectrum.shape}`. {_agreement}
 
-    Energy-loss axis: {len(eloss)} points,
-    [{eloss.min():.2f}, {eloss.max():.2f}]
+    {_axis_note}
     """)
     return (spectrum,)
 
 
 @app.cell
-def _(mo, spectrum):
+def _(artifact_key, mo, spectrum):
     import matplotlib.pyplot as plt
 
+    # Shape varies by dataset, so pick a rendering from the array itself.
     _fig, _ax = plt.subplots(figsize=(8, 4))
-    _im = _ax.imshow(
-        spectrum,
-        aspect="auto",
-        origin="lower",
-        cmap="viridis",
-    )
-    _ax.set_xlabel("Incident energy index")
-    _ax.set_ylabel("Energy loss index")
-    _ax.set_title("RIXS spectrum")
-    _fig.colorbar(_im, ax=_ax, label="Intensity")
+    if spectrum.ndim == 1:
+        _ax.plot(spectrum)
+        _ax.set_xlabel("Index")
+        _ax.set_ylabel("Value")
+    elif spectrum.ndim == 2:
+        # For BROAD_SIGMA axis 0 is energy loss, axis 1 incident energy.
+        _im = _ax.imshow(spectrum, aspect="auto", origin="lower", cmap="viridis")
+        _ax.set_xlabel("Axis 1 index")
+        _ax.set_ylabel("Axis 0 index")
+        _fig.colorbar(_im, ax=_ax, label="Intensity")
+    else:
+        _ax.text(0.5, 0.5, f"{spectrum.ndim}-D array — slice it to plot",
+                 ha="center", va="center")
+        _ax.set_axis_off()
+    _ax.set_title(artifact_key)
     plt.tight_layout()
     mo.mpl.interactive(_fig)
     return

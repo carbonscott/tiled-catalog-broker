@@ -52,19 +52,9 @@ virtualenv && virtualenv -p python3.12 .venv` works without root.
 
 Re-activate with `source .venv/bin/activate` in each new shell.
 
-### Reading the data back in a notebook
-
-`examples/demo_query.py` is a [marimo](https://marimo.io) notebook that walks
-the catalog. It talks to the server over HTTP and does not import this
-package, so it needs neither an editable install nor Python 3.12:
-
-```bash
-pip install 'tiled[client]' marimo pandas h5py numpy matplotlib
-marimo edit examples/demo_query.py
-```
-
-Point it at your dataset with `TILED_URL`, `TILED_API_KEY`, and
-`TCB_DEMO_DATASET=<YOUR_KEY>`.
+Reading the data back is a separate, lighter setup — see
+[docs/exploring-your-data.md](exploring-your-data.md), the companion to this
+page.
 
 ## 2. Author the dataset YAML
 

@@ -141,10 +141,13 @@ pip install 'tiled[client]' marimo pandas h5py numpy matplotlib
 marimo edit examples/demo_query.py
 ```
 
-Set `TCB_DEMO_DATASET` to walk a dataset other than `BROAD_SIGMA`.
+Set `TCB_DEMO_DATASET` to walk a dataset other than `BROAD_SIGMA`, and
+`TCB_DEMO_ARTIFACT` to pick which artifact it reads.
 
-See [docs/using-the-catalog.md](docs/using-the-catalog.md) for the full read-side reference
-(both access modes, copy-pasteable).
+See [docs/exploring-your-data.md](docs/exploring-your-data.md) to point the
+notebook at a dataset you registered yourself, and
+[docs/using-the-catalog.md](docs/using-the-catalog.md) for the full read-side
+reference (both access modes, copy-pasteable).
 
 ---
 
