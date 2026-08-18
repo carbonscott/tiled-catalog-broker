@@ -104,11 +104,7 @@ def _(os):
     api_key = os.environ.get("TILED_API_KEY") or os.environ.get("TILED_KEY")
 
     # This kernel inherits the environment of the shell that launched
-    # `marimo edit`, captured at launch. Two ways a key you can `echo` in
-    # that shell is still invisible here: it was assigned without `export`
-    # (so no child process sees it), or it was exported after the marimo
-    # server was already running. Say which, rather than handing an empty
-    # key to from_uri and surfacing it as an authentication failure.
+    # `marimo edit`, captured at launch. 
     if not api_key:
         raise RuntimeError(
             "TILED_API_KEY is not set in this kernel's environment.\n"
