@@ -24,6 +24,11 @@ YAML contract, same manifests. Only the transport differs.
 You need Python ≥ 3.12. Either toolchain below leaves you with an
 activated environment and a working `tcb`.
 
+Optional but recommended: [Claude Code](https://claude.ai/code) or a
+similar coding agent. Step 2 can then draft your dataset YAML directly
+from your HDF5 files. Everything works without one — the manual route is
+documented alongside.
+
 **With [uv](https://docs.astral.sh/uv/):**
 
 ```bash
@@ -58,11 +63,51 @@ page.
 
 ## 2. Author the dataset YAML
 
-Follow `docs/ONBOARDING.md` — the contract is the same. The one field to
-note: `data.directory` must be the path to your data **on your machine**;
-that is where `--upload` reads the arrays from. Leave
-`data.server_base_dir` out — the server never reads your files, so there is
-no server-side mount to describe.
+The YAML is the contract: it describes your files well enough that the
+broker can register them without knowing anything about your science. You
+can have an agent draft it from your data, or write it by hand.
+
+### With an agent (recommended)
+
+This repo ships an `/onboarding` skill — a clone gets it at
+`.claude/skills/onboarding/`. In Claude Code, from the repo root:
+
+```
+/onboarding
+```
+
+Then tell it where your data is and anything you know about it — the
+instrument or code that produced it, the material, a paper, a README. Add
+one line specific to this path:
+
+> This is remote registration — the server cannot see my filesystem, so we
+> will use `tcb register --upload`.
+
+The skill reads the contract surface first (this repo's models and
+controlled vocabulary), then opens your HDF5 with `h5py` and works out the
+layout, artifacts, parameters, and shared axes from what is actually
+there. It drafts the YAML for you to review rather than interviewing you
+field by field — which matters, because the fields it has to fill in
+(`layout`, `parameters.location`) are questions about your file structure
+that are easier to answer by looking than by reading a spec.
+
+**You are still the reviewer.** Check the drafted `metadata` block in
+particular: an agent can read shapes and dtypes off your files, but
+`method`, `material`, and `producer` are claims about provenance that only
+you can confirm. The closed sections (`data`, `artifacts`, `parameters`,
+`shared`) hard-error on unknown keys, so a typo there fails loudly rather
+than registering something wrong.
+
+### By hand
+
+Follow `docs/ONBOARDING.md` — the contract is the same, and the field
+reference there is the authority either way.
+
+Whichever route you take, one field is specific to remote registration:
+`data.directory` must be the path to your data **on your machine**; that is
+where `--upload` reads the arrays from. Leave `data.server_base_dir` out —
+the server never reads your files, so there is no server-side mount to
+describe.
 
 ```yaml
 # datasets/mydata.yml (abridged — see ONBOARDING.md for the full contract)
