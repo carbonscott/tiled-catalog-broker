@@ -8,8 +8,6 @@ dependencies = [
     "h5py",
     "numpy",
     "ruamel.yaml",
-    "canonicaljson",
-    "sqlalchemy",
     "pydantic>=2",
     "tiled[server]",
 ]
@@ -23,3 +21,8 @@ packages = ["src/tiled_catalog_broker"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: needs a running Tiled server with data registered",
+]

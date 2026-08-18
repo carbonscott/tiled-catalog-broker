@@ -16,14 +16,11 @@ Run with:
     uv run --with pytest --with 'ruamel.yaml' pytest tests/test_schema.py -v
 """
 
-import sys
 from pathlib import Path
 
 import pytest
 
 # Add project root to path for package imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from pydantic import ValidationError
 
 from tiled_catalog_broker.tools.schema import (

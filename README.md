@@ -14,7 +14,7 @@ parameter names, artifact types, or file layouts are hardcoded.
 
 ## Prerequisites
 
-- Python >= 3.10
+- Python >= 3.12
 - [`uv`](https://docs.astral.sh/uv/)
 
 Optionally set `UV_CACHE_DIR` to avoid re-downloading packages every run.
@@ -56,8 +56,8 @@ container key in Tiled). Run once per YAML; idempotent on re-run.
 tcb stamp-key datasets/mydata.yml
 ```
 
-`tcb register` and `tcb ingest` are read-only over the YAML and will
-error with a hint if `key` is missing.
+`tcb register` is read-only over the YAML and will error with a hint if
+`key` is missing.
 
 ### Step 4: Start the Tiled Server
 
@@ -85,51 +85,56 @@ uv run python
 
 ```python
 from tiled.client import from_uri
+from tiled.queries import Key
 
 client = from_uri("http://localhost:8005", api_key="secret")
 
 # Browse datasets
 print(list(client))
-# ['VDP', 'EDRIXS', ...]
+# ['BROAD_SIGMA', 'LCLS_RIXS_STATIC', ...]
 
-# Pick a dataset, list entities
-vdp = client["VDP"]
-print(list(vdp)[:5])
-# ['H_636ce3e4', 'H_7a1b2c3d', ...]
+# Pick a dataset; narrow it with a metadata query (SQL-served)
+ds = client["BROAD_SIGMA"]
+hits = ds.search(Key("sigma") >= 0.04)
 
 # Pick an entity, list its artifacts
-h = vdp[list(vdp)[0]]
-print(list(h))
-# ['mh_powder_30T', 'gs_state', 'ins_12meV']
+ent = hits.values().first()
+print(list(ent))
+# ['rixs_spectrum']
 
-# Read an array
-curve = h["mh_powder_30T"][:]
-print(curve.shape)  # (200,)
+# Read an array -- only the requested bytes cross the wire
+spectrum = ent["rixs_spectrum"][:]
+print(spectrum.shape)  # (151, 40)
 ```
 
 **Mode A -- Expert path-based access (fast, for ML pipelines):**
 
 ```python
+import os
 import h5py
 
-h = vdp[list(vdp)[0]]
+# Entity metadata carries HDF5 locators, relative to the YAML's data.directory
+md = dict(ent.metadata)
+rel_path = md["path_rixs_spectrum"]
+dataset  = md["dataset_rixs_spectrum"]
 
-# Metadata contains HDF5 locators
-rel_path = h.metadata["path_mh_powder_30T"]
-dataset  = h.metadata["dataset_mh_powder_30T"]
-
-# Load directly from HDF5
-base_dir = "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/vdp/data/schema_v1"
-with h5py.File(f"{base_dir}/{rel_path}") as f:
-    curve = f[dataset][:]
+base_dir = "/path/to/hdf5/root"          # the dataset YAML's data.directory
+with h5py.File(os.path.join(base_dir, rel_path)) as f:
+    spectrum = f[dataset][:]
 ```
+
+Both modes are covered in full in
+[docs/using-the-catalog.md](docs/using-the-catalog.md).
 
 ### Step 7: Interactive Exploration (Optional)
 
 ```bash
 uv run --with marimo --with matplotlib \
-  marimo edit notebooks/explore.py
+  marimo edit examples/demo_query.py
 ```
+
+See [docs/using-the-catalog.md](docs/using-the-catalog.md) for the full read-side reference
+(both access modes, copy-pasteable).
 
 ---
 
@@ -148,7 +153,6 @@ dataset YAML  -->  tcb generate  -->  tcb stamp-key  -->  tcb register  -->  til
 | `tcb stamp-key` | Write the derived catalog key into the YAML | No |
 | `tcb register` | Register manifests into a running server (HTTP) | Yes |
 | `tcb delete` | Remove registered data from a running server (catalog only; HDF5 files untouched) | Yes |
-| `tcb ingest` | Bulk-load into local SQLite (testing only, deprecated) | No |
 
 ---
 
@@ -223,14 +227,20 @@ The YAML contract describes your dataset's structure. Key fields:
 
 ```yaml
 label: MyData
-base_dir: /path/to/hdf5/root
+data:
+  directory: /path/to/hdf5/root
+  layout: per_entity
 ```
 
 - `label` -- Human-readable name. After authoring, run `tcb stamp-key` to
   derive the Tiled container key (e.g. `"Broad Sigma"` -> `BROAD_SIGMA`)
   into the YAML's `key:` field.
-- `base_dir` -- Root directory. All HDF5 `file` paths in the manifest are
-  relative to this.
+- `data.directory` -- Root directory. All HDF5 `file` paths in the manifest
+  are relative to this.
+- `data.layout` -- One of `per_entity`, `batched`, `grouped` (ADR-0001).
+
+The authoritative field list is `src/tiled_catalog_broker/tools/_models.py`;
+see [docs/ONBOARDING.md](docs/ONBOARDING.md) for the walkthrough.
 
 ### 2. Parquet Manifests
 
@@ -248,15 +258,21 @@ The manifest contains two DataFrames:
 | Column | Required | Description |
 |--------|----------|-------------|
 | `uid` | Yes | Links to parent entity |
-| `type` | Yes | Artifact key (e.g. `rixs`, `mh_powder_30T`) |
-| `file` | Yes | Relative path to HDF5 file (from `base_dir`) |
+| `type` | Yes | Artifact key (e.g. `rixs_spectrum`, `powder`) |
+| `file` | Yes | Relative path to HDF5 file (from `data.directory`) |
 | `dataset` | Yes | HDF5 internal dataset path (e.g. `/spectra`) |
 | `index` | No | Row index for batched arrays |
+| `shape` | Yes | JSON-encoded shape **as registered** (batched: leading axis already dropped) |
+| `dtype` | Yes | numpy dtype string (e.g. `float32`) |
 | *(any others)* | No | Become artifact metadata automatically |
+
+`shape` and `dtype` are captured by `tcb generate` so that **registration never
+opens HDF5** — it reads only the manifest. A manifest produced before these
+columns existed is rejected with a message telling you to re-run `tcb generate`.
 
 ### 3. Server Config
 
-Add your `base_dir` to `readable_storage` in `config.yml`:
+Add your `data.directory` to `readable_storage` in `config.yml`:
 
 ```yaml
 readable_storage:
@@ -267,10 +283,7 @@ readable_storage:
 ### Run It
 
 ```bash
-# Bulk ingest (offline)
-tcb ingest datasets/mydata.yml
-
-# Or HTTP register (live server)
+# Register into a live server (the single registration route)
 tcb register datasets/mydata.yml
 ```
 
@@ -296,13 +309,13 @@ uv run --with pytest pytest tests/ -v
 
 | Test File | Type | What It Covers |
 |-----------|------|----------------|
-| `test_config.py` | Unit | Configuration loading |
+| `test_config.py` | Unit | Server connection settings from the environment |
 | `test_utils.py` | Unit | Artifact key generation, shared helpers |
 | `test_generate.py` | Unit | Parquet manifest generation |
 | `test_schema.py` | Unit | YAML contract validation |
 | `test_examples.py` | Unit | Example dataset YAMLs validate against the contract |
-| `test_generic_registration.py` | Unit | Node preparation for VDP + NiPS3 datasets |
-| `test_registration.py` | Integration | HTTP and bulk registration |
+| `test_generic_registration.py` | Unit | Registration is dataset-agnostic (per-entity + batched shapes) |
+| `test_registration.py` | Integration | Manifest loading + the registered result on a live server |
 | `test_data_retrieval.py` | Integration | Mode A/B data access |
 | `test_tiled_cache.py` | Integration | Disk-backed cache hit/miss behavior |
 
@@ -316,9 +329,8 @@ tiled-catalog-broker/
 ├── config.yml                 # Tiled server configuration
 ├── src/
 │   └── tiled_catalog_broker/  # Installable Python package
-│       ├── cli.py             # CLI: tcb {generate,stamp-key,ingest,register,delete}
+│       ├── cli.py             # CLI: tcb {generate,stamp-key,register,delete}
 │       ├── config.py          # Environment/config loading
-│       ├── bulk_register.py   # Bulk SQL registration (deprecated, local testing only)
 │       ├── http_register.py   # HTTP registration via Tiled client
 │       ├── utils.py           # Shared helpers
 │       ├── adapters/          # Tiled array adapters
@@ -329,9 +341,9 @@ tiled-catalog-broker/
 │       └── clients/           # Client-side utilities
 │           ├── tiled_cache.py # Disk-backed cache + PyTorch Dataset
 │           └── query_manifest.py  # Mode A discovery API
-├── examples/                  # Standalone examples and marimo demos
+├── examples/                  # demo_query.py — marimo notebook of the read path
 ├── tests/                     # Test suite
-└── docs/                      # Design docs, handoffs, lessons learned
+└── docs/                      # Design docs, ADRs, onboarding + read-side guides
 ```
 
 ---
@@ -350,19 +362,6 @@ lsof -ti :8005 | xargs kill
 The database may be corrupted. Stop the server, delete `catalog.db`, and
 restart (the server creates a fresh database on startup).
 
-### Re-ingesting data
-`tcb ingest` is **additive** -- running it twice creates duplicates. To
-re-ingest, delete `catalog.db` first. `tcb register` is **incremental** and
-safe to run multiple times.
-
----
-
-## Performance Reference
-
-### Bulk Registration (`tcb ingest`)
-
-| Entities | Approx. Time | DB Size |
-|--------------|-------------|---------|
-| 10 | < 1 sec | ~300 KB |
-| 1,000 | ~5 sec | ~20 MB |
-| 10,000 | ~53 sec | ~192 MB |
+### Re-registering data
+`tcb register` is **incremental** and safe to run multiple times: an entity
+already on the server is skipped, so a re-run resumes rather than duplicates.

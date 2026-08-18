@@ -7,23 +7,24 @@ Registers entities with BOTH:
 
 Dataset-agnostic: reads all metadata columns dynamically from manifests.
 The manifest is the contract -- no hardcoded parameter names or artifact types.
+That includes each artifact's shape and dtype, captured by `tcb generate`, so
+this module never opens HDF5.
 
-When to use:
-- Incremental updates to a running server
-- Adding new datasets alongside existing ones
-- Server is running and serving queries
-
-When NOT to use:
-- Initial bulk load of 1K+ entities (use bulk_register.py / ingest.py)
+This is the single registration route (ADR-0002) -- it handles both incremental
+updates and initial bulk loads. Registration is incremental by default: an entity
+already present on the server is skipped, so a re-run resumes rather than
+duplicates. Per-entity work runs on a ThreadPoolExecutor (see _DEFAULT_MAX_WORKERS).
 """
 
+import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
-from tiled.structures.array import ArrayStructure
+from dask.array.core import normalize_chunks
+from tiled.structures.array import ArrayStructure, BuiltinDtype
 from tiled.structures.core import StructureFamily
 from tiled.structures.data_source import Asset, DataSource, Management
 
@@ -31,7 +32,6 @@ from .utils import (
     make_artifact_key,
     make_entity_key,
     to_json_safe,
-    get_artifact_info,
     ARTIFACT_STANDARD_COLS,
 )
 
@@ -50,13 +50,30 @@ _DEFAULT_MAX_WORKERS = 8
 INHERITED_KEYS = ("amsc_public",)
 
 
+def require_shape_dtype(art_df):
+    """Require the shape/dtype columns registration reads.
+
+    Registration takes both from the manifest rather than opening HDF5, so a
+    manifest lacking them cannot be registered.
+    """
+    missing = [c for c in ("shape", "dtype") if c not in art_df.columns]
+    if missing:
+        raise ValueError(
+            f"artifact manifest is missing {', '.join(missing)}. "
+            "Run `tcb generate <dataset>.yml` to rebuild the manifests, "
+            "then register again."
+        )
+
+
 def create_data_source(art_row, base_dir, server_base_dir=None):
     """Create a Tiled DataSource for an artifact pointing to external HDF5.
 
-    Reads dataset path and shape from the manifest and HDF5 file directly.
+    Everything comes from the manifest row — path, shape, and dtype. The HDF5
+    file is referenced, never opened.
 
     Args:
-        art_row: DataFrame row with artifact manifest columns.
+        art_row: DataFrame row with artifact manifest columns. Must carry
+            `shape` and `dtype`, written by `tcb generate`.
         base_dir: Base directory for resolving relative file paths on the
             authoring host (used by `tcb generate` and Mode A reads).
         server_base_dir: Optional server-side mount path. If set, becomes
@@ -78,9 +95,11 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
     if "index" in art_row.index and pd.notna(art_row.get("index")):
         index = int(art_row["index"])
 
-    # Get shape and dtype from HDF5 (cached by dataset path)
-    data_shape, _, _, _ = get_artifact_info(base_dir, h5_rel_path, dataset_path, index)
-    data_dtype = np.float64
+    # Shape and dtype are captured at generate time — registration never opens
+    # HDF5. For batched artifacts the manifest already stores the per-entity
+    # shape (leading axis dropped), so no index adjustment is needed here.
+    data_shape = json.loads(art_row["shape"])
+    data_dtype = np.dtype(art_row["dtype"])
 
     # Create asset pointing to HDF5 file
     asset = Asset(
@@ -89,9 +108,16 @@ def create_data_source(art_row, base_dir, server_base_dir=None):
         parameter="data_uris",
     )
 
-    # Create array structure
-    structure = ArrayStructure.from_array(
-        np.empty(data_shape, dtype=data_dtype)
+    # Built from shape/dtype directly: ArrayStructure.from_array needs a real
+    # array, which would mean allocating one full-size buffer per artifact
+    # purely to describe it. Chunking is dask's "auto", the same policy
+    # from_array applies.
+    structure = ArrayStructure(
+        data_type=BuiltinDtype.from_numpy_dtype(data_dtype),
+        shape=tuple(data_shape),
+        chunks=normalize_chunks(
+            ("auto",) * len(data_shape), shape=tuple(data_shape), dtype=data_dtype
+        ),
     )
 
     # Build parameters
@@ -249,6 +275,8 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         print(f"Created dataset container '{dataset_key}'")
 
     # Pre-group artifacts by uid for O(1) lookup
+    require_shape_dtype(art_df)
+
     print("Pre-grouping artifacts by uid...")
     art_grouped = art_df.groupby("uid")
 

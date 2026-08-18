@@ -11,7 +11,9 @@ was the work to close that gap. Two registration routes for the same job is exac
 complexity this simplification targets, and the contract (the Parquet manifest) is
 identical for both, so nothing in the data model is lost.
 
-Condition / verification gate: before deleting `bulk_register.py`, confirm `tcb register`
-handles the bulk case (10k–100k entities) at acceptable speed post-#66. If unproven, that
-benchmark is a step in the removal PR. The stale "when (not) to use" headers in both
-`http_register.py` and `bulk_register.py` are reconciled in the same PR.
+`tests/test_generic_registration.py` covers the route without a server: it drives
+`_register_one_entity` against a mock parent container and asserts on what registration
+sends — entity key, metadata, Mode-A locators, and each artifact's DataSource.
+
+Registration performance is characterized on an ongoing basis in the `tiled-bench` repo
+(`BENCHMARK-PLAN.md`), which is where the bulk-scale numbers live.

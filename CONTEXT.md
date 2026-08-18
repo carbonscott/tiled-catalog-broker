@@ -21,15 +21,20 @@ _Avoid_: sample, record, row.
 An array child of an entity (a spectrum, a magnetization curve). The thing arrays load from.
 _Avoid_: observable (that's the physics word; in the catalog it's an artifact), output.
 
+These three levels are nested Tiled **containers**, and an entity's parameters are a
+**free-form metadata dict** rather than declared columns — benchmarked against the flat and
+typed-column alternatives and kept because it is the only shape compatible with being
+dataset-agnostic (ADR-0004).
+
 ### Onboarding
 
 **Onboarding**:
 The end-to-end process of taking a producer's HDF5 dataset and registering it into the
-catalog. Target flow: author a dataset YAML (agent or human, against the contract surface)
-→ `tcb generate` (manifests) → `tcb register`. There is a **single registration route**
-(HTTP `tcb register`); the bulk SQL path (`tcb ingest`) is removed (ADR-0002). `tcb inspect`
-is removed — its job is replaced by the contract surface (see below).
-_Avoid_: ingest (removed), inspect (removed).
+catalog: author a dataset YAML (agent or human, against the contract surface) →
+`tcb generate` (manifests) → `tcb stamp-key` (key into the YAML) → `tcb register`.
+Registration has exactly one route, HTTP `tcb register` (ADR-0002); learning what a valid
+dataset looks like is the contract surface's job (see below), not a command's.
+_Avoid_: ingest, inspect.
 
 **Layout**:
 The physical on-disk arrangement of a dataset's HDF5 files. Exactly **three** are
@@ -57,12 +62,13 @@ normalization + reference layer, not a rigid gate.
 _Avoid_: schema (overloaded — the structural pydantic models are also a "schema").
 
 **Contract surface**:
-The referenceable artifacts that define what a valid dataset is — the pydantic YAML
-models, the semantic model, the layout definitions, the YAML-contract doc, and the
-example `datasets/*.yml`. The onboarding principle is **implementation vs. contract**: an
-agent (or human) onboards by reading the *contract surface*, never by reading broker
-*implementation* (`inspect.py`, `generate.py`, `http_register.py`). Today the contract is
-trapped inside implementation behavior; this effort lifts it onto the contract surface.
+The referenceable artifacts that define what a valid dataset is — the pydantic YAML models
+(`tools/_models.py`), the semantic model, the layout definitions, `docs/ONBOARDING.md`, and
+the annotated `datasets/examples/*.yml`. The onboarding principle is **implementation vs.
+contract**: an agent (or human) onboards by reading the *contract surface*, never by reading
+broker *implementation* (`generate.py`, `http_register.py`). Needing to reverse-engineer
+implementation to learn what a valid dataset looks like is a gap in the contract surface —
+fix the surface.
 _Avoid_: "source" (ambiguous — distinguish contract artifacts from implementation code).
 
 ## Relationships

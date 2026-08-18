@@ -18,11 +18,11 @@ Repo → Group → Array), adapted for many-entity scientific data with queryabl
 metadata.
 
 **Hierarchy:** Dataset → Entity → Artifact
-- **Datasets** are top-level containers (VDP, EDRIXS, RIXS, SEQUOIA, etc.)
-  with provenance metadata (material, producer, facility)
+- **Datasets** are top-level containers (BROAD_SIGMA, LCLS_RIXS_STATIC, etc.)
+  with provenance metadata (method, material, producer, facility)
 - **Entities** are containers with physics parameters as queryable metadata
 - **Artifacts** are array children of their parent entity
-- **Keys are human-readable**: `client["EDRIXS"]["H_edx00000"]["rixs"]`
+- **Keys are human-readable**: `client["BROAD_SIGMA"][entity_key]["rixs_spectrum"]`
 
 **Dual-mode access:**
 - **Mode A (Expert):** Query metadata for HDF5 paths, load directly with h5py
@@ -40,10 +40,9 @@ tiled-catalog-broker/
 ├── config.yml                 # Tiled server configuration
 ├── src/
 │   └── tiled_catalog_broker/  # Installable Python package
-│       ├── cli.py             # CLI: tcb {generate,stamp-key,ingest,register,delete}
-│       ├── config.py          # Environment/config loading
-│       ├── bulk_register.py   # Bulk SQL registration (deprecated, local testing only)
-│       ├── http_register.py   # HTTP registration via Tiled client
+│       ├── cli.py             # CLI: tcb {generate,stamp-key,register,delete}
+│       ├── config.py          # Server connection settings from the environment
+│       ├── http_register.py   # HTTP registration via Tiled client (the single route)
 │       ├── utils.py           # Shared helpers
 │       ├── adapters/          # Tiled array adapters
 │       ├── tools/             # Data-prep tools
@@ -53,7 +52,7 @@ tiled-catalog-broker/
 │       └── clients/           # Client-side utilities
 │           ├── tiled_cache.py # Disk-backed cache + PyTorch Dataset
 │           └── query_manifest.py  # Mode A discovery API
-├── examples/                  # Standalone examples and marimo demos
+├── examples/                  # demo_query.py — marimo notebook of the read path
 ├── tests/                     # Test suite
 └── docs/                      # Design docs, handoffs, lessons learned
 ```
@@ -67,8 +66,12 @@ uv pip install -e .
 # Or run directly with uv
 uv run tcb --help
 
-# Pipeline: ingest → serve
-tcb ingest datasets/my_dataset.yml
+# Pipeline: author YAML → generate → stamp-key → register
+tcb generate datasets/my_dataset.yml
+tcb stamp-key datasets/my_dataset.yml
+tcb register datasets/my_dataset.yml     # needs a running server (TILED_URL, TILED_API_KEY)
+
+# Serve
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
 
@@ -84,36 +87,31 @@ uv run --with pytest pytest tests/ -v
 
 ## Architecture
 
+Entity keys are `{dataset_key}_{uid[:13]}`, derived at registration from the dataset key and
+the manifest uid. Artifact keys are the manifest's `type` verbatim.
+
 ```
 / (root)
-├── VDP/                         ← dataset container
-│   metadata: {organization, data_type, producer, material, ...}
-│   ├── H_636ce3e4/              ← entity container
-│   │   metadata: {Ja_meV, Jb_meV, Jc_meV, Dc_meV, spin_s, g_factor}
-│   │   ├── mh_powder_30T        ← array artifact (200,)
-│   │   ├── ins_12meV            ← array artifact (600, 400)
+├── BROAD_SIGMA/                     ← dataset container
+│   metadata: {method, data_type, material, producer, ...}
+│   ├── BROAD_SIGMA_1a2b3c4d5e6f7/   ← entity container
+│   │   metadata: {sigma, gamma, ...} + path_/dataset_/index_ locators
+│   │   └── rixs_spectrum            ← array artifact (151, 40)
+│   └── ...
+├── CONCATENATED_MULTIMODAL/         ← dataset container
+│   ├── CONCATENATED_MULTIMODAL_.../
+│   │   metadata: {J1a, J1b, ...}
+│   │   ├── hisym                    ← array artifact (384, 384)
+│   │   ├── powder                   ← array artifact (512, 256)
 │   │   └── ...
 │   └── ...
-├── EDRIXS/                      ← dataset container
-│   ├── H_edx00000/
-│   │   metadata: {tenDq, F2_dd, ...}
-│   │   └── rixs
-│   └── ...
-├── RIXS/                        ← experimental dataset
-├── SEQUOIA/
+├── LCLS_RIXS_STATIC/                ← experimental dataset
 └── ...
 ```
 
-## Ingested Datasets
-
-| Dataset | Type | Entities | Artifacts | Producer/Facility |
-|---------|------|----------|-----------|-------------------|
-| VDP | simulation | 10,000 | 110,000 | Sunny.jl |
-| EDRIXS | simulation | 10,000 | 10,000 | EDRIXS |
-| NiPS3 Multimodal | simulation | 7,616 | 45,696 | Synthetic |
-| RIXS | experimental | 7 | 42 | LCLS / qRIXS |
-| Challenge | benchmark | 1 | 9 | - |
-| SEQUOIA | experimental | 3 | 76 | SNS / SEQUOIA |
+The dataset YAMLs this repo has onboarded are in `datasets/`; each one's `key:` is the
+container key it registers into. For what is actually registered on a given server, ask the
+server — `list(from_uri(url, api_key=key))`.
 
 ## Related Documentation
 
@@ -121,5 +119,6 @@ uv run --with pytest pytest tests/ -v
 |----------|-------------|
 | `CONTEXT.md` | Domain language + the implementation-vs-contract principle |
 | `docs/ONBOARDING.md` | How to onboard a dataset (the contract-surface walkthrough) |
-| `docs/adr/` | Architecture Decision Records (frozen layouts, single register route, soft vocab) |
+| `docs/using-the-catalog.md` | How to *read* a registered dataset (Mode A + Mode B) |
+| `docs/adr/` | Architecture Decision Records (frozen layouts, single register route, soft vocab, hierarchical containers) |
 | `docs/SLICING-EXPLAINER.md` | How batched arrays are served slice-by-slice over Tiled |
