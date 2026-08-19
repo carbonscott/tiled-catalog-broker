@@ -1,17 +1,7 @@
-# Workshop prep — before the session
-
-**Audience:** you are attending a hands-on session where you will register your
-own HDF5 data into a Tiled catalog. This page is what to do *beforehand*, so
-the session is spent on your data rather than on setup.
-
-Budget about 15–20 minutes. If something does not work, tell the organizer
-before the session rather than on the day.
-
-The session itself follows [docs/remote-onboarding.md](remote-onboarding.md)
-(getting data in) and [docs/exploring-your-data.md](exploring-your-data.md)
-(getting it back out). You do not need to read those in advance.
-
+# Workshop prep 
 ---
+
+Please do this before the session. It should take about 15–20 minutes. Bring questions if anything does not work.
 
 ## 1. Install the tool
 
@@ -24,18 +14,6 @@ uv venv && source .venv/bin/activate
 uv pip install -e .
 tcb --help
 ```
-
-If you do not have [uv](https://docs.astral.sh/uv/), the standard library
-route works too:
-
-```bash
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e .
-```
-
-`uv` fetches its own Python, so it is the easier route when the system
-interpreter is older than 3.12. Re-activate with `source .venv/bin/activate`
-in each new shell.
 
 ## 2. Check the install
 
@@ -51,8 +29,7 @@ confirms the install is sound. If it fails, send the output to the organizer.
 If you use [Claude Code](https://claude.ai/code) or a similar coding agent,
 this repo ships an `/onboarding` skill that inspects your HDF5 files and
 drafts the dataset configuration for you. It is the easier path and it is
-usually what gets demonstrated. Everything is doable by hand if you prefer —
-both routes are documented.
+usually what gets demonstrated. Everything is doable by hand if you prefer.
 
 ## 4. Get your data ready
 
@@ -65,8 +42,7 @@ path that reads your files locally and streams them to the server, so your
 data must be on the same laptop or workstation where you ran step 1.
 
 If your data lives on a cluster, either install and run there, or copy a
-subset down first. This is the single most common thing that catches people
-out, and it cannot be fixed during the session.
+subset down first.
 
 ### What format
 
@@ -89,12 +65,12 @@ format, or match anyone else's columns. Your parameters stay yours. What is
 required is only that the data already sits in one of the three arrangements
 above.
 
-If yours does not resemble any of them, say so before the session — it is
+If yours does not resemble any of them, say so before the session. It is
 usually possible to map, but better sorted in advance.
 
 ### How big
 
-Bring something **small — under about 1 GB**. The upload moves the actual
+Bring something **smallish, like under about 1 GB**. The upload moves the actual
 bytes over the network, and if everyone uploads at once a large dataset will
 not finish inside the session. A subset of a bigger dataset is ideal; there
 is a flag to register only the first few entities, and it will be used.
@@ -102,11 +78,8 @@ is a flag to register only the first few entities, and it will be used.
 ### What you should know about it
 
 You will be asked to record what produced the data (instrument, or the code
-and its version), the material or system studied, and what each per-entity
-parameter means.
-
-A coding agent can read shapes and dtypes off your files, but it cannot know
-your provenance. Bring that knowledge, or a README or paper that has it.
+and its version), the material or system studied, and other metadata/information 
+you would like to include.
 
 ## 5. Set up your access key
 
@@ -152,9 +125,7 @@ You want your server URL and `key found: True`.
 
 If it prints `http://localhost:8005` or `key found: False`, the tool is not
 seeing your settings — usually because you are in a different directory from
-the `.env` file. Sort this out before the session: it produces an error
-message that blames the server rather than the setting, which is confusing to
-debug live.
+the `.env` file.
 
 Then confirm you can actually reach the catalog:
 
@@ -167,7 +138,7 @@ print(list(from_uri(get_tiled_url(), api_key=get_api_key())))
 ```
 
 A list of dataset names means you are ready. An authentication error means
-the key did not come through correctly — ask the organizer to reissue it.
+the key did not come through correctly. Ask the us to reissue you one.
 
 ## 6. Choose a name for your dataset
 
@@ -184,6 +155,5 @@ mid-session.
 - [ ] `tcb --help` runs
 - [ ] `56 passed` from the test command
 - [ ] Data is HDF5, on this machine, under ~1 GB, in one of the three shapes
-- [ ] I know what produced it and what its parameters mean
 - [ ] `.env` written, and both check commands above succeed
 - [ ] I have picked a dataset name with my surname in it
