@@ -142,10 +142,16 @@ touched the network yet.
 
 ## 4. Point at the server and upload
 
-```bash
-export TILED_URL=<URL>
-export TILED_API_KEY=<API_KEY>
+Put the server URL and your API key in a `.env` file in the repo root and
+load it (same as in [workshop-prep.md](workshop-prep.md)):
 
+```
+TILED_URL=<URL>
+TILED_API_KEY=<API_KEY>
+```
+
+```bash
+set -a; source .env; set +a
 tcb register --upload datasets/mydata.yml
 ```
 

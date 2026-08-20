@@ -44,9 +44,11 @@ port (`ssh -L 2718:127.0.0.1:2718 …`). Keep the token in the URL.
 
 ## 2. Point it at your dataset
 
+Same `.env` as for registration, loaded into the shell you start marimo from,
+plus the dataset key:
+
 ```bash
-export TILED_URL=<URL>
-export TILED_API_KEY=<API_KEY>
+set -a; source .env; set +a
 export TCB_DEMO_DATASET=<YOUR_DATASET_KEY>    # the key `tcb stamp-key` wrote
 ```
 
