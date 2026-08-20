@@ -21,7 +21,7 @@ You need Python 3.12 or newer.
 git clone https://github.com/carbonscott/tiled-catalog-broker
 cd tiled-catalog-broker
 uv venv && source .venv/bin/activate
-uv pip install -e .
+uv pip install -e ".[test]"
 tcb --help
 ```
 
@@ -30,8 +30,12 @@ route works too:
 
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ".[test]"
 ```
+
+Any other environment manager is fine — conda, pixi, whatever you already
+use — as long as it installs this package into a Python 3.12+ environment.
+The `[test]` extra pulls in `pytest` for the next step.
 
 `uv` fetches its own Python, so it is the easier route when the system
 interpreter is older than 3.12. Re-activate with `source .venv/bin/activate`
@@ -40,7 +44,7 @@ in each new shell.
 ## 2. Check the install
 
 ```bash
-uv run --with pytest pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py -q
+pytest tests/test_config.py tests/test_utils.py tests/test_generic_registration.py -q
 ```
 
 You should see `56 passed`. This needs no server and no credentials — it only
@@ -114,60 +118,36 @@ Your organizer will send you an API key separately — typically through a
 one-time link that expires, so open it when it arrives rather than leaving it
 until the day.
 
-Save it into a file called `.env` in the root of the repo you cloned in step
-1 — the same directory as `pyproject.toml`:
+Create a file called `.env` in the repo root (next to `pyproject.toml`):
 
 ```
 TILED_URL=<the server URL your organizer gives you>
 TILED_API_KEY=<your key>
 ```
 
-The tool picks this up **when you run it from that directory**, so run the
-session's commands from the repo root. If you prefer, set the two values in
-your shell instead:
+Load it in each shell you work in:
 
 ```bash
-export TILED_URL=<the server URL>
-export TILED_API_KEY=<your key>
+set -a; source .env; set +a
 ```
 
-Use `export` — a bare `VAR=value` will not reach the tool.
-
-`.env` is already excluded from git, so your key will not be committed by
-accident. Treat it like a password.
+`.env` is gitignored. Treat it like a password.
 
 ### Check it worked
 
-From the repo root:
-
 ```bash
-uv run python -c "
-from tiled_catalog_broker.config import get_tiled_url, get_api_key
-print('URL:', get_tiled_url())
-print('key found:', bool(get_api_key()))
-"
-```
-
-You want your server URL and `key found: True`.
-
-If it prints `http://localhost:8005` or `key found: False`, the tool is not
-seeing your settings — usually because you are in a different directory from
-the `.env` file. Sort this out before the session: it produces an error
-message that blames the server rather than the setting, which is confusing to
-debug live.
-
-Then confirm you can actually reach the catalog:
-
-```bash
-uv run python -c "
+python -c "
 from tiled.client import from_uri
 from tiled_catalog_broker.config import get_tiled_url, get_api_key
 print(list(from_uri(get_tiled_url(), api_key=get_api_key())))
 "
 ```
 
-A list of dataset names means you are ready. An authentication error means
-the key did not come through correctly — ask the organizer to reissue it.
+<!-- Keep this snippet free of quoted strings: `pixi run` strips inner quotes. -->
+
+A list of dataset names means you are ready. `Connection refused` means the
+`.env` was not loaded in this shell; `401` means the key is wrong — ask the
+organizer to reissue it.
 
 ## 6. Choose a name for your dataset
 
@@ -185,5 +165,5 @@ mid-session.
 - [ ] `56 passed` from the test command
 - [ ] Data is HDF5, on this machine, under ~1 GB, in one of the three shapes
 - [ ] I know what produced it and what its parameters mean
-- [ ] `.env` written, and both check commands above succeed
+- [ ] `.env` written and loaded, and the check command lists dataset names
 - [ ] I have picked a dataset name with my surname in it

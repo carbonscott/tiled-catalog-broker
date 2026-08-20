@@ -12,6 +12,11 @@ dependencies = [
     "tiled[server]",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
 [project.scripts]
 tcb = "tiled_catalog_broker.cli:main"
 
