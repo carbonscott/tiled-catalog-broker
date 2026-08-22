@@ -13,6 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+examples = [
+    "marimo>=0.24.0",
+]
 test = [
     "pytest",
 ]
