@@ -1,25 +1,20 @@
-# Using the catalog — reading a registered dataset
+# How to read a registered catalog
 
-**Audience:** consumers of a catalog someone else has already registered. You have the
-server's `<URL>` and an `<API_KEY>`. Getting a dataset to that point is
-`docs/ONBOARDING.md`'s job; this file starts where that one stops.
+Someone has registered a dataset and given you the server's `<URL>` and an `<API_KEY>`.
+Getting it to that point is [How to publish a dataset](ONBOARDING.md).
 
-Two ways in, for the same data:
+There are two ways to get at an array, and the catalog records enough for both:
 
-| Mode | How | Use when |
+| | How | Use when |
 |---|---|---|
-| **Mode B (Visualizer)** | Arrays over HTTP through Tiled | You're anywhere the server is reachable, and you want a slice, not the whole file |
-| **Mode A (Expert)** | Query Tiled for locators, then read HDF5 with h5py | You're on the same filesystem as the data and want bulk reads at full speed |
+| [**Through the server**](#read-an-array) | Arrays over HTTP through the Tiled client | Anywhere the server is reachable, and you want a slice rather than the whole file |
+| [**Straight from the files**](#read-the-files-directly) | Ask the catalog where the bytes live, then open the HDF5 with h5py | You are on the same filesystem as the data and want bulk reads at full speed |
 
-Mode B is the default. Reach for Mode A when you're feeding a training loop from a
-filesystem you can already see.
+Start with the server: it needs only the Tiled client (`pip install 'tiled[client]'`),
+imports none of this package, and works the same either way a dataset was registered.
+Everything up to [Read an array](#read-an-array) is that path.
 
----
-
-## Mode B — through Tiled
-
-Tiled's own client *is* the client. The broker adds nothing on the HTTP path, so there is
-no broker import in this section.
+## Connect and list
 
 ```python
 from tiled.client import from_uri
@@ -33,12 +28,15 @@ dict(ds.metadata)                         # provenance: method, data_type, mater
 len(ds)                                   # entity count (+ one child per shared axis)
 ```
 
-The catalog is **two levels**: dataset containers at the root, entity containers beneath
-them. Entities are never at the root — always index the dataset first.
+`list(c)` on a live server is the authoritative list of keys. Dataset containers sit at the
+root and everything else is beneath one, so always index the dataset first.
 
-A dataset's **shared axes** (arrays identical for every entity — an energy grid, a field
-axis) sit beside the entities as array children of the dataset container, keyed by their
-`type` and listed in the dataset metadata as `shared_dataset_<type>`:
+## Shared axes
+
+**Shared axes** (arrays identical for every entity — an energy grid, a field axis) sit
+beside the entities as array children of the dataset, keyed by their `type` and listed in
+its metadata as `shared_dataset_<type>`. So iterating children is not iterating entities —
+separate them first:
 
 ```python
 shared = {k.removeprefix("shared_dataset_") for k in ds.metadata if k.startswith("shared_dataset_")}
@@ -46,29 +44,48 @@ eloss = ds["eloss"][:]                    # (151,) — one read, not one per ent
 entities = [k for k in ds if k not in shared]
 ```
 
+## Search
+
+Search on any parameter the entities carry, and chain as many as you like:
+
 ```python
-# Metadata queries are served by SQL, so they stay fast as the dataset grows:
 hits = ds.search(Key("sigma") >= 0.04).search(Key("sigma") <= 0.05)
-hits = hits.search(Key("gamma") == 0.1)   # chain freely
+hits = hits.search(Key("gamma") == 0.1)
 len(hits)
 
 ent = hits.values().first()
-dict(ent.metadata)                        # physics parameters + Mode-A locators
+dict(ent.metadata)                        # physics parameters, plus provenance fields
 list(ent)                                 # artifact keys under this entity
 ```
 
 > Only `Key` comparisons (`==`, `>=`, `<=`, …) are SQL-served. **Never use `Regex`** — it is
 > not SQL-backed, so it silently degrades to filtering every entity client-side.
 
-Reading an artifact reads only the bytes you ask for — the broker registers arrays against
-its own `LazyHDF5ArrayAdapter`, which slices in h5py rather than pulling the whole dataset
-through dask first (see `docs/SLICING-EXPLAINER.md`):
+Nested parameters — the ones a dataset declared with
+[`parameters.groups`](reference/dataset-yaml.md#parameters) — are queried with a dotted key:
+
+```python
+hot = ds.search(Key("instrument.Ei") > 50)
+nips3 = ds.search(Key("sample.chemical_formula") == "NiPS3")
+```
+
+Each entity also carries `path_<type>`, `dataset_<type>`, and (batched only)
+`index_<type>` — which file and row it came from. So provenance is searchable
+(`Key("path_rixs_spectrum") == "sim_00042.h5"`), and it is what
+[reading the files directly](#read-the-files-directly) uses.
+
+## Read an array
+
+Slice an artifact and only those bytes cross the wire:
 
 ```python
 arr = ent["rixs_spectrum"]
 arr.shape                                 # (151, 40)
-arr[0:5, :]                               # numpy array — only these rows cross the wire
+arr[0:5, :]                               # numpy array
 ```
+
+The server does the slice, so five rows of a ten-thousand-entity batched file reads five
+rows (see [sliced reads](explanation/sliced-reads.md)).
 
 Whole entity in one round trip:
 
@@ -81,11 +98,11 @@ open("entity.h5", "wb").write(buf.getvalue())
 
 ---
 
-## Mode A — direct h5py
+## Read the files directly
 
-Registration stamps three locator keys onto every entity's metadata — `path_<type>`,
-`dataset_<type>`, and (batched layouts only) `index_<type>`. They tell you where the bytes
-live so you can skip the server:
+HTTP is enough for interactive work, not for a training loop pulling thousands of arrays
+where the per-request hop dominates. If you are already on the filesystem that holds the
+data, the locator metadata tells you where the bytes are:
 
 ```python
 md = dict(ent.metadata)
@@ -94,8 +111,8 @@ md["dataset_rixs_spectrum"]               # '/spectra'      — HDF5 path inside
 md.get("index_rixs_spectrum")             # 7 or absent     — row on axis 0, batched layouts only
 ```
 
-`base_dir` is the `data.directory` from the dataset's YAML — the locator paths are relative
-to it. Ask whoever onboarded the dataset, or read it from `datasets/<name>.yml`.
+Locator paths are relative to `base_dir`, the `data.directory` from the dataset's YAML.
+Ask whoever onboarded it.
 
 ```python
 import os
@@ -126,17 +143,10 @@ Theta = manifest[["sigma", "gamma"]].to_numpy()                 # your choice of
 
 `base_dir` is required — there is no inference from the catalog.
 
----
-
-## Which dataset keys exist?
-
-`list(c)` on a live server is authoritative. The YAMLs in `datasets/` are the configs this
-repo has onboarded, and each one's `key:` field is the container key it registers into.
+None of this works for a dataset registered with `tcb register --upload` — the server holds
+the bytes and there is no external file to open. Read through the server instead; same
+array.
 
 ---
 
-## See also
-
-- `docs/ONBOARDING.md` — registering a *new* dataset (the authoring side of this contract)
-- `docs/SLICING-EXPLAINER.md` — why sliced reads are cheap, and how batched arrays are served
-- `examples/demo_query.py` — a marimo notebook of the Mode B flow, runnable against a server
+Next: [explore a dataset in a notebook](exploring-your-data.md) — both paths, with plots.

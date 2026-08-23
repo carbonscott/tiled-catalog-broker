@@ -15,6 +15,14 @@ trees:
       uri: "sqlite:///catalog.db"
       init_if_not_exists: true
       writable_storage: "storage"
+      # The broker registers pointer artifacts under its own mimetype so the server
+      # slices in h5py instead of materializing the whole dataset through dask
+      # (docs/explanation/sliced-reads.md). Tiled only dispatches a mimetype it has been
+      # told about: without this mapping, `tcb register` (without --upload) creates the
+      # nodes and then every read of them returns HTTP 500. Any server that receives
+      # pointer registrations needs this block.
+      adapters_by_mimetype:
+        application/x-hdf5-broker: "tiled_catalog_broker.adapters.lazy_hdf5:LazyHDF5ArrayAdapter"
       # The server serves `file://` arrays only from under these roots; anything outside
       # them is refused at read time. List every dataset's data root *as the server sees
       # it* (docs/ONBOARDING.md, "Paths"). Relative entries resolve against the directory
