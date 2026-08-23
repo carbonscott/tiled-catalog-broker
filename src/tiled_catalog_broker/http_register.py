@@ -45,6 +45,7 @@ import h5py
 import numpy as np
 import pandas as pd
 from dask.array.core import normalize_chunks
+from tiled.client.utils import ClientError
 from tiled.structures.array import ArrayStructure, BuiltinDtype
 from tiled.structures.core import StructureFamily
 from tiled.structures.data_source import Asset, DataSource, Management
@@ -247,10 +248,23 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
         for k, v in inherited.items():
             metadata.setdefault(k, v)
 
-        # Create container with all metadata under dataset
-        ent_container = parent_client.create_container(
-            key=ent_key, metadata=metadata,
-        )
+        # Create container with all metadata under dataset. A 409 here is
+        # expected under the tiled client's transparent retry: if the first
+        # POST commits server-side but its response is lost (transient 500,
+        # e.g. SQLite "database is locked" or the documented remote
+        # 500->retry->409 race), the retry collides with the row the first
+        # attempt created. Giving up at that point is what used to leave
+        # structure-less entities (container without artifact children) —
+        # instead, resume: fetch the container that exists and register its
+        # artifacts into it.
+        try:
+            ent_container = parent_client.create_container(
+                key=ent_key, metadata=metadata,
+            )
+        except ClientError as e:
+            if e.response.status_code != 409:
+                raise
+            ent_container = parent_client[ent_key]
         ent_added = 1
 
     art_added = 0
@@ -260,6 +274,14 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
             _register_artifact(ent_container, art_row, art_columns, base_dir,
                                server_base_dir, inherited, upload)
             art_added += 1
+        except ClientError as e:
+            if e.response.status_code == 409:
+                # Same retry race as the container: the artifact landed on
+                # the lost-response attempt; the retry collided.
+                art_added += 1
+            else:
+                art_failed += 1
+                print(f"  ERROR ent={ent_key} art={make_artifact_key(art_row)}: {e}")
         except Exception as e:
             art_failed += 1
             print(f"  ERROR ent={ent_key} art={make_artifact_key(art_row)}: {e}")
