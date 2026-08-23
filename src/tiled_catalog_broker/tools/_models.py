@@ -44,8 +44,17 @@ class ParamLocation(StrEnum):
 
     - ``root_scalars`` — scalar (0-dim) datasets at the file root.
     - ``root_attributes`` — root-level HDF5 attributes (``f.attrs``).
-    - ``group`` — datasets inside a named group (which group: ``parameters.group``).
-    - ``group_scalars`` — scalar datasets inside each entity group (grouped layout).
+    - ``group`` — datasets inside a named group: one group (``parameters.group``, flat
+      metadata) or several (``parameters.groups``, nested under each group's name).
+    - ``group_scalars`` — scalar datasets inside each entity group (grouped layout);
+      ``parameters.group`` / ``parameters.groups`` are then resolved *relative to* each
+      entity group.
+
+    Wherever a parameter is read from a dataset, that dataset's scalar HDF5 attributes —
+    whatever the producer attached: ``units``, ``long_name``, ``description``, ... — are
+    carried along as ``<field>_<attr>`` siblings (``Ei_units``). These are labels, not
+    parameters: they are stored on the entity but do not enter its content-addressed UID.
+    (``root_attributes`` parameters are themselves attributes and carry no labels.)
     """
 
     root_scalars = "root_scalars"
@@ -130,7 +139,9 @@ class SharedAxisSpec(BaseModel):
     )
     dataset: str = Field(
         min_length=1,
-        description="HDF5 path to a 1-D axis array shared by all entities (registered once).",
+        description="Absolute HDF5 path (in every layout, incl. grouped) to an axis array "
+        "identical for all entities; read from the first file that holds it and "
+        "registered once as an array child of the dataset container.",
     )
 
 
@@ -142,8 +153,27 @@ class ParametersSection(BaseModel):
     )
     group: str | None = Field(
         default=None,
-        description="HDF5 group path holding the parameter datasets; required when "
-        "location is 'group'.",
+        description="A single HDF5 group holding the parameter datasets; its fields "
+        "become flat entity metadata. For location 'group', exactly one of "
+        "`group` / `groups` is required.",
+    )
+    groups: dict[str, str] | None = Field(
+        default=None,
+        description="Several HDF5 groups, keyed by the name each is nested under in the "
+        "entity metadata: {instrument: /entry/instrument, sample: /entry/sample} -> "
+        "metadata.instrument.Ei, metadata.sample.mass. Paths are absolute for "
+        "per_entity/batched and relative to each entity group for grouped.",
+    )
+    recursive: bool = Field(
+        default=False,
+        description="Descend into subgroups of each parameter group, nesting their "
+        "scalars one level deeper per subgroup (metadata.instrument.detector.distance). "
+        "Default: direct children only.",
+    )
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="HDF5 paths of datasets or subgroups to skip when reading "
+        "parameters (same frame as the group paths) — e.g. a large JSON blob.",
     )
     entity_group: str | None = Field(
         default=None,
@@ -153,8 +183,24 @@ class ParametersSection(BaseModel):
 
     @model_validator(mode="after")
     def _location_requirements(self):
-        if self.location == ParamLocation.group and not self.group:
-            raise ValueError("'parameters.group' is required when location is 'group'")
+        if self.group and self.groups:
+            raise ValueError(
+                "'parameters.group' and 'parameters.groups' are mutually exclusive — "
+                "to nest a single group, name it under `groups`"
+            )
+        if self.location == ParamLocation.group and not (self.group or self.groups):
+            raise ValueError(
+                "one of 'parameters.group' or 'parameters.groups' is required when "
+                "location is 'group'"
+            )
+        if self.location in (ParamLocation.root_scalars, ParamLocation.root_attributes) \
+                and (self.group or self.groups):
+            raise ValueError(
+                f"'parameters.group'/'groups' do not apply to location "
+                f"'{self.location.value}' — use location 'group' to read from groups"
+            )
+        if self.groups is not None and not self.groups:
+            raise ValueError("'parameters.groups' must name at least one group")
         return self
 
 

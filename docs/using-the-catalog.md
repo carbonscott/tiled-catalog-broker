@@ -30,11 +30,21 @@ c = from_uri("<URL>", api_key="<API_KEY>")
 list(c)                                   # dataset keys: ['BROAD_SIGMA', 'LCLS_RIXS_STATIC', ...]
 ds = c["BROAD_SIGMA"]                     # a dataset container
 dict(ds.metadata)                         # provenance: method, data_type, material, producer
-len(ds)                                   # entity count
+len(ds)                                   # entity count (+ one child per shared axis)
 ```
 
 The catalog is **two levels**: dataset containers at the root, entity containers beneath
 them. Entities are never at the root — always index the dataset first.
+
+A dataset's **shared axes** (arrays identical for every entity — an energy grid, a field
+axis) sit beside the entities as array children of the dataset container, keyed by their
+`type` and listed in the dataset metadata as `shared_dataset_<type>`:
+
+```python
+shared = {k.removeprefix("shared_dataset_") for k in ds.metadata if k.startswith("shared_dataset_")}
+eloss = ds["eloss"][:]                    # (151,) — one read, not one per entity
+entities = [k for k in ds if k not in shared]
+```
 
 ```python
 # Metadata queries are served by SQL, so they stay fast as the dataset grows:

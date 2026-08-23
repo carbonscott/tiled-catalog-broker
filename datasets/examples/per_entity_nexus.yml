@@ -1,0 +1,56 @@
+# Example: per_entity layout, NeXus-structured files
+#
+# One NeXus HDF5 file per entity (here: one S(Q,E) reduction per incident energy). The
+# contract has nothing NeXus-specific in it — this example shows how a NeXus tree maps onto
+# the generic fields: scalars spread over several groups become nested metadata via
+# `parameters.groups`, and the NXdata group's arrays are ordinary artifacts.
+#
+#   Ei60_NiPS3_SQE.h5
+#   └── entry/                          [NXentry]
+#       ├── data/                       [NXdata, signal=data, axes=[E, Q]]
+#       │   ├── data        (280, 260)  → artifact
+#       │   ├── data_errors (280, 260)  → artifact
+#       │   ├── E           (281,) meV  → artifact (the grid follows Ei, so it is per entity)
+#       │   └── Q           (261,) 1/Å  → artifact
+#       ├── instrument/                 [NXinstrument]  Ei, Speed1.., name, ...  → metadata.instrument.*
+#       ├── parameters/                 [NXcollection]  temperature              → metadata.parameters.*
+#       ├── sample/                     [NXsample]      chemical_formula, mass   → metadata.sample.*
+#       ├── definition, title, start_time                                        → metadata.entry.*
+#       └── ...
+#
+# Each field's HDF5 attributes (units, long_name, ...) ride along automatically as
+# `<field>_units` etc.; an artifact's attributes become its array node's metadata.
+# Validate it by running `tcb generate datasets/examples/per_entity_nexus.yml`.
+
+key: EXAMPLE_PER_ENTITY_NEXUS   # set by `tcb stamp-key`; shown here so the example is complete
+label: Example Per-Entity NeXus
+
+metadata:
+  method: [INS]
+  data_type: experimental
+  material: NiPS3
+  facility: SNS                  # optional; where the data was collected
+  project: MAIQMag
+
+data:
+  directory: /abs/path/to/nexus_files
+  file_pattern: "*.h5"           # one NeXus file per entity
+  layout: per_entity
+
+parameters:
+  location: group
+  groups:                        # name → HDF5 group; scalars nest as metadata.<name>.<field>
+    instrument: /entry/instrument
+    parameters: /entry/parameters
+    sample:     /entry/sample
+    entry:      /entry           # root-level scalars: definition, title, start_time
+  exclude: [/entry/instrument/BL17:SEEMeta:JSON]   # a large JSON blob — not a parameter
+  # recursive: true              # would also capture e.g. /entry/instrument/detector/*
+
+artifacts:                       # the NXdata group's arrays, one artifact each
+  - { type: data,        dataset: /entry/data/data }
+  - { type: data_errors, dataset: /entry/data/data_errors }
+  - { type: E,           dataset: /entry/data/E }
+  - { type: Q,           dataset: /entry/data/Q }
+
+shared: []                       # E/Q differ per file here; if identical in every file, list them here instead

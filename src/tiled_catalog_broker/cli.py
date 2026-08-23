@@ -284,6 +284,17 @@ def register_main():
         ent_df = pd.read_parquet(ent_path)
         art_df = pd.read_parquet(art_path)
 
+        # Shared axes are artifact rows with no uid. A YAML that declares
+        # `shared:` but whose manifest has none was generated before shared
+        # axes were captured — regenerate rather than silently register the
+        # dataset without them.
+        if config.get("shared") and art_df["uid"].notna().all():
+            print(f"\nERROR: {config_path} declares shared axes but the manifests "
+                  f"for '{label}' carry none. Run\n"
+                  f"    tcb generate {config_path}\n"
+                  f"to rebuild them, then register again.", file=sys.stderr)
+            sys.exit(1)
+
         # Apply limit if specified
         if args.max_entities is not None:
             ent_df = ent_df.head(args.max_entities)

@@ -59,6 +59,9 @@ Generate Parquet manifests from the YAML (this also validates it against the con
 tcb generate datasets/mydata.yml
 ```
 
+It ends with `Entities: N` / `Artifacts: M` — check them against what you expect from
+the data before registering.
+
 ### Step 4: Start the Tiled Server
 
 ```bash
@@ -304,13 +307,11 @@ columns existed is rejected with a message telling you to re-run `tcb generate`.
 
 ### 3. Server Config
 
-Add your `data.directory` to `readable_storage` in `config.yml`:
-
-```yaml
-readable_storage:
-  - "/existing/path"
-  - "/path/to/hdf5/root"   # <-- add this
-```
+The server only serves arrays from under the roots listed in `readable_storage` in
+`config.yml`; the repo's config lists `data` (relative to the repo root), so a dataset under
+`./data/` needs nothing more. For data anywhere else, or a server that mounts the data at
+a different path, see [docs/ONBOARDING.md §5 "Paths"](docs/ONBOARDING.md) — it is the
+one place these rules live.
 
 ### Run It
 
@@ -396,4 +397,12 @@ restart (the server creates a fresh database on startup).
 
 ### Re-registering data
 `tcb register` is **incremental** and safe to run multiple times: an entity
-already on the server is skipped, so a re-run resumes rather than duplicates.
+already on the server is skipped, so a re-run resumes rather than duplicates
+(an entity a crashed run left half-registered gets its missing artifacts, with
+a `WARNING`). It never *rewrites* an existing artifact: after changing a path in
+the YAML, regenerate, `tcb delete` the dataset, and register again.
+
+### Everything else
+[docs/ONBOARDING.md §8](docs/ONBOARDING.md) is the symptom → cause → fix table for
+generate, register, and read-back failures (including the silent "registers fine, every
+read is a 500" case).

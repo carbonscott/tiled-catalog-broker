@@ -1,12 +1,19 @@
 ## Environment Setup
 
-Set these environment variables before running any commands:
+Use `uv` to run python programs (`uv run tcb ...`, `uv run --with pytest pytest ...`).
+Nothing in this repo assumes a particular machine or facility: it runs from any checkout
+with `uv` installed, and the local server config (`config.yml`) serves data placed under
+`./data/` with no edits.
+
+**Only if you are on SLAC's SDF**, you may point uv at the shared cache to avoid repeated
+package downloads:
 
 ```bash
 export UV_CACHE_DIR=/sdf/data/lcls/ds/prj/prjmaiqmag01/results/cwang31/.UV_CACHE
 ```
 
-Use `uv` to run python programs. The UV_CACHE_DIR avoids repeated package downloads.
+Off SDF that path does not exist and setting it makes every `uv` command fail — leave
+`UV_CACHE_DIR` unset and use uv's default cache.
 
 ## Project Overview
 
@@ -72,7 +79,8 @@ tcb generate datasets/my_dataset.yml
 tcb register datasets/my_dataset.yml     # needs a running server (TILED_URL, TILED_API_KEY)
 tcb register --upload datasets/my_dataset.yml  # stream arrays into server storage (server can't see the files)
 
-# Serve
+# Serve (from the repo root: config.yml's readable_storage lists `data`, resolved
+# relative to the server's CWD, so ./data/<DATASET> is readable with no config change)
 uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
 ```
 
@@ -95,6 +103,7 @@ the manifest uid. Artifact keys are the manifest's `type` verbatim.
 / (root)
 ├── BROAD_SIGMA/                     ← dataset container
 │   metadata: {method, data_type, material, producer, ...}
+│   ├── eloss                        ← shared axis (151,), registered once
 │   ├── BROAD_SIGMA_1a2b3c4d5e6f7/   ← entity container
 │   │   metadata: {sigma, gamma, ...} + path_/dataset_/index_ locators
 │   │   └── rixs_spectrum            ← array artifact (151, 40)
@@ -125,3 +134,4 @@ server — `list(from_uri(url, api_key=key))`.
 | `docs/exploring-your-data.md` | Reading back an uploaded dataset in the marimo notebook (the read-side companion) |
 | `docs/adr/` | Architecture Decision Records (frozen layouts, single register route, soft vocab, hierarchical containers) |
 | `docs/SLICING-EXPLAINER.md` | How batched arrays are served slice-by-slice over Tiled |
+| `docs/nexus-support.md` | How a NeXus file maps onto the (generic) contract — `parameters.groups`, attribute labels — and what is deliberately not modelled |

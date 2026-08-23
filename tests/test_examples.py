@@ -39,4 +39,5 @@ def test_example_layout_matches_filename(path):
     yaml = YAML()
     with open(path) as f:
         cfg = yaml.load(f)
-    assert cfg["data"]["layout"] == path.stem
+    # per_entity.yml -> per_entity; a variant (per_entity_nexus.yml) keeps the layout prefix
+    assert path.stem.startswith(cfg["data"]["layout"])
