@@ -1,0 +1,35 @@
+<svg id="dg-hierarchy" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 330" role="img"
+     aria-label="Catalog hierarchy: a dataset container holds a shared axis array and many entity containers, each entity holding artifact arrays."
+     font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" fill="currentColor">
+  <style>
+    #dg-hierarchy .box  { fill: none; stroke: currentColor; stroke-width: 1.5; }
+    #dg-hierarchy .lvl  { font-size: 11px; opacity: .55; letter-spacing: .08em; }
+    #dg-hierarchy .key  { font-size: 13px; font-weight: 600; }
+    #dg-hierarchy .meta { font-size: 11.5px; opacity: .75; }
+    #dg-hierarchy .dim  { font-size: 11px; opacity: .55; font-style: italic; }
+    #dg-hierarchy .link { fill: none; stroke: currentColor; stroke-width: 1.2; opacity: .45; }
+    #dg-hierarchy .accent { stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 4 3; fill: none; opacity: .8; }
+  </style>
+  <text class="lvl" x="0" y="14">DATASET</text>
+  <rect class="box" x="0" y="24" width="640" height="290" rx="6"/>
+  <text class="key"  x="18" y="48">BROAD_SIGMA</text>
+  <text class="meta" x="18" y="66">method · data_type · material · producer</text>
+  <text class="dim"  x="18" y="82">provenance, queryable across datasets</text>
+  <path class="link" d="M 30 92 V 118 H 46"/>
+  <rect class="accent" x="46" y="100" width="200" height="36" rx="5"/>
+  <text class="key"  x="58" y="116">eloss</text>
+  <text class="meta" x="58" y="130">(151,) float64 — shared axis</text>
+  <text class="dim"  x="256" y="122">stored once, not per entity</text>
+  <path class="link" d="M 30 92 V 168 H 46"/>
+  <text class="lvl" x="46" y="160">ENTITY</text>
+  <rect class="box" x="46" y="168" width="470" height="120" rx="5"/>
+  <text class="key"  x="60" y="190">BROAD_SIGMA_23e67506d910b</text>
+  <text class="meta" x="60" y="208">sigma · gamma · tenDq · …</text>
+  <text class="dim"  x="60" y="224">your parameters, one queryable field each</text>
+  <path class="link" d="M 72 232 V 258 H 88"/>
+  <text class="lvl" x="88" y="250">ARTIFACT</text>
+  <rect class="box" x="88" y="258" width="200" height="20" rx="4"/>
+  <text class="meta" x="98" y="272">rixs_spectrum  (151, 40)</text>
+  <text class="dim"  x="300" y="272">array; slices served over HTTP</text>
+  <text class="dim" x="46" y="306">… 10,000 entities, same shape</text>
+</svg>

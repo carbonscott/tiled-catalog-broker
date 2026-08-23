@@ -1,0 +1,52 @@
+<svg id="dg-layouts" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 250" role="img"
+     aria-label="The three layouts: per_entity where one file is one entity, batched where one row of a stacked dataset is one entity, and grouped where one HDF5 group is one entity."
+     font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" fill="currentColor">
+  <style>
+    #dg-layouts .box  { fill: none; stroke: currentColor; stroke-width: 1.4; }
+    #dg-layouts .row  { fill: none; stroke: currentColor; stroke-width: 1; opacity: .45; }
+    #dg-layouts .hit  { fill: none; stroke: currentColor; stroke-width: 1.8; }
+    #dg-layouts .name { font-size: 12.5px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, monospace; }
+    #dg-layouts .rule { font-size: 11px; opacity: .8; }
+    #dg-layouts .mono { font-size: 10.5px; opacity: .7; font-family: ui-monospace, SFMono-Regular, monospace; }
+    #dg-layouts .dim  { font-size: 10px; opacity: .5; }
+    #dg-layouts .sep  { stroke: currentColor; opacity: .2; stroke-width: 1; }
+  </style>
+  <text class="name" x="0"   y="16">per_entity</text>
+  <text class="rule" x="0"   y="34">one file = one entity</text>
+  <rect class="hit" x="0"  y="46" width="120" height="26" rx="4"/>
+  <text class="mono" x="10" y="63">entity_0001.h5</text>
+  <rect class="box" x="0"  y="78" width="120" height="26" rx="4"/>
+  <text class="mono" x="10" y="95">entity_0002.h5</text>
+  <rect class="box" x="0"  y="110" width="120" height="26" rx="4"/>
+  <text class="mono" x="10" y="127">entity_0003.h5</text>
+  <text class="dim" x="0" y="156">params: scalars at</text>
+  <text class="dim" x="0" y="169">the file root</text>
+  <line class="sep" x1="180" y1="8" x2="180" y2="200"/>
+  <text class="name" x="212" y="16">batched</text>
+  <text class="rule" x="212" y="34">one row = one entity</text>
+  <rect class="box" x="212" y="46" width="150" height="90" rx="4"/>
+  <text class="mono" x="222" y="62">run.h5  /spectra</text>
+  <line class="row" x1="222" y1="72" x2="352" y2="72"/>
+  <rect class="hit" x="222" y="76" width="130" height="14" rx="2"/>
+  <text class="dim" x="356" y="87">row i</text>
+  <line class="row" x1="222" y1="96" x2="352" y2="96"/>
+  <line class="row" x1="222" y1="110" x2="352" y2="110"/>
+  <line class="row" x1="222" y1="124" x2="352" y2="124"/>
+  <text class="dim" x="212" y="156">params: parallel array,</text>
+  <text class="dim" x="212" y="169">usually /params</text>
+  <text class="dim" x="212" y="182">shape drops axis 0</text>
+  <line class="sep" x1="410" y1="8" x2="410" y2="200"/>
+  <text class="name" x="442" y="16">grouped</text>
+  <text class="rule" x="442" y="34">one group = one entity</text>
+  <rect class="box" x="442" y="46" width="170" height="90" rx="4"/>
+  <text class="mono" x="452" y="62">samples.h5  /samples</text>
+  <rect class="hit" x="460" y="70" width="140" height="18" rx="3"/>
+  <text class="mono" x="468" y="83">sample_000/</text>
+  <rect class="box" x="460" y="92" width="140" height="18" rx="3"/>
+  <text class="mono" x="468" y="105">sample_001/</text>
+  <rect class="box" x="460" y="114" width="140" height="16" rx="3"/>
+  <text class="mono" x="468" y="126">sample_002/</text>
+  <text class="dim" x="442" y="156">params: scalars inside</text>
+  <text class="dim" x="442" y="169">each group</text>
+  <text class="dim" x="0" y="216">The heavy outline marks one entity. Which of the three you have decides `data.layout`; nothing else about your files has to change.</text>
+</svg>
