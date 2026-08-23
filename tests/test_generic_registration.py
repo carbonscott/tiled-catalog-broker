@@ -30,6 +30,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -161,7 +163,9 @@ class TestVDPRegistration:
 
         ent_df, art_df, base_dir = vdp_manifests
         parent = MagicMock()
-        parent.__contains__.return_value = True    # already registered
+        parent.__contains__.return_value = True    # already registered, complete:
+        parent.__getitem__.return_value.keys.return_value = list(
+            art_df[art_df["uid"] == ent_df.iloc[0]["uid"]]["type"])
 
         result = _register_one_entity(
             ent_df.iloc[0], list(ent_df.columns),
@@ -172,6 +176,33 @@ class TestVDPRegistration:
 
         assert result == (0, 0, 1, 0)              # counted as skipped
         parent.create_container.assert_not_called()
+        parent.__getitem__.return_value.new.assert_not_called()
+
+    def test_half_registered_entity_gets_its_missing_artifacts(self, vdp_manifests, capsys):
+        """A crashed earlier run left the container with some artifacts missing: the
+        re-run registers only those into the existing container (a bare skip would
+        report the dataset complete while this entity serves nothing)."""
+        from tiled_catalog_broker.http_register import _register_one_entity
+
+        ent_df, art_df, base_dir = vdp_manifests
+        mine = list(art_df[art_df["uid"] == ent_df.iloc[0]["uid"]]["type"])
+        assert len(mine) >= 2
+        parent = MagicMock()
+        parent.__contains__.return_value = True
+        existing = parent.__getitem__.return_value
+        existing.keys.return_value = mine[:1]                  # only the first attached
+
+        result = _register_one_entity(
+            ent_df.iloc[0], list(ent_df.columns),
+            art_df.groupby("uid"), list(art_df.columns),
+            parent, base_dir=base_dir, server_base_dir=None,
+            dataset_key="TEST_KEY",
+        )
+
+        assert result == (0, len(mine) - 1, 1, 0)              # skipped entity, added the rest
+        parent.create_container.assert_not_called()            # the container is reused
+        assert [c.kwargs["key"] for c in existing.new.call_args_list] == mine[1:]
+        assert "half-registered" in capsys.readouterr().out
 
 
 # ─── NiPS3-style: batched files ──────────────────────────────────────────────
@@ -402,6 +433,151 @@ class TestUploadMode:
         assert not reg.uploads
         n_arts = (art_df["uid"] == str(ent_df.iloc[0]["uid"])).sum()
         assert reg.result == (1, 0, 0, n_arts)
+
+
+# ─── Shared axes: artifact rows with no uid, registered under the dataset ─────
+
+
+class TestSharedAxes:
+    """Shared axes are artifact rows with no uid: registered once under the dataset
+    container, via either transport, through the same code as entity artifacts."""
+
+    @pytest.fixture
+    def shared_setup(self, tmp_path):
+        """A batched file with an `/energy` axis (with a units attr) + its artifact row."""
+        import h5py
+        import numpy as np
+        from tiled_catalog_broker.tools.generate import _shared_axis_rows
+        from tiled_catalog_broker.tools._models import SharedAxisSpec
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        energy = np.linspace(0.5, 2.0, 7)
+        with h5py.File(data_dir / "b0.h5", "w") as f:
+            f.create_dataset("spectra", data=np.zeros((3, 7)))
+            f.create_dataset("energy", data=energy).attrs["units"] = "eV"
+        rows = _shared_axis_rows(
+            [data_dir / "b0.h5"], data_dir, [SharedAxisSpec(type="energy", dataset="/energy")])
+        return pd.DataFrame(rows), str(data_dir), energy
+
+    def _drive(self, art_df, base_dir, *, existing=(), upload=False, server_base_dir=None):
+        """Run register_dataset_http with no entities; return the dataset container mock."""
+        from tiled_catalog_broker.http_register import register_dataset_http
+        client = MagicMock()
+        client.__contains__.return_value = False
+        parent = client.create_container.return_value
+        parent.__contains__.side_effect = lambda k: k in existing
+        changed = register_dataset_http(
+            client, pd.DataFrame(columns=["uid"]), art_df, base_dir, "T", dataset_key="T",
+            dataset_metadata={}, server_base_dir=server_base_dir, max_workers=1, upload=upload)
+        return parent, changed
+
+    def test_rows_have_no_uid_and_carry_the_datasets_attrs(self, shared_setup):
+        art_df, _, _ = shared_setup
+        assert art_df["uid"].isna().all()
+        assert art_df.iloc[0]["type"] == "energy"
+        assert art_df.iloc[0]["units"] == "eV"
+
+    def test_external_registers_pointer_under_dataset(self, shared_setup):
+        from tiled.structures.core import StructureFamily
+        art_df, base_dir, _ = shared_setup
+        parent, changed = self._drive(art_df, base_dir)
+        assert changed is True
+        kw = parent.new.call_args.kwargs
+        assert kw["key"] == "energy"
+        assert kw["structure_family"] == StructureFamily.array
+        ds = kw["data_sources"][0]
+        assert ds.parameters == {"dataset": "/energy"}          # whole array, no slice
+        assert ds.assets[0].data_uri.endswith("/b0.h5")
+        assert kw["metadata"]["shared_axis"] is True
+        assert kw["metadata"]["shape"] == [7]
+        assert kw["metadata"]["dtype"] == "float64"
+        assert kw["metadata"]["dataset"] == "/energy"
+        assert kw["metadata"]["units"] == "eV"                  # the dataset's own attr
+        parent.write_array.assert_not_called()
+        parent.create_container.assert_not_called()             # it is not an entity
+
+    def test_server_base_dir_applies_to_shared_axes(self, shared_setup):
+        art_df, base_dir, _ = shared_setup
+        parent, _ = self._drive(art_df, base_dir, server_base_dir="/mnt/srv")
+        uri = parent.new.call_args.kwargs["data_sources"][0].assets[0].data_uri
+        assert uri == "file://localhost/mnt/srv/b0.h5"
+
+    def test_upload_writes_the_axis_values(self, shared_setup):
+        import numpy as np
+        art_df, base_dir, energy = shared_setup
+        parent, changed = self._drive(art_df, base_dir, upload=True)
+        assert changed is True
+        data = parent.write_array.call_args.args[0]
+        kw = parent.write_array.call_args.kwargs
+        np.testing.assert_array_equal(data, energy)
+        assert kw["key"] == "energy"
+        assert kw["metadata"]["shared_axis"] is True
+        parent.new.assert_not_called()
+
+    def test_existing_axis_is_skipped(self, shared_setup):
+        art_df, base_dir, _ = shared_setup
+        parent, changed = self._drive(art_df, base_dir, existing={"energy"})
+        assert changed is False
+        parent.new.assert_not_called()
+        parent.write_array.assert_not_called()
+
+    def test_shape_mismatch_on_upload_is_counted_not_fatal(self, shared_setup):
+        art_df, base_dir, _ = shared_setup
+        bad = art_df.copy()
+        bad["shape"] = "[99]"
+        parent, changed = self._drive(bad, base_dir, upload=True)
+        assert changed is False
+        parent.write_array.assert_not_called()
+
+    def test_shared_rows_do_not_leak_into_entities(self, shared_setup, vdp_manifests):
+        """With entities present, null-uid rows register under the dataset only."""
+        from tiled_catalog_broker.http_register import register_dataset_http
+        shared_df, _, _ = shared_setup
+        ent_df, art_df, base_dir = vdp_manifests
+        shared_df["file"] = art_df.iloc[0]["file"]                # any readable file path
+        client = MagicMock()
+        client.__contains__.return_value = False
+        parent = client.create_container.return_value
+        parent.__contains__.return_value = False
+        ent_container = parent.create_container.return_value
+        register_dataset_http(
+            client, ent_df.head(1), pd.concat([art_df, shared_df], ignore_index=True),
+            base_dir, "T", dataset_key="T", dataset_metadata={}, max_workers=1)
+        assert [c.kwargs["key"] for c in parent.new.call_args_list] == ["energy"]
+        assert "energy" not in {c.kwargs["key"] for c in ent_container.new.call_args_list}
+
+
+# ─── Nested metadata: dotted manifest columns → nested entity metadata ───────
+
+
+class TestNestedMetadata:
+
+    def test_dotted_columns_nest(self, vdp_manifests):
+        """`instrument.Ei` (from parameters.groups) → metadata["instrument"]["Ei"]."""
+        ent_df, art_df, base_dir = vdp_manifests
+        ent_df = ent_df.copy()
+        ent_df["instrument.Ei"] = 60.0
+        ent_df["instrument.Ei_units"] = "meV"
+        ent_df["instrument.detector.distance"] = 5.5
+        ent_df["sample.chemical_formula"] = "NiPS3"
+        meta = register_entity((ent_df, art_df, base_dir)).metadata
+        assert meta["instrument"] == {"Ei": 60.0, "Ei_units": "meV", "detector": {"distance": 5.5}}
+        assert meta["sample"] == {"chemical_formula": "NiPS3"}
+        assert "instrument.Ei" not in meta
+        json.dumps(meta)
+
+    def test_artifact_attr_columns_become_node_metadata_and_nulls_are_skipped(self, vdp_manifests):
+        ent_df, art_df, base_dir = vdp_manifests
+        art_df = art_df.copy()
+        mask = art_df["uid"] == ent_df.iloc[0]["uid"]
+        keys = list(art_df.loc[mask, "type"])
+        art_df["units"] = None
+        art_df.loc[mask, "units"] = "counts"
+        art_df.loc[art_df.index[mask][0], "units"] = None          # first artifact: no attr
+        reg = register_entity((ent_df, art_df, base_dir))
+        assert "units" not in reg.artifacts[keys[0]]["metadata"]
+        assert reg.artifacts[keys[1]]["metadata"]["units"] == "counts"
 
 
 # ─── Storage marker: which transport owns the bytes ──────────────────────────

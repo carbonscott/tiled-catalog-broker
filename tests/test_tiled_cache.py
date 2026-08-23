@@ -81,3 +81,21 @@ if __name__ == "__main__":
     parser.add_argument("--n-epochs", type=int, default=N_EPOCHS, help=f"Number of epochs to run (default: {N_EPOCHS})")
     args = parser.parse_args()
     test_tiled_cache(n_entities=args.n_entities, n_epochs=args.n_epochs)
+
+
+def test_entity_keys_exclude_shared_axes():
+    """Shared axes sit beside the entities as array children of the dataset container
+    (announced as shared_dataset_<type> in its metadata); they are not samples."""
+    from unittest.mock import MagicMock
+
+    client = MagicMock()
+    client.metadata = {"label": "DS", "shared_dataset_eloss": "/eloss"}
+    client.__len__.return_value = 3
+    client.item = {"links": {"search": "http://x/search"}}
+    client.context.http_client.get.return_value.json.return_value = {
+        "data": [{"id": "eloss"}, {"id": "DS_aaaa"}, {"id": "DS_bbbb"}]}
+
+    ds = TiledCatalogDataset(client=client, dataset_key="DS", artifact_keys=["spectrum"],
+                             cache_dir=str(Path(CACHE_DIR) / "unit"))
+    assert ds._ent_keys == ["DS_aaaa", "DS_bbbb"]
+    assert len(ds) == 2

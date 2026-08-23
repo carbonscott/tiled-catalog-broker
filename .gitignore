@@ -183,6 +183,12 @@ activemq-data/
 # Environments
 .env
 .envrc
+
+# minted API keys (plaintext secrets) + mint credentials
+keys.csv
+.env.mint
+assignees.txt
+mailing/
 .venv
 env/
 venv/

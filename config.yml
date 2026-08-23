@@ -1,4 +1,9 @@
-# Tiled server configuration
+# Tiled server configuration (local / development server)
+#
+# Start it from the repo root:
+#   uv run --with 'tiled[server]' tiled serve config config.yml --api-key secret
+# Nothing here assumes a particular machine or facility; a deployment elsewhere keeps its
+# own copy of this file with its own storage roots.
 uvicorn:
   host: "127.0.0.1"
   port: 8005
@@ -10,7 +15,15 @@ trees:
       uri: "sqlite:///catalog.db"
       init_if_not_exists: true
       writable_storage: "storage"
+      # The server serves `file://` arrays only from under these roots; anything outside
+      # them is refused at read time. List every dataset's data root *as the server sees
+      # it* (docs/ONBOARDING.md, "Paths"). Relative entries resolve against the directory
+      # the server is started from; `$ENV_VARS` are expanded. Roots that do not exist on
+      # this machine are harmless — they simply never match.
       readable_storage:
+        # Repo-local datasets: ./data/<DATASET>/... (workshop/demo data, local copies)
+        - "data"
+        # SLAC SDF deployment roots (no effect off SDF)
         - "/sdf/group/mli/samklein/code/sbi_maq/results/edrixs_tsnpe_scaled_data/initial_data_proper"
         - "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/NiPS3_Multimodal_Synthetic/data"
         - "/sdf/data/lcls/ds/prj/prjmaiqmag01/results/data-source/data-tlinker/SUNNY/NIPS_10000"

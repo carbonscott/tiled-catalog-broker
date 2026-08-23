@@ -56,11 +56,8 @@ shared:
     dataset: /omega_bounds
     # shape: (2,), monotonic, range [0.0, 12.0], step=12
 
-extra_metadata:
-  - dataset: /log_probs
-    # shape per entity: (), dtype: float32
-    # range: [-inf, -15.332310676574707]
-    # registered as per-entity metadata field `log_probs`
+# `extra_metadata` (formerly /log_probs here) is no longer supported: per-entity scalars
+# outside /params can be captured with `parameters.groups` (docs/ONBOARDING.md §2).
 
 provenance:
   created_at: "2026-02-13"

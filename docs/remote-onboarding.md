@@ -157,8 +157,9 @@ tcb register --upload datasets/mydata.yml
 
 Each entity is created with its parameters as queryable metadata, and each
 artifact's array is read from your local file and streamed to the server.
-The dataset container is stamped `storage: uploaded` so tooling knows the
-server holds the bytes.
+Shared axes (`shared:` in the YAML) are streamed once each and land as array
+children of the dataset container. The dataset container is stamped
+`storage: uploaded` so tooling knows the server holds the bytes.
 
 Registration is incremental: if the connection drops partway, re-run the
 same command and already-registered entities are skipped.
@@ -183,8 +184,9 @@ from tiled.client import from_uri
 
 c = from_uri("<URL>", api_key="<API_KEY>")
 ds = c["MY_DATASET"]                 # the stamped key
-ent = ds[list(ds)[0]]
+ent = ds.values().first()            # an entity container
 ent["spectrum"][:]                   # served from the server's storage
+ds["energy"][:]                      # a shared axis — also server-stored
 ```
 
 This is ordinary Mode B access (`docs/using-the-catalog.md`) — your

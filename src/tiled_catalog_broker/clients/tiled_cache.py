@@ -226,6 +226,11 @@ class TiledCatalogDataset:
         # Fetch all entity keys once.
         # Tiled's meta["count"] is incorrectly reported (~101), causing links["next"]
         # to go None after 200 items. Paginate manually using len() which is correct.
+        # A dataset's shared axes sit beside the entities as array children, keyed by
+        # their type and announced in the dataset metadata as shared_dataset_<type>;
+        # they are not entities.
+        shared = {k.removeprefix("shared_dataset_")
+                  for k in dict(client.metadata) if k.startswith("shared_dataset_")}
         total = len(client)
         batch = 100
         self._ent_keys = []
@@ -236,7 +241,7 @@ class TiledCatalogDataset:
                 params={"fields": "", "page[limit]": batch, "page[offset]": offset},
             )
             page = resp.json()["data"]
-            self._ent_keys.extend(item["id"] for item in page)
+            self._ent_keys.extend(item["id"] for item in page if item["id"] not in shared)
             offset += len(page)
             if not page:
                 break

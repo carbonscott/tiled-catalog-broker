@@ -18,9 +18,22 @@ artifact bytes:
   file and written through the server into its writable storage. For data the
   server cannot see on disk (e.g. remote users registering their own data).
 
-Registration is incremental in both modes: an entity already present on the
-server is skipped, so a re-run resumes rather than duplicates. Per-entity work
-runs on a ThreadPoolExecutor (see _DEFAULT_MAX_WORKERS).
+Shared axes (the YAML's ``shared:`` block, captured by ``tcb generate`` as
+artifact rows with no ``uid``) are registered once as array children of the
+*dataset* container, through the same two transports and the same code path
+as entity artifacts — so ``ds["eloss"][:]`` reads over HTTP whether the
+server holds a pointer or the bytes.
+
+Entity metadata is built from every entity-manifest column; a dotted column
+(``instrument.Ei`` — from ``parameters.groups``) is nested on the way in, so
+it is queryable as ``Key("instrument.Ei")``.
+
+Registration is incremental in both modes: an entity (or shared axis) already
+present on the server is skipped, so a re-run resumes rather than duplicates. An
+entity a crashed run left without some of its artifacts gets the missing ones
+registered into its existing container (with a WARNING); an artifact that exists
+is never rewritten, so a changed path means delete + re-register.
+Per-entity work runs on a ThreadPoolExecutor (see _DEFAULT_MAX_WORKERS).
 """
 
 import json
@@ -185,92 +198,125 @@ def _register_one_entity(ent_row, ent_columns, art_grouped, art_columns,
     Returns:
         (ent_added, art_added, skipped, art_failed) — exactly one of
         ent_added or skipped is 1; art_added counts artifacts successfully
-        registered, art_failed counts artifacts that raised during register.
+        registered (for a skipped entity: the ones a crashed earlier run left
+        missing), art_failed counts artifacts that raised during register.
     """
     if inherited is None:
         inherited = {}
 
     uid = str(ent_row["uid"])
     ent_key = make_entity_key(ent_row, dataset_key)
+    art_rows = ([row for _, row in art_grouped.get_group(uid).iterrows()]
+                if uid in art_grouped.groups else [])
 
-    # Skip if container already exists
     if ent_key in parent_client:
-        return (0, 0, 1, 0)
+        # Incremental: an entity already on the server is skipped — unless an
+        # earlier run died before all of its artifacts attached. A bare skip
+        # would then report a complete dataset that serves nothing for this
+        # entity, so only the missing artifacts are registered into the
+        # existing container. (A *changed* path is not detected here: an
+        # existing artifact is never rewritten — delete and re-register.)
+        ent_container = parent_client[ent_key]
+        present = set(ent_container.keys())
+        art_rows = [row for row in art_rows if make_artifact_key(row) not in present]
+        if not art_rows:
+            return (0, 0, 1, 0)
+        print(f"  WARNING ent={ent_key} half-registered: {len(present)} of "
+              f"{len(present) + len(art_rows)} artifacts on the server; "
+              f"registering the {len(art_rows)} missing")
+        ent_added = 0
+    else:
+        # Build metadata dynamically from ALL manifest columns. A dotted column
+        # (`instrument.Ei`, from parameters.groups) is nested: metadata["instrument"]["Ei"].
+        metadata = {}
+        for col in ent_columns:
+            *parents, leaf = col.split(".")
+            node = metadata
+            for p in parents:
+                node = node.setdefault(p, {})
+            node[leaf] = to_json_safe(ent_row[col])
 
-    # Build metadata dynamically from ALL manifest columns
-    metadata = {}
-    for col in ent_columns:
-        metadata[col] = to_json_safe(ent_row[col])
-
-    # Attach artifact locators to metadata (for Mode A access)
-    artifacts = None
-    if uid in art_grouped.groups:
-        artifacts = art_grouped.get_group(uid)
-        for _, art_row in artifacts.iterrows():
+        # Attach artifact locators to metadata (for Mode A access)
+        for art_row in art_rows:
             art_key = make_artifact_key(art_row)
             metadata[f"path_{art_key}"] = art_row["file"]
             metadata[f"dataset_{art_key}"] = art_row["dataset"]
             if "index" in art_row.index and pd.notna(art_row.get("index")):
                 metadata[f"index_{art_key}"] = int(art_row["index"])
 
-    for k, v in inherited.items():
-        metadata.setdefault(k, v)
+        for k, v in inherited.items():
+            metadata.setdefault(k, v)
 
-    # Create container with all metadata under dataset
-    ent_container = parent_client.create_container(
-        key=ent_key, metadata=metadata,
-    )
+        # Create container with all metadata under dataset
+        ent_container = parent_client.create_container(
+            key=ent_key, metadata=metadata,
+        )
+        ent_added = 1
 
     art_added = 0
     art_failed = 0
-    if artifacts is not None:
-        for _, art_row in artifacts.iterrows():
-            art_key = make_artifact_key(art_row)
-            try:
-                data_shape = json.loads(art_row["shape"])
-                data_dtype = np.dtype(art_row["dtype"])
+    for art_row in art_rows:
+        try:
+            _register_artifact(ent_container, art_row, art_columns, base_dir,
+                               server_base_dir, inherited, upload)
+            art_added += 1
+        except Exception as e:
+            art_failed += 1
+            print(f"  ERROR ent={ent_key} art={make_artifact_key(art_row)}: {e}")
 
-                art_metadata = {
-                    "type": art_row["type"],
-                    "shape": list(data_shape),
-                    "dtype": str(data_dtype),
-                }
-                for col in art_columns:
-                    if col not in ARTIFACT_STANDARD_COLS:
-                        art_metadata[col] = to_json_safe(art_row[col])
+    return (ent_added, art_added, 1 - ent_added, art_failed)
 
-                for k, v in inherited.items():
-                    art_metadata.setdefault(k, v)
 
-                if upload:
-                    data = read_artifact_array(art_row, base_dir)
-                    if list(data.shape) != list(data_shape) or data.dtype != data_dtype:
-                        raise ValueError(
-                            f"manifest records shape={data_shape} dtype={data_dtype} "
-                            f"but the file holds shape={list(data.shape)} "
-                            f"dtype={data.dtype}; re-run `tcb generate`"
-                        )
-                    ent_container.write_array(
-                        data, key=art_key, metadata=art_metadata,
-                    )
-                else:
-                    data_source = create_data_source(
-                        art_row, base_dir=base_dir,
-                        server_base_dir=server_base_dir,
-                    )
-                    ent_container.new(
-                        structure_family=StructureFamily.array,
-                        data_sources=[data_source],
-                        key=art_key,
-                        metadata=art_metadata,
-                    )
-                art_added += 1
+def _register_artifact(container, art_row, art_columns, base_dir, server_base_dir,
+                       inherited, upload, extra=None):
+    """Register one artifact-manifest row as an array child of ``container``.
 
-            except Exception as e:
-                art_failed += 1
-                print(f"  ERROR ent={ent_key} art={art_key}: {e}")
+    The one place an array node is created: under an entity container for a
+    per-entity artifact, under the dataset container for a shared axis (a row
+    with no uid). Node metadata is ``type``/``shape``/``dtype`` plus every
+    non-standard manifest column (the dataset's own HDF5 attributes — units,
+    long_name, ... — skipping nulls), ``extra``, and the inherited keys. The
+    transport is a DataSource pointing at the file, or with ``upload`` the
+    array read locally and written through the server. Raises on failure;
+    the caller counts.
+    """
+    art_key = make_artifact_key(art_row)
+    data_shape = json.loads(art_row["shape"])
+    data_dtype = np.dtype(art_row["dtype"])
 
-    return (1, art_added, 0, art_failed)
+    art_metadata = {
+        "type": art_row["type"],
+        "shape": list(data_shape),
+        "dtype": str(data_dtype),
+    }
+    for col in art_columns:
+        if col not in ARTIFACT_STANDARD_COLS:
+            val = to_json_safe(art_row[col])
+            if val is not None:
+                art_metadata[col] = val
+    art_metadata.update(extra or {})
+    for k, v in inherited.items():
+        art_metadata.setdefault(k, v)
+
+    if upload:
+        data = read_artifact_array(art_row, base_dir)
+        if list(data.shape) != list(data_shape) or data.dtype != data_dtype:
+            raise ValueError(
+                f"manifest records shape={data_shape} dtype={data_dtype} "
+                f"but the file holds shape={list(data.shape)} "
+                f"dtype={data.dtype}; re-run `tcb generate`"
+            )
+        container.write_array(data, key=art_key, metadata=art_metadata)
+    else:
+        data_source = create_data_source(
+            art_row, base_dir=base_dir, server_base_dir=server_base_dir,
+        )
+        container.new(
+            structure_family=StructureFamily.array,
+            data_sources=[data_source],
+            key=art_key,
+            metadata=art_metadata,
+        )
 
 
 def register_dataset_http(client, ent_df, art_df, base_dir, label,
@@ -280,13 +326,16 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
                           upload=False):
     """Register one dataset via HTTP through a running Tiled server.
 
-    Creates a dataset container, then entity containers with locator
-    metadata (Mode A) and array children (Mode B).
+    Creates a dataset container, its shared axes (artifact rows with no uid)
+    as array children, then entity containers with locator metadata (Mode A)
+    and array children (Mode B).
 
     Args:
         client: Tiled client connected to a running server.
         ent_df: Entity manifest DataFrame.
-        art_df: Artifact manifest DataFrame.
+        art_df: Artifact manifest DataFrame. Rows with a null ``uid`` are the
+            dataset's shared axes and are registered once under the dataset
+            container, independent of which entities this run registers.
         base_dir: Base directory for resolving relative file paths (local).
         label: Dataset name (for logging).
         dataset_key: Key for the dataset container (e.g. "VDP").
@@ -303,7 +352,7 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
             a dataset cannot mix the two.
 
     Returns:
-        bool: True if any entities were registered.
+        bool: True if any entities or shared axes were registered.
     """
     start_time = time.time()
     ent_count = 0
@@ -334,9 +383,36 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
         )
         print(f"Created dataset container '{dataset_key}' (storage: {storage})")
 
-    # Pre-group artifacts by uid for O(1) lookup
     require_shape_dtype(art_df)
+    ent_columns = list(ent_df.columns)
+    art_columns = list(art_df.columns)
+    inherited = {k: dataset_metadata[k] for k in INHERITED_KEYS if k in dataset_metadata}
 
+    # Shared axes first: the artifact rows with no uid, one array node each
+    # directly under the dataset container, same transport as the entity
+    # artifacts. Independent of which entities this run registers (-n);
+    # an axis whose key already exists is skipped.
+    shared_added = shared_skipped = shared_failed = 0
+    shared_rows = art_df[art_df["uid"].isna()]
+    for _, row in shared_rows.iterrows():
+        key = make_artifact_key(row)
+        if key in parent_client:
+            shared_skipped += 1
+            continue
+        try:
+            _register_artifact(
+                parent_client, row, art_columns, base_dir, server_base_dir,
+                inherited, upload,
+                extra={"shared_axis": True, "path": row["file"], "dataset": row["dataset"]},
+            )
+            shared_added += 1
+            print(f"  Registered shared axis '{key}' shape={row['shape']} dtype={row['dtype']}")
+        except Exception as e:
+            shared_failed += 1
+            print(f"  ERROR shared axis '{key}': {e}")
+
+    # Pre-group entity artifacts by uid for O(1) lookup (groupby drops the
+    # null-uid shared rows).
     print("Pre-grouping artifacts by uid...")
     art_grouped = art_df.groupby("uid")
 
@@ -344,11 +420,6 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     mode = "upload" if upload else "external"
     print(f"\n--- Registering {label} ({n} entities via HTTP, {mode}, "
           f"pool={max_workers}) ---")
-
-    ent_columns = list(ent_df.columns)
-    art_columns = list(art_df.columns)
-
-    inherited = {k: dataset_metadata[k] for k in INHERITED_KEYS if k in dataset_metadata}
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
@@ -381,9 +452,12 @@ def register_dataset_http(client, ent_df, art_df, base_dir, label,
     print(f"  Artifacts:       {art_count}")
     print(f"  Skipped:         {skip_count}")
     print(f"  Artifact errors: {art_fail_count}")
+    if len(shared_rows):
+        print(f"  Shared axes:     {shared_added} registered, "
+              f"{shared_skipped} skipped, {shared_failed} errors")
     print(f"  Time:            {elapsed_total:.1f} seconds")
 
-    return ent_count > 0
+    return ent_count > 0 or art_count > 0 or shared_added > 0
 
 
 def verify_registration_http(client):
@@ -415,7 +489,16 @@ def verify_registration_http(client):
     if ds_meta:
         print(f"    sample: {sorted(ds_meta.keys())[:8]}")
 
-    ent_keys = list(ds.keys())
+    # Shared axes are array children of the dataset container, keyed by
+    # their type and announced in its metadata; everything else is an entity.
+    shared_keys = {k.removeprefix("shared_dataset_")
+                   for k in ds_meta if k.startswith("shared_dataset_")}
+    all_keys = list(ds.keys())
+    ent_keys = [k for k in all_keys if k not in shared_keys]
+    found_shared = [k for k in all_keys if k in shared_keys]
+    if shared_keys:
+        print(f"  shared axes: {len(found_shared)}/{len(shared_keys)} registered "
+              f"as array children {sorted(found_shared)}")
     print(f"  entity containers: {len(ent_keys)}")
     if not ent_keys:
         return

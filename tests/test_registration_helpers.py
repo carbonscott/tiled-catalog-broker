@@ -91,6 +91,20 @@ def test_verify_walks_full_hierarchy(capsys):
     assert "shape: (10, 20)" in out
 
 
+def test_verify_skips_shared_axes_when_sampling_entities(capsys):
+    """Shared-axis array children (announced in dataset metadata) are not entities."""
+    ds = _make_dataset(ent_keys=("energy", "E_0"))
+    ds.metadata = {"label": "DS", "shared_dataset_energy": "/energy"}
+    root = MagicMock()
+    root.keys.return_value = ["DS"]
+    root.__getitem__.side_effect = lambda k: ds
+    verify_registration_http(root)
+    out = capsys.readouterr().out
+    assert "shared axes: 1/1 registered as array children ['energy']" in out
+    assert "entity containers: 1" in out
+    assert "Entity 'E_0'" in out
+
+
 def test_verify_empty_root(capsys):
     """No datasets registered: clean early return, no crash."""
     root = MagicMock()
