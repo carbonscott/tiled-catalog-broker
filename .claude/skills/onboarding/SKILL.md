@@ -21,7 +21,8 @@ register`. You onboard by reading the *contract*, never broker *implementation*.
 Read these, in order. They define what a valid dataset is; do not reverse-engineer it from
 `generate.py`/`http_register.py`:
 
-1. `docs/ONBOARDING.md` — the walkthrough (layouts, the flow, field reference). It links the rest.
+1. `docs/ONBOARDING.md` — the walkthrough: pick a transport, author, stamp/generate, make
+   paths agree, register, read back. It links the layout, field, and error references.
 2. `src/tiled_catalog_broker/tools/_models.py` — the authoritative field contract (every YAML
    field, its type, whether it's required).
 3. `src/tiled_catalog_broker/tools/schema/catalog_model.yml` — the controlled vocabulary
@@ -29,7 +30,7 @@ Read these, in order. They define what a valid dataset is; do not reverse-engine
 4. `datasets/examples/{per_entity,batched,grouped}.yml` — one worked example per layout;
    `per_entity_nexus.yml` shows a NeXus tree mapped onto the contract (several parameter
    groups → nested metadata).
-5. `docs/remote-onboarding.md` — **only if** the server cannot see the user's files (they
+5. `docs/ONBOARDING.md` step 4, the upload tab — **only if** the server cannot see the user's files (they
    will say so, or you learn it in Step 1). It is the `tcb register --upload` route: same
    contract, different transport.
 
@@ -91,7 +92,7 @@ say — in **one batched round**, not field-by-field across many turns. Build th
   (`sample/chemical_formula`, `instrument/name`, `definition`) are candidates for dataset
   `metadata` (`material`, `facility`) — propose them as `# TODO confirm — "NiPS3" in all
   12 files`, mapped onto `catalog_model.yml` ids. See `datasets/examples/per_entity_nexus.yml`
-  and `docs/nexus-support.md`.
+  and `docs/explanation/nexus.md`.
 - **Read the codebase / context** to infer metadata (`method`, `data_type`, `material`,
   `producer`, `project`, `facility`). Map values onto canonical ids in `catalog_model.yml`;
   never invent vocabulary.
@@ -162,10 +163,10 @@ Before reporting "good to register", two checks:
 
 - **Where does the server run relative to the data?** Same filesystem → omit
   `data.server_base_dir`; mounts it elsewhere → set it; cannot see it at all → `tcb
-  register --upload` (`docs/remote-onboarding.md`; trial with `-n 5`, verify, re-run). The
+  register --upload` (`docs/ONBOARDING.md` step 4; trial with `-n 5`, verify, re-run). The
   rules — `readable_storage`, the physical-path caveat, what "the server's view" means —
-  are **`docs/ONBOARDING.md` §5 "Paths"**; follow that section rather than reasoning it
-  out here, and **do not assume a host or facility**: paths in other YAMLs, `config.yml`
+  are **`docs/ONBOARDING.md` step 3, "Make local and server paths agree"**; follow that
+  section rather than reasoning it out here, and **do not assume a host or facility**: paths in other YAMLs, `config.yml`
   or `CLAUDE.md` describe *other* deployments; the path the user gave you is where the
   data is.
 - **Is the stamped key already on the target server?**
@@ -207,9 +208,10 @@ ent["<artifact>"][:].shape             # one artifact array, with the shape the 
 
 Pass = the entity count matches, one artifact array **and each shared axis** come back
 with the shapes the manifest recorded. Report those numbers. A bare `500` on the read is
-the path/allowlist problem — `docs/ONBOARDING.md` §8 decodes it (and every other
-failure you are likely to meet); fix the YAML, regenerate, **delete the dataset**,
-re-register — an existing artifact is never rewritten. See ONBOARDING.md §6.
+the path/adapter/allowlist problem — `docs/reference/errors.md` decodes it, and every
+other failure you are likely to meet, by symptom; fix the YAML, regenerate, **delete the
+dataset** (`docs/ONBOARDING.md` step 6), re-register — an existing artifact is never
+rewritten.
 
 ## Guardrails
 

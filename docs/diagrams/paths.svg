@@ -1,0 +1,48 @@
+<svg id="dg-paths" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 330" role="img"
+     aria-label="The path agreement trap: data.directory is a path on your host used by generate, server_base_dir is the same data as the server sees it and is written into the catalog, and readable_storage is the server's permission to read that root."
+     font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" fill="currentColor">
+  <style>
+    #dg-paths .host  { fill: none; stroke: currentColor; stroke-width: 1.5; }
+    #dg-paths .zone  { font-size: 10px; opacity: .6; letter-spacing: .1em; }
+    #dg-paths .key   { font-size: 11.5px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, monospace; }
+    #dg-paths .path  { font-size: 10.5px; opacity: .75; font-family: ui-monospace, SFMono-Regular, monospace; }
+    #dg-paths .note  { font-size: 10.5px; opacity: .7; }
+    #dg-paths .bad   { font-size: 11px; font-weight: 600; }
+    #dg-paths .arrow { fill: none; stroke: currentColor; stroke-width: 1.4; opacity: .55; }
+    #dg-paths .same  { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-dasharray: 3 3; opacity: .6; }
+  </style>
+  <defs>
+    <marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" opacity=".55"/>
+    </marker>
+  </defs>
+  <text class="zone" x="0" y="14">YOUR HOST</text>
+  <rect class="host" x="0" y="22" width="270" height="120" rx="6"/>
+  <text class="key"  x="14" y="44">data.directory</text>
+  <text class="path" x="14" y="62">/sdf/data/…/results/Zhantao</text>
+  <text class="note" x="14" y="86">tcb generate globs this and</text>
+  <text class="note" x="14" y="101">reads each array's shape + dtype</text>
+  <text class="note" x="14" y="125">required — always your own view</text>
+  <text class="zone" x="370" y="14">THE SERVER</text>
+  <rect class="host" x="370" y="22" width="270" height="120" rx="6"/>
+  <text class="key"  x="384" y="44">data.server_base_dir</text>
+  <text class="path" x="384" y="62">/prjmaiqmag01/…/Zhantao</text>
+  <text class="note" x="384" y="86">stamped into the catalog as the</text>
+  <text class="note" x="384" y="101">pointer the server follows on read</text>
+  <text class="note" x="384" y="125">omit only if the server shares your FS</text>
+  <path class="same" d="M 270 76 H 370" marker-end="url(#p)"/>
+  <text class="note" x="286" y="70">same data,</text>
+  <text class="note" x="286" y="94">different root</text>
+  <rect class="host" x="370" y="164" width="270" height="74" rx="6"/>
+  <text class="key"  x="384" y="186">readable_storage</text>
+  <text class="path" x="384" y="204">in the server's config.yml</text>
+  <text class="note" x="384" y="226">must list the SERVER-side root</text>
+  <path class="arrow" d="M 505 142 V 164" marker-end="url(#p)"/>
+  <rect class="host" x="0" y="164" width="270" height="74" rx="6"/>
+  <text class="bad"  x="14" y="186">If these disagree</text>
+  <text class="note" x="14" y="206">registration reports success and</text>
+  <text class="note" x="14" y="226">every read returns HTTP 500</text>
+  <text class="note" x="0" y="272">Two of the three live in your dataset YAML; the third is the server's own config. Nothing derives</text>
+  <text class="note" x="0" y="290">server_base_dir — no environment variable supplies it.</text>
+  <text class="note" x="0" y="314">With --upload none of this applies: the server never reads your files, and server_base_dir is ignored.</text>
+</svg>

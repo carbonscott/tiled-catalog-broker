@@ -4,14 +4,14 @@ __generated_with = "0.24.0"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import marimo as mo
 
     return (mo,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Querying the Tiled Catalog
@@ -45,7 +45,7 @@ def _(mo):
     │   │   sigma: 0.15                                  │ (queryable)
     │   │   ...12 total                                  ┘
     │   │   path_rixs_spectrum: batch_0/simulations.h5   ┐
-    │   │   dataset_rixs_spectrum: /spectra              │ Mode A locators
+    │   │   dataset_rixs_spectrum: /spectra              │ provenance locators
     │   │   index_rixs_spectrum: 0                       ┘
     │   │
     │   └── rixs_spectrum  (151, 40) float64           ← Artifact (array)
@@ -61,12 +61,12 @@ def _(mo):
     arrays (energy grids, etc.) are registered once as direct children of
     the dataset container, alongside the entities.
 
-    ## Two access modes
+    ## Reading an array
 
-    | Mode | How | When to use |
+    | Where it comes from | How | When |
     |------|-----|-------------|
-    | **A (Expert)** | Ask the catalog for the file location → open with h5py | Fast bulk access, when the files are reachable from where you run |
-    | **B (Visualizer)** | `entity[artifact][:]` via HTTP | Works from anywhere the server is reachable; the only mode for uploaded datasets |
+    | **The server** | `entity[artifact][:]` over HTTP | Anywhere the server is reachable. Always works, and the only option for an uploaded dataset |
+    | **The original file** | Ask the catalog for the location → open with h5py | A cross-check here. In real use, worth it only for bulk reads on a machine where the files are mounted |
     """)
     return
 
@@ -219,9 +219,10 @@ def _(mo):
     mo.md(r"""
     ## Level 2: Entity container
 
-    Each entity has physics parameters as queryable metadata,
-    plus **locator fields** for Mode A access. Shared axis arrays live at
-    the dataset level, so skip them when iterating entities.
+    Each entity has physics parameters as queryable metadata, plus
+    **locator fields** recording which file and row it came from. Shared
+    axis arrays live at the dataset level, so skip them when iterating
+    entities.
     """)
     return
 
@@ -262,13 +263,13 @@ def _(ARTIFACT_KEY, ds, mo, shared_axes):
 
     **Metadata categories:**
     - Physics parameters: {len(physics_params)} fields
-    - Artifact locators: {len(locators)} fields (Mode A)
+    - Artifact locators: {len(locators)} fields (provenance)
     - Internal: {len(_internal)} fields
     """)
     return artifact_key, entity, locators, physics_params
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, physics_params):
     import pandas as pd
 
@@ -277,13 +278,13 @@ def _(mo, physics_params):
     return (params_df,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(params_df):
     params_df
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(locators, mo):
     _loc_rows = "\n    ".join(
         f"| `{_k}` | `{_v}` |" for _k, _v in sorted(locators.items())
@@ -309,9 +310,9 @@ def _(mo):
     mo.md(r"""
     ## Level 3: Artifact (array data)
 
-    **Mode A** — open the HDF5 file directly, for bulk or custom analysis.
-    You do not assemble the path: Tiled recorded it at registration, so ask
-    the catalog where the file is and open what it names.
+    **Straight from the file** — open the HDF5 directly. You do not
+    assemble the path: Tiled recorded it at registration, so ask the catalog
+    where the file is and open what it names.
     """)
     return
 
@@ -327,12 +328,13 @@ def _(artifact_key, entity, mo, os):
     # layouts) the row. So there is no base directory to configure per
     # machine and no path to join by hand -- ask, then open.
     #
-    # Mode A can be unavailable for two reasons, and both are detected here
-    # rather than assumed:
+    # The file can be unreachable for two reasons, and both are detected
+    # here rather than assumed:
     #   1. the dataset was registered with `tcb register --upload`, so Tiled
     #      owns the bytes and no external file exists to open;
     #   2. the file exists, but is not mounted where this notebook runs.
-    # Mode B below always works, which is the reason it exists.
+    # The read through the server below always works, which is why the
+    # plot uses it.
     _external = [
         _s for _s in (entity[artifact_key].data_sources() or [])
         if _s.management == "external"
@@ -341,9 +343,9 @@ def _(artifact_key, entity, mo, os):
     spectrum_a = None
     if not _external:
         _status = (
-            "**Mode A unavailable** — no external data source. This dataset "
-            "was registered with `--upload`, so Tiled holds the array itself "
-            "and there is no HDF5 file to open. Use Mode B."
+            "**No file to open** — this dataset has no external data "
+            "source. It was registered with `--upload`, so Tiled holds the "
+            "array itself. The read through the server below is the way in."
         )
     else:
         _source = _external[0]
@@ -354,10 +356,10 @@ def _(artifact_key, entity, mo, os):
 
         if not os.path.exists(_path):
             _status = (
-                f"**Mode A unavailable here** — the catalog points at "
+                f"**File not reachable here** — the catalog points at "
                 f"`{_path}`, which is not mounted on this machine. Run the "
-                f"notebook where the data lives, or use Mode B, which does "
-                f"not care."
+                f"notebook where the data lives, or just use the read "
+                f"through the server below, which does not care."
             )
         else:
             with h5py.File(_path, "r") as _f:
@@ -376,8 +378,10 @@ def _(artifact_key, entity, mo, os):
 
     ```python
     src = entity[artifact_key].data_sources()[0]
+    row = src.parameters.get("slice")      # batched layouts only; None otherwise
     with h5py.File(urlparse(src.assets[0].data_uri).path) as f:
-        spectrum = f[src.parameters["dataset"]][int(src.parameters["slice"])]
+        ds = f[src.parameters["dataset"]]
+        spectrum = ds[int(row)] if row is not None else ds[...]
     ```
 
     Shape: `{spectrum_a.shape}` (energy_loss x incident_energy) ·
@@ -391,8 +395,9 @@ def _(artifact_key, entity, mo, os):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    **Mode B** — the same array served over HTTP by Tiled. No filesystem
-    access needed; this is also how shared axes are read.
+    **Through the server** — the same array served over HTTP by Tiled. No
+    filesystem access needed; this is also how shared axes are read, and it
+    is what the plot below uses.
     """)
     return
 
@@ -401,15 +406,15 @@ def _(mo):
 def _(artifact_key, ds, entity, mo, shared_axes, spectrum_a):
     import numpy as np
 
-    # Mode B needs nothing but the server, so this is what the plot below
+    # This needs nothing but the server, so it is what the plot below
     # uses -- the notebook renders the same figure whether or not the
     # original files are reachable from here.
     spectrum = entity[artifact_key][:]
 
     _agreement = (
-        "_Mode A did not run here, so there is nothing to compare against._"
+        "_The file was not read here, so there is nothing to compare against._"
         if spectrum_a is None else
-        f"Identical to the Mode A read: `{np.array_equal(spectrum, spectrum_a)}`"
+        f"Identical to the direct file read: `{np.array_equal(spectrum, spectrum_a)}`"
     )
 
     # Shared axes are optional in the contract, so read one only if this
@@ -424,7 +429,7 @@ def _(artifact_key, ds, entity, mo, shared_axes, spectrum_a):
         )
 
     mo.md(f"""
-    **Mode B read:**
+    **Read through the server:**
     ```python
     spectrum = entity["{artifact_key}"][:]   # served by Tiled over HTTP
     axis = ds["<shared axis>"][:]            # shared axis, dataset-level child
