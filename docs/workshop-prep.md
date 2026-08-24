@@ -37,7 +37,15 @@ link that expires, so open it when it arrives rather than leaving it until the d
 
 If the check reports `401`, ask the organizer to reissue the key.
 
-## 4. Choose a name for your dataset
+## 4. Do a practice upload
+
+If you have never run `tcb register --upload` before, rehearse it now with
+synthetic data instead of your own: [how to do a practice upload](practice-upload.md)
+walks a marimo notebook through the same three commands against tiled-test, a
+server kept for exactly this. It takes about five minutes and cannot collide with
+anyone else's data.
+
+## 5. Choose a name for your dataset
 
 Everyone registers into the same shared catalog, and the container key is derived
 from the name you choose. Prefix yours with your surname or initials — `Okafor NiPS3
@@ -51,6 +59,7 @@ container: not destructive, but confusing to untangle mid-session.
 - [ ] `tcb --help` runs
 - [ ] Data is HDF5, on this machine, under ~1 GB, in one of the three layouts
 - [ ] `.env` written and loaded, and the check command lists dataset keys
+- [ ] (optional) Practice-uploaded a fake dataset to tiled-test
 - [ ] I have picked a dataset name with my surname in it
 
 On the day, the session works through
