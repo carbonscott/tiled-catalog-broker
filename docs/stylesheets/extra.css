@@ -1,0 +1,34 @@
+/* A page that hides both sidebars (the landing page) would otherwise let its
+   text run the full grid width. `hide: navigation` leaves the element in place
+   with a `hidden` attribute, so the sibling content column is targetable. */
+.md-sidebar--primary[hidden] ~ .md-content .md-content__inner {
+  max-width: 44rem;
+  margin: 0 auto;
+}
+
+/* Slightly tighter cards than the Material default. */
+.md-typeset .grid.cards > ul > li {
+  border-radius: 0.4rem;
+}
+
+/* Keep wide tables readable rather than squeezing the columns. */
+.md-typeset table:not([class]) {
+  font-size: 0.72rem;
+}
+
+/* Inlined SVG diagrams: scale to the content column, follow the text color. */
+.tcb-diagram {
+  margin: 1.4em 0;
+}
+
+.tcb-diagram svg {
+  width: 100%;
+  height: auto;
+  max-width: 40rem;
+}
+
+.tcb-diagram figcaption {
+  font-size: 0.72rem;
+  opacity: 0.7;
+  margin-top: 0.4em;
+}

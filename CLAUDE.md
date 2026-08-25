@@ -31,9 +31,17 @@ metadata.
 - **Artifacts** are array children of their parent entity
 - **Keys are human-readable**: `client["BROAD_SIGMA"][entity_key]["rixs_spectrum"]`
 
-**Dual-mode access:**
-- **Mode A (Expert):** Query metadata for HDF5 paths, load directly with h5py
-- **Mode B (Visualizer):** Access arrays via Tiled HTTP adapters (chunked)
+**Two read paths**, both documented in `docs/using-the-catalog.md`:
+- **Through the server** — arrays over HTTP via the Tiled client, sliced server-side.
+  The default, and the only option for an uploaded dataset.
+- **Straight from the files** — entities carry `path_/dataset_/index_` locators, so a
+  reader on the same filesystem can open the HDF5 with h5py and skip the server. For
+  bulk reads; `clients/query_manifest.py` is the helper.
+
+The terms **"Mode A" and "Mode B" are retired from the docs site** — they were a
+taxonomy readers had to memorize before either name meant anything. The concept stays;
+call the paths by what they do. `src/`, `tests/`, and `docs/adr/` still use the old
+names internally.
 
 The broker is **dataset-agnostic**. The Parquet manifest is the contract: no
 parameter names, artifact types, or file layouts are hardcoded.
@@ -58,19 +66,19 @@ tiled-catalog-broker/
 │       │   └── schema.py      # YAML contract validation + soft vocab checks
 │       └── clients/           # Client-side utilities
 │           ├── tiled_cache.py # Disk-backed cache + PyTorch Dataset
-│           └── query_manifest.py  # Mode A discovery API
+│           └── query_manifest.py  # bulk direct-HDF5 loader (the read-from-files path)
 ├── examples/                  # demo_query.py — marimo notebook of the read path
 ├── tests/                     # Test suite
-└── docs/                      # Design docs, handoffs, lessons learned
+├── includes/                  # Prose fragments shared between docs pages (`--8<--`)
+└── docs/                      # Published documentation (mkdocs)
 ```
 
 ## How to Run
 
 ```bash
-# Install in development mode
-uv pip install -e .
-
-# Or run directly with uv
+# Run from the checkout: uv builds .venv from the checked-in uv.lock on first use
+# (pixi.lock deliberately is not checked in). Extra tools come in per command
+# with --with (pytest, marimo, mkdocs-material) — nothing beyond `test` is a declared extra.
 uv run tcb --help
 
 # Pipeline: author YAML → stamp-key → generate → register
@@ -125,13 +133,42 @@ server — `list(from_uri(url, api_key=key))`.
 
 ## Related Documentation
 
+The published site is <https://carbonscott.github.io/tiled-catalog-broker/>, built from
+`docs/` by `mkdocs.yml` (`uv run --with mkdocs-material mkdocs serve` to preview). Pages
+are grouped by the four kinds of documentation (diataxis.fr) — keep new pages in the kind
+they belong to rather than blending instruction, reference, and discussion on one page.
+How-to pages are titled "How to …". Explanation pages take a bare noun phrase — the
+"about" is implicit, not written ("Sliced reads", not "About sliced reads"), and
+cross-references to them read "see [sliced reads](…)". Explanation lives
+under `docs/explanation/`.
+
+Two conventions keep the guides from re-explaining each other:
+
+- **Nav order is the reading order.** Material's footer "next" button follows `nav:`, and
+  Guides are ordered the way a dataset moves through them: install, prepare, publish,
+  read, explore. Moving a page in `nav:` changes where a reader is sent next.
+- **Prose shared by more than one page lives in `includes/`** (outside `docs_dir`, wired
+  up through `pymdownx.snippets`' `base_path`) and is pulled in with `--8<--`. Today that
+  is `includes/connect.md`, the `.env` setup and connection check, used by both install
+  pages and by the workshop guide. Anything else that would be repeated should either
+  move there or become a link.
+
 | Document | Description |
 |----------|-------------|
 | `CONTEXT.md` | Domain language + the implementation-vs-contract principle |
-| `docs/ONBOARDING.md` | How to onboard a dataset (the contract-surface walkthrough) |
-| `docs/using-the-catalog.md` | How to *read* a registered dataset (Mode A + Mode B) |
-| `docs/remote-onboarding.md` | Registering data the server cannot see (`tcb register --upload`) |
-| `docs/exploring-your-data.md` | Reading back an uploaded dataset in the marimo notebook (the read-side companion) |
-| `docs/adr/` | Architecture Decision Records (frozen layouts, single register route, soft vocab, hierarchical containers) |
-| `docs/SLICING-EXPLAINER.md` | How batched arrays are served slice-by-slice over Tiled |
-| `docs/nexus-support.md` | How a NeXus file maps onto the (generic) contract — `parameters.groups`, attribute labels — and what is deliberately not modelled |
+| `docs/install.md` | How-to: install `tcb` (clone, Python 3.12+, uv / pip / pixi), point at a server, troubleshoot. Reading a catalog needs only `tiled[client]`, so that case is one admonition at the top rather than a page of its own |
+| `docs/workshop-prep.md` | How-to: what all-hands participants do before the session |
+| `docs/ONBOARDING.md` | How-to: publish a dataset (titled "How to publish a dataset"; filename kept so the published URL and the `/onboarding` skill's references still resolve). **Both transports** — pointer and `--upload` — as linked content tabs at steps 1, 3, and 4 |
+| `docs/using-the-catalog.md` | How-to: read a registered dataset — through the server, and straight from the files |
+| `docs/exploring-your-data.md` | How-to: browse a registered dataset in the marimo notebook |
+| `docs/reference/cli.md` | Reference: the four `tcb` subcommands, flags, exit codes, env vars |
+| `docs/reference/dataset-yaml.md` | Reference: every dataset-YAML field |
+| `docs/reference/manifest.md` | Reference: the two Parquet manifests and their columns |
+| `docs/reference/errors.md` | Reference: every `tcb`/server message with a specific cause, by pipeline stage. The full symptom→cause→fix table; `docs/ONBOARDING.md`'s Troubleshooting section carries only the common rows and links here |
+| `docs/explanation/broker-and-tiled.md` | Explanation: what the broker adds to stock Tiled, and where the line falls |
+| `docs/explanation/data-model.md` | Explanation: why Dataset → Entity → Artifact |
+| `docs/explanation/layouts.md` | Explanation: the three layouts and why the set is frozen |
+| `docs/explanation/sliced-reads.md` | Explanation: why an entity is a slice, and why the broker ships its own adapter |
+| `docs/explanation/vocabulary.md` | Explanation: why the vocabulary is soft |
+| `docs/explanation/nexus.md` | Explanation: how a NeXus file maps onto the (generic) contract, and what is deliberately not modeled |
+| `docs/adr/` | Architecture Decision Records (frozen layouts, single register route, soft vocab, hierarchical containers). **Internal — not published** to the site, and not cited from published pages: they carry issue numbers, names, and dataset specifics. Put the reasoning in `docs/explanation/` in its own words instead |

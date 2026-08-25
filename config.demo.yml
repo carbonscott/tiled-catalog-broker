@@ -1,5 +1,5 @@
 # Tiled server configuration for hosting UPLOADED datasets
-# (`tcb register --upload` — see docs/remote-onboarding.md).
+# (`tcb register --upload` — see docs/ONBOARDING.md).
 #
 # Registrants stream their arrays through the server, which stores them
 # under `writable_storage`. The server never reads registrants' files from

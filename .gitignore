@@ -21,6 +21,9 @@ compare_*.py
 profile_*.py
 PROFILING_REPORT.md
 
+# Uploaded-array storage written by a server started from config.demo.yml
+demo_storage/
+
 # Generated manifests and storage
 manifests/
 storage/
@@ -257,3 +260,7 @@ __marimo__/
 .streamlit/secrets.toml
 # Personal knowledge capture for talks/notes — not part of the package
 knowledge/
+
+# Solved per-machine by `pixi install`. Not checked in: there is no CI keeping it
+# consistent with uv.lock, so a stale copy is worse than none.
+pixi.lock

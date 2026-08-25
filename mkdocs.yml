@@ -1,0 +1,147 @@
+site_name: Tiled Catalog Broker
+site_description: >-
+  Register multi-modal scientific HDF5 datasets into a Tiled catalog, and read
+  them back from anywhere.
+site_url: https://carbonscott.github.io/tiled-catalog-broker/
+repo_url: https://github.com/carbonscott/tiled-catalog-broker
+repo_name: carbonscott/tiled-catalog-broker
+edit_uri: edit/main/docs/
+docs_dir: docs
+strict: true
+
+# With strict, these turn a stale cross-page link or a renamed heading into a build
+# failure. The guides lean on each other heavily instead of repeating themselves, so a
+# silently dead link is the main way this site can rot.
+validation:
+  anchors: warn
+  unrecognized_links: warn
+  absolute_links: warn
+
+theme:
+  name: material
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Match system
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.footer
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  # Diagrams are inlined from docs/diagrams/*.svg rather than linked with <img>, so
+  # `currentColor` inherits the page's text colour and they follow the light/dark toggle.
+  # `docs` resolves the inlined SVGs; `includes` holds prose fragments shared by more
+  # than one page (the .env setup + connection check), kept outside docs_dir so mkdocs
+  # does not also build them as pages of their own.
+  - pymdownx.snippets:
+      base_path: [docs, includes]
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+# Deliberately unpublished. The tutorial is written and verified but kept back so the
+# all-hands audience has one obvious path in. The ADRs are internal engineering records:
+# they cite issue numbers, colleagues, and dataset specifics that have no business on a
+# public site, and a reader looking for "how do I" is not served by a decision log.
+not_in_nav: |
+  adr/*.md
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/carbonscott/tiled-catalog-broker
+      name: Source on GitHub
+    - icon: material/book-open-variant
+      link: https://blueskyproject.io/tiled/
+      name: Tiled documentation
+
+# Grouped by kind (https://diataxis.fr): do (how-to) / understand (explanation) /
+# look up (reference). Understand sits before Reference: a first-time visitor needs the
+# concepts before the field tables mean anything.
+#
+# Guides run flat, in the order a dataset moves through them, so Material's footer
+# "next" button walks the whole path: install, prepare, publish, read, explore.
+nav:
+  - Home: index.md
+  - Guides:
+      - Install: install.md
+      - Prepare for the workshop: workshop-prep.md
+      - Publish a dataset: ONBOARDING.md
+      - Read a registered catalog: using-the-catalog.md
+      - Explore a dataset in a notebook: exploring-your-data.md
+  - Understand:
+      - Tiled Catalog Broker + Tiled: explanation/broker-and-tiled.md
+      - Data model: explanation/data-model.md
+      - Three layouts: explanation/layouts.md
+      - Sliced reads: explanation/sliced-reads.md
+      - Soft vocabulary: explanation/vocabulary.md
+      - NeXus support: explanation/nexus.md
+  - Reference:
+      - tcb cli tool: reference/cli.md
+      - YAML contract: reference/dataset-yaml.md
+      - Parquet manifest: reference/manifest.md
+      - Errors and warnings: reference/errors.md

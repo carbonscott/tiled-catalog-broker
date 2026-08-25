@@ -514,7 +514,7 @@ def verify_registration_http(client):
     art_keys = list(ent.keys()) if hasattr(ent, "keys") else []
     print(f"  artifact children: {len(art_keys)}")
     if not art_keys:
-        print("\n  WARNING: no array children — Mode B access will fail.")
+        print("\n  WARNING: no array children — reads through the server will fail.")
         return
     print(f"    sample: {art_keys[:5]}")
 

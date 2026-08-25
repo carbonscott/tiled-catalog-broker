@@ -1,0 +1,46 @@
+<svg id="dg-pipeline" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" role="img"
+     aria-label="The pipeline: a dataset YAML is keyed by stamp-key, turned into Parquet manifests by generate, and registered into a Tiled catalog by register, which is the only step needing a server."
+     font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" fill="currentColor">
+  <style>
+    #dg-pipeline .box   { fill: none; stroke: currentColor; stroke-width: 1.5; }
+    #dg-pipeline .cmd   { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 4 3; }
+    #dg-pipeline .name  { font-size: 12.5px; font-weight: 600; }
+    #dg-pipeline .note  { font-size: 11px; opacity: .7; }
+    #dg-pipeline .dim   { font-size: 10.5px; opacity: .55; }
+    #dg-pipeline .arrow { fill: none; stroke: currentColor; stroke-width: 1.4; opacity: .55; }
+    #dg-pipeline .srv   { font-size: 10px; opacity: .75; letter-spacing: .06em; }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" opacity=".55"/>
+    </marker>
+  </defs>
+  <rect class="box" x="0" y="30" width="150" height="46" rx="5"/>
+  <text class="name" x="12" y="50">dataset YAML</text>
+  <text class="note" x="12" y="66">you author this</text>
+  <path class="arrow" d="M 150 53 H 214" marker-end="url(#a)"/>
+  <rect class="cmd" x="214" y="34" width="112" height="38" rx="5"/>
+  <text class="name" x="226" y="51">stamp-key</text>
+  <text class="dim"  x="226" y="65">writes key:</text>
+  <path class="arrow" d="M 326 53 H 390" marker-end="url(#a)"/>
+  <rect class="cmd" x="390" y="34" width="112" height="38" rx="5"/>
+  <text class="name" x="402" y="51">generate</text>
+  <text class="dim"  x="402" y="65">reads your HDF5</text>
+  <path class="arrow" d="M 446 72 V 118" marker-end="url(#a)"/>
+  <rect class="box" x="330" y="118" width="240" height="46" rx="5"/>
+  <text class="name" x="342" y="138">entities.parquet</text>
+  <text class="name" x="342" y="155">artifacts.parquet</text>
+  <text class="dim"  x="470" y="147">shape + dtype captured</text>
+  <path class="arrow" d="M 330 141 H 244" marker-end="url(#a)"/>
+  <rect class="cmd" x="132" y="122" width="112" height="38" rx="5"/>
+  <text class="name" x="144" y="139">register</text>
+  <text class="dim"  x="144" y="153">reads only these</text>
+  <path class="arrow" d="M 188 160 V 206" marker-end="url(#a)"/>
+  <rect class="box" x="60" y="206" width="256" height="60" rx="5"/>
+  <text class="srv"  x="72" y="226">NEEDS A RUNNING SERVER</text>
+  <text class="name" x="72" y="245">Tiled catalog</text>
+  <text class="note" x="72" y="259">queryable by your parameters</text>
+  <text class="dim" x="340" y="232">--upload streams the arrays</text>
+  <text class="dim" x="340" y="248">into the server's own storage;</text>
+  <text class="dim" x="340" y="264">without it, the server reads your files</text>
+</svg>
