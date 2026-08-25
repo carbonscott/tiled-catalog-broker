@@ -105,7 +105,6 @@ plugins:
 # they cite issue numbers, colleagues, and dataset specifics that have no business on a
 # public site, and a reader looking for "how do I" is not served by a decision log.
 not_in_nav: |
-  tutorial/first-dataset.md
   adr/*.md
 
 extra_css:

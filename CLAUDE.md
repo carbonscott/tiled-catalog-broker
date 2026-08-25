@@ -156,7 +156,6 @@ Two conventions keep the guides from re-explaining each other:
 | Document | Description |
 |----------|-------------|
 | `CONTEXT.md` | Domain language + the implementation-vs-contract principle |
-| `docs/tutorial/first-dataset.md` | Tutorial: register a generated dataset end to end. Written and verified, but **unlinked** — not in the site nav (see `not_in_nav` in `mkdocs.yml`) |
 | `docs/install.md` | How-to: install `tcb` (clone, Python 3.12+, uv / pip / pixi), point at a server, troubleshoot. Reading a catalog needs only `tiled[client]`, so that case is one admonition at the top rather than a page of its own |
 | `docs/workshop-prep.md` | How-to: what all-hands participants do before the session |
 | `docs/ONBOARDING.md` | How-to: publish a dataset (titled "How to publish a dataset"; filename kept so the published URL and the `/onboarding` skill's references still resolve). **Both transports** — pointer and `--upload` — as linked content tabs at steps 1, 3, and 4 |

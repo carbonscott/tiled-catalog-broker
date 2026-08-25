@@ -21,8 +21,7 @@ compare_*.py
 profile_*.py
 PROFILING_REPORT.md
 
-# Tutorial demo dataset (examples/make_demo_dataset.py)
-demo-data/
+# Uploaded-array storage written by a server started from config.demo.yml
 demo_storage/
 
 # Generated manifests and storage

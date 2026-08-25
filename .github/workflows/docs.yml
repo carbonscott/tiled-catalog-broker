@@ -9,7 +9,7 @@ on:
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "docs/**"
       - "includes/**"
