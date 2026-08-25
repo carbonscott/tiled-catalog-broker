@@ -76,8 +76,9 @@ tiled-catalog-broker/
 ## How to Run
 
 ```bash
-# Install in development mode (uv.lock is checked in; pixi.lock deliberately is not)
-uv sync --extra test --extra examples
+# Run from the checkout: uv builds .venv from the checked-in uv.lock on first use
+# (pixi.lock deliberately is not checked in). Extra tools come in per command
+# with --with (pytest, marimo, mkdocs-material) — nothing beyond `test` is a declared extra.
 uv run tcb --help
 
 # Pipeline: author YAML → stamp-key → generate → register

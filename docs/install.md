@@ -22,12 +22,13 @@ and streamed into the server's storage. Which one you use is chosen later, at
     ```bash
     git clone https://github.com/carbonscott/tiled-catalog-broker
     cd tiled-catalog-broker
-    uv sync --extra test --extra examples
     uv run tcb --help
     ```
 
-    `uv sync` builds `.venv` from the checked-in `uv.lock`. Either prefix commands
-    with `uv run`, or `source .venv/bin/activate` once and drop the prefix.
+    There is no separate install step: `uv run` builds `.venv` from the checked-in
+    `uv.lock` the first time it is used. Prefix commands with `uv run`, or
+    `source .venv/bin/activate` once and drop the prefix. Tools that are not part of
+    the package — pytest, marimo — are pulled in per command with `--with`.
 
 === "pip"
 
@@ -35,7 +36,7 @@ and streamed into the server's storage. Which one you use is chosen later, at
     git clone https://github.com/carbonscott/tiled-catalog-broker
     cd tiled-catalog-broker
     python3 -m venv .venv && source .venv/bin/activate
-    pip install -e ".[test,examples]"
+    pip install -e ".[test]"
     tcb --help
     ```
 
@@ -60,11 +61,14 @@ and streamed into the server's storage. Which one you use is chosen later, at
     Installing pixi itself: <https://pixi.prefix.dev/latest/installation/>.
 
 `tcb --help` printing its four commands is the check. For a fuller one,
-`pytest -m "not integration"` needs no server and no credentials.
+`uv run --with pytest pytest -m "not integration"` (plain `pytest` in an activated
+pip or pixi environment) needs no server and no credentials.
 
-The `test` extra installs `pytest`; `examples` installs `marimo` and `matplotlib`
-for `examples/demo_query.py`. Building this documentation is separate and not a
-declared extra: `uv run --with mkdocs-material mkdocs serve`.
+The `test` extra installs `pytest`. Nothing else is declared: the notebook in
+`examples/` and this documentation are run with their tools pulled in per command —
+`uv run --with marimo --with matplotlib marimo edit examples/demo_query.py`
+([How to explore a dataset in a notebook](exploring-your-data.md)) and
+`uv run --with mkdocs-material mkdocs serve`.
 
 ## 2. Point at a server
 

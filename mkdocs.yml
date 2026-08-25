@@ -131,7 +131,6 @@ nav:
   - Guides:
       - Install: install.md
       - Prepare for the workshop: workshop-prep.md
-      - Do a practice upload: practice-upload.md
       - Publish a dataset: ONBOARDING.md
       - Read a registered catalog: using-the-catalog.md
       - Explore a dataset in a notebook: exploring-your-data.md

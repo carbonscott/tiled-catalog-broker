@@ -14,8 +14,7 @@ artifact types, or scientific metadata.
 Python 3.12 or later.
 
 ```bash
-uv sync --extra test --extra examples   # or: pip install -e ".[test,examples]" / pixi install
-uv run tcb --help
+uv run tcb --help   # builds .venv from uv.lock on first use; or: pip install -e ".[test]" / pixi install
 ```
 
 Author a dataset YAML, then walk it through the pipeline:
@@ -65,10 +64,10 @@ Domain terminology and the implementation-versus-contract principle are in
 
 ```bash
 # Unit tests
-uv run pytest -v -m "not integration"
+uv run --with pytest pytest -v -m "not integration"
 
 # Integration tests; requires a running server with registered data
-uv run pytest -v -m integration
+uv run --with pytest pytest -v -m integration
 
 # Local Tiled server for the integration tests
 uv run tiled serve config config.yml --api-key secret

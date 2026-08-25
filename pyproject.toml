@@ -16,10 +16,6 @@ dependencies = [
 test = [
     "pytest",
 ]
-examples = [
-    "marimo>=0.24.0",
-    "matplotlib",
-]
 
 [project.scripts]
 tcb = "tiled_catalog_broker.cli:main"
@@ -39,7 +35,7 @@ python = ">=3.12"
 tiled-catalog-broker = { path = ".", editable = true }
 
 [tool.pixi.environments]
-default = { features = ["test", "examples"], solve-group = "default" }
+default = { features = ["test"], solve-group = "default" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tiled_catalog_broker"]

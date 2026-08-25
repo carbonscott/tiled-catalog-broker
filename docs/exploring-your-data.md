@@ -10,14 +10,16 @@ who was never involved in registering, which is the point.
 
 ## 1. Start the notebook
 
-marimo and matplotlib come from the `examples` extra, which
-[How to install](install.md) includes by default:
+marimo is not part of the package; `uv run --with` pulls it in for the one command:
 
 ```bash
 set -a; source .env; set +a
-marimo run examples/demo_query.py           # read it
-marimo edit examples/demo_query.py          # read it and change it
+uv run --with marimo --with matplotlib marimo run  examples/demo_query.py   # read it
+uv run --with marimo --with matplotlib marimo edit examples/demo_query.py   # read it and change it
 ```
+
+Without uv, `pip install 'tiled[client]' marimo pandas h5py numpy matplotlib` into any
+Python ≥ 3.10 environment, then `marimo edit examples/demo_query.py`.
 
 - `run` renders it as a document — prose, tables, and the plot, code folded away.
 - `edit` shows the eight working cells and lets you change them, which is what
